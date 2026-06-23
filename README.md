@@ -7,6 +7,11 @@ Point it at a repo, point it at the compute you already have, pick a mode, and
 wake up to a morning brief with artifacts, safe draft ideas, token totals, and
 the next action.
 
+Package status: private source-available package, pre-1.0. The repository is
+not public and the license is intentionally not an open-source license yet.
+See [PACKAGE.md](PACKAGE.md), [CHANGELOG.md](CHANGELOG.md), and
+[LICENSE](LICENSE) before redistributing it.
+
 It is for developers who keep thinking, "I have a laptop, maybe a desktop GPU,
 maybe Claude, and definitely a pile of repo chores. Why are all of them asleep
 at the same time?"
@@ -113,6 +118,12 @@ One-command install:
 
 ```bash
 ./install.sh
+```
+
+Install into a different Codex home:
+
+```bash
+./install.sh --codex-home /path/to/codex-home
 ```
 
 Install and immediately run doctor:
@@ -454,6 +465,8 @@ Friendly phrases:
 
 ## Project Notes
 
-License is currently pending; see `LICENSE`.
+License is currently private/proprietary; see `LICENSE`.
 
 Contribution notes live in `CONTRIBUTING.md`.
+
+Package and release notes live in `PACKAGE.md` and `CHANGELOG.md`.
