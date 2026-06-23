@@ -1,22 +1,50 @@
 # Night Shift
 
-Put your idle AI compute to work while you sleep.
+**Put your idle AI compute to work while you sleep.**
 
-Night Shift is a local-first overnight workbench for AI coding agents.
-Point it at a repo, point it at the compute you already have, pick a mode, and
-wake up to a morning brief with artifacts, safe draft ideas, token totals, and
-the next action.
+Night Shift is a local-first overnight workbench for AI coding agents. Give it
+a repo, connect the compute you already have, pick a mode, and wake up to a
+ranked morning brief instead of a pile of loose chat.
 
-It is for developers who keep thinking, "I have a laptop, maybe a desktop GPU,
-maybe Claude, and definitely a pile of repo chores. Why are all of them asleep
-at the same time?"
+It is built for developers with repo chores and unused nighttime compute:
 
-It is not an autonomous release bot. Local and Windows models can think, sort,
-review, and draft. Codex still reviews, edits, tests, opens PRs, merges, and
-ships.
+- **Mac local models** can triage, classify, and summarize privately.
+- **Windows GPU workers** can draft deeper reviews, patch plans, and test ideas.
+- **Claude CLI** can be used sparingly for hard reasoning.
+- **Codex or a human still verifies the work** before anything becomes a PR,
+  merge, release, or deploy.
+
+Night Shift is not an autonomous release bot. It produces artifacts, rankings,
+token totals, and safe next actions. It does not ship while you sleep.
 
 For the safety and privacy boundary, including what worker lanes can see and
 what gets written to disk, read [SAFETY.md](SAFETY.md).
+
+## 30-Second Version
+
+```bash
+git clone https://github.com/r3dbars/maestro-night-shift.git
+cd maestro-night-shift
+./install.sh
+maestro-nightshift doctor --repo /path/to/project
+maestro-nightshift run --repo /path/to/project --mode night-shift
+maestro-nightshift report --latest
+```
+
+Expected morning shape:
+
+```text
+Status: YELLOW
+Local loops: 40
+Windows loops: 20
+Artifacts: KEEP=3, MAYBE=7, REJECT=50
+Draft PRs opened: 0
+Manual proof: UNKNOWN
+Next action: verify KEEP item 1 and open one narrow draft PR if the gap is real.
+```
+
+`YELLOW` is a feature, not a failure: the machines did useful work, and a human
+or Codex still needs to verify the best item.
 
 ## Why This Exists
 
@@ -38,14 +66,31 @@ without letting them become management.
 
 ## Quick Start
 
+Install it:
+
 ```bash
 git clone https://github.com/r3dbars/maestro-night-shift.git
 cd maestro-night-shift
 ./install.sh
 maestro-nightshift --version
+```
+
+Check what compute is reachable:
+
+```bash
 maestro-nightshift doctor --repo /path/to/project
+```
+
+Preview the plan, then run:
+
+```bash
 maestro-nightshift plan --repo /path/to/project --mode night-shift
 maestro-nightshift run --repo /path/to/project --mode night-shift
+```
+
+Read the morning brief:
+
+```bash
 maestro-nightshift report --latest
 ```
 
@@ -58,7 +103,7 @@ If `maestro-nightshift` is not on your `PATH`, run it directly:
 Need copy-paste recipes? See
 [`skills/maestro-overnight/examples`](skills/maestro-overnight/examples).
 
-Stop a run:
+Stop a run at any time:
 
 ```bash
 maestro-nightshift stop --latest
