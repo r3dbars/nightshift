@@ -102,6 +102,10 @@ If `maestro-nightshift` is not on your `PATH`, run it directly:
 
 Need copy-paste recipes? See
 [`skills/maestro-overnight/examples`](skills/maestro-overnight/examples).
+Want to see what you wake up to first? Start with the fake
+[`sample-morning-brief.md`](skills/maestro-overnight/examples/sample-morning-brief.md)
+and
+[`sample-ledger-output.md`](skills/maestro-overnight/examples/sample-ledger-output.md).
 
 Stop a run at any time:
 
