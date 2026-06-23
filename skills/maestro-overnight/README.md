@@ -1,11 +1,18 @@
-# Night Shift
+# Maestro Night Shift
+
+[![local-first](https://img.shields.io/badge/local--first-by_default-2ea44f)](#safety-and-privacy)
+[![drafts-not-deploys](https://img.shields.io/badge/drafts-not_deploys-6f42c1)](#what-it-will-do)
+[![morning-brief](https://img.shields.io/badge/output-morning_brief-0969da)](#morning-workflow)
 
 Put your idle AI compute to work while you sleep.
 
-Night Shift is a local-first overnight workbench for AI coding agents.
+Maestro Night Shift is a local-first overnight workbench for AI coding agents.
 Point it at a repo, point it at the compute you already have, pick a mode, and
 wake up to a morning brief with artifacts, safe draft ideas, token totals, and
 the next action.
+
+It does the useful night work: read, sort, map, draft, and report. It does not
+merge, release, deploy, or pretend a worker draft is proof.
 
 It is for developers who keep thinking, "I have a laptop, maybe a desktop GPU,
 maybe Claude, and definitely a pile of repo chores. Why are all of them asleep
@@ -18,6 +25,11 @@ public launches require explicit manual approval after review.
 
 For the safety and privacy boundary, including what worker lanes can see and
 what gets written to disk, read [SAFETY.md](SAFETY.md).
+
+Suggested GitHub description:
+
+> Local-first overnight AI workbench: spend idle Mac/Windows compute on repo
+> scans, draft plans, token reports, and a ranked morning brief.
 
 ## Why This Exists
 
@@ -36,6 +48,18 @@ It turns idle compute into bounded, reviewable repo work:
 
 The joke version: it lets your machines have a productive little night shift,
 without letting them become management.
+
+## Launch Story
+
+The simplest version:
+
+1. Run `doctor` to see which compute lanes are ready.
+2. Run `plan` to make the work queue boring and bounded.
+3. Run `run` when you are done steering for the night.
+4. Run `report --latest` in the morning.
+
+The promise is not "wake up to merged code." The promise is "wake up to a
+ranked, source-backed brief, proof paths, token totals, and a clear first move."
 
 ## Quick Start
 
@@ -58,6 +82,9 @@ If `maestro-nightshift` is not on your `PATH`, run it directly:
 
 Need copy-paste recipes? See
 [`skills/maestro-overnight/examples`](skills/maestro-overnight/examples).
+
+Need shareable launch copy, repo-description options, and visual ideas? See
+[MARKETING.md](MARKETING.md).
 
 Stop a run:
 
@@ -89,6 +116,15 @@ flowchart LR
     B --> H["Morning brief"]
     H --> I["Codex or human review"]
     I --> J["PR, issue, or no-op"]
+```
+
+Visual placeholder for a future README hero:
+
+```text
++--------------+     +----------------------+     +---------------+
+| Your repo    | --> | Maestro Night Shift  | --> | Morning brief |
+| Your compute | --> | local / Windows / AI | --> | KEEP / MAYBE  |
++--------------+     +----------------------+     +---------------+
 ```
 
 The run writes everything under:
@@ -471,11 +507,15 @@ The right next action is usually one of these:
 - Rerun in `quiet` mode with a narrower target.
 - Stop because the project is ready for manual QA or release.
 
-## Naming
+## Naming And Package
 
-Product name: `Night Shift`
+Product name: `Maestro Night Shift`
+
+Short name: `Night Shift`
 
 Short command: `maestro-nightshift`
+
+Repository/package name: `maestro-night-shift`
 
 Friendly phrases:
 
@@ -483,6 +523,13 @@ Friendly phrases:
 - "Run Afterburner tonight."
 - "Morning brief."
 - "Stop Night Shift."
+
+Avoid:
+
+- "Autonomous release bot"
+- "Hands-free deploys"
+- "Self-merging agent"
+- "Production proof"
 
 ## Project Notes
 
