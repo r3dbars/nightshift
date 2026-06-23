@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
-base="${WINDOWS_WORKER_BASE_URL:-http://192.168.7.201:11434/v1}"
+base="${WINDOWS_WORKER_BASE_URL:-}"
 key="${WINDOWS_WORKER_API_KEY:-ollama}"
 model="${WINDOWS_WORKER_MODEL:-qwen3-coder:30b}"
 max_tokens="${MAESTRO_WINDOWS_MAX_TOKENS:-1024}"
 prompt="${*:-}"
 if [ -z "$prompt" ]; then
   echo "usage: maestro-windows <prompt>" >&2
+  exit 2
+fi
+if [ -z "$base" ]; then
+  echo "WINDOWS_WORKER_BASE_URL is not set. Example: http://windows-host.local:11434/v1" >&2
   exit 2
 fi
 response="$(curl -s "$base/chat/completions" \

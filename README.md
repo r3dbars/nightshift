@@ -1,23 +1,62 @@
 # Maestro Night Shift
 
-Put idle AI compute to work while you sleep.
+Put your idle AI compute to work while you sleep.
 
-Maestro Night Shift is a simple overnight launcher for repo work. Point it at a
-project, point it at the compute you have, pick a mode, and wake up to a morning
-brief with artifacts, safe draft ideas, token totals, and next actions.
+Maestro Night Shift is a local-first overnight workbench for AI coding agents.
+Point it at a repo, point it at the compute you already have, pick a mode, and
+wake up to a morning brief with artifacts, safe draft ideas, token totals, and
+the next action.
+
+It is for developers who keep thinking, "I have a laptop, maybe a desktop GPU,
+maybe Claude, and definitely a pile of repo chores. Why are all of them asleep
+at the same time?"
 
 It is not an autonomous release bot. Local and Windows models can think, sort,
 review, and draft. Codex still reviews, edits, tests, opens PRs, merges, and
 ships.
 
+For the safety and privacy boundary, including what worker lanes can see and
+what gets written to disk, read [SAFETY.md](SAFETY.md).
+
+## Why This Exists
+
+Most AI coding tools are optimized for the moment you are sitting there. Maestro
+Night Shift is optimized for the hours when you are not.
+
+It turns idle compute into bounded, reviewable repo work:
+
+- test-gap maps
+- stale PR reviews
+- TODO and risk clustering
+- release-readiness notes
+- issue drafts
+- small patch plans
+- morning briefs that say what is real, what is draft, and what still needs a human
+
+The joke version: it lets your machines have a productive little night shift,
+without letting them become management.
+
 ## Quick Start
 
 ```bash
+git clone https://github.com/r3dbars/maestro-night-shift.git
+cd maestro-night-shift
+./install.sh
+maestro-nightshift --version
 maestro-nightshift doctor --repo /path/to/project
 maestro-nightshift plan --repo /path/to/project --mode night-shift
 maestro-nightshift run --repo /path/to/project --mode night-shift
 maestro-nightshift report --latest
 ```
+
+If `maestro-nightshift` is not on your `PATH`, run it directly:
+
+```bash
+~/.codex/bin/maestro-nightshift doctor --repo /path/to/project
+```
+
+Need copy-paste recipes? See
+[`skills/maestro-overnight/examples`](skills/maestro-overnight/examples).
 
 Stop a run:
 
@@ -38,6 +77,19 @@ Then choose one mode:
 - `night-shift`: normal overnight run.
 - `afterburner`: tokenmaxx mode. Use the hardware hard until morning.
 
+```mermaid
+flowchart LR
+    A["Repo"] --> B["Maestro Night Shift"]
+    C["Local model"] --> B
+    D["Optional Windows worker"] --> B
+    E["Optional Claude CLI"] --> B
+    B --> F["Artifacts"]
+    B --> G["Token report"]
+    B --> H["Morning brief"]
+    H --> I["Codex or human review"]
+    I --> J["PR, issue, or no-op"]
+```
+
 The run writes everything under:
 
 ```text
@@ -50,13 +102,31 @@ Useful files:
 - `board.md`: the work queue.
 - `context-pack.txt`: repo context used for prompts.
 - `artifacts/`: local and Windows worker outputs.
-- `proofs.tsv`: proof paths from `maestro-delegate`.
+- `processes.tsv`: process IDs for graceful stop.
+- `harvest.md`: ranked worker outputs.
 - `token-report.txt`: estimated tokens by lane.
 - `morning.md`: the morning brief.
 
 ## Setup
 
-Required:
+One-command install:
+
+```bash
+./install.sh
+```
+
+Install and immediately run doctor:
+
+```bash
+./install.sh --doctor /path/to/project
+```
+
+Required for install:
+
+- macOS or Linux shell.
+- `git`, `python3`, `curl`, and `rsync`.
+
+Required for a real run:
 
 - Git repo on this machine.
 - `~/.codex/bin/maestro-delegate`
@@ -66,7 +136,7 @@ Recommended:
 
 - LM Studio running at `http://localhost:1234`.
 - A loaded chat model, usually `phi-4-mini-instruct`.
-- Windows worker on the LAN at `http://192.168.7.201:11434/v1`.
+- Optional Windows worker endpoint on your LAN or private network.
 - Claude CLI installed if you want the reasoning lane.
 - GitHub CLI signed in if you want PR state included in the context pack.
 
@@ -80,12 +150,95 @@ Point it at different compute:
 
 ```bash
 maestro-nightshift doctor --repo /path/to/project \
+  --local-url http://localhost:1234/v1 \
   --local-model phi-4-mini-instruct \
-  --windows-url http://192.168.7.201:11434/v1 \
+  --windows-url http://windows-host.local:11434/v1 \
   --windows-model qwen3-coder:30b
 ```
 
+Use `--latest` or `--ledger <path>` when reporting or stopping:
+
+```bash
+maestro-nightshift report --latest
+maestro-nightshift stop --latest
+maestro-nightshift report --ledger ~/.codex/maestro/overnight/night-shift-...
+```
+
 If something is missing, the doctor output should tell you exactly what to start.
+The `run` command writes ledgers and artifacts only; it reads repo state but does
+not fetch, commit, branch, merge, publish, or edit the target repo.
+
+### What To Start
+
+Mac-only:
+
+```bash
+open -a "LM Studio"
+maestro-nightshift doctor --repo /path/to/project
+maestro-nightshift run --repo /path/to/project --mode quiet --max-windows 0
+```
+
+Windows worker only:
+
+```bash
+export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1
+export WINDOWS_WORKER_MODEL=qwen3-coder:30b
+maestro-nightshift doctor --repo /path/to/project --windows-url "$WINDOWS_WORKER_BASE_URL"
+maestro-nightshift run --repo /path/to/project --mode quiet --max-local 0
+```
+
+Mac plus Windows:
+
+```bash
+open -a "LM Studio"
+export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1
+export WINDOWS_WORKER_MODEL=qwen3-coder:30b
+maestro-nightshift doctor --repo /path/to/project --windows-url "$WINDOWS_WORKER_BASE_URL"
+maestro-nightshift run --repo /path/to/project --mode night-shift
+```
+
+No local model yet:
+
+```bash
+maestro-nightshift doctor --repo /path/to/project
+maestro-nightshift plan --repo /path/to/project --mode quiet
+```
+
+Optional lanes:
+
+- Claude: install and sign in to the `claude` CLI for rare hard reasoning tasks.
+- GitHub: install `gh` and run `gh auth login` to include open PR context.
+- Windows: use any OpenAI-compatible server and point `WINDOWS_WORKER_BASE_URL` at it.
+
+## Who It Is For
+
+- Solo developers with a Mac and a backlog of small repo chores.
+- Teams with a spare local GPU box that can draft reviews, tests, and issue
+  ideas overnight.
+- Codex users who want a clean morning handoff instead of a giant pile of chat.
+- Claude Code users who want the expensive reasoning lane saved for the few
+  decisions that deserve it.
+- Anyone who wants AI help without pretending green automation equals proof.
+
+It is probably not for you if you want a bot to merge, deploy, or publish while
+you are away.
+
+## Example Morning
+
+After a useful run, the morning brief should sound boring in the best way:
+
+```text
+Status: YELLOW
+Local loops: 40
+Windows loops: 20
+Artifacts: KEEP=3, MAYBE=7, REJECT=50
+Draft PRs opened: 0
+Manual proof: UNKNOWN
+Next action: verify KEEP item 1 and open one narrow draft PR if the gap is real.
+```
+
+That `YELLOW` is intentional. It means the machines did useful work, but Codex
+or a human still needs to verify the best item before it becomes a real change.
 
 ## Modes
 
@@ -147,6 +300,11 @@ What it will not do by itself:
 - Touch credentials or billing.
 - Move or delete user files.
 - Claim hardware, audio, Bluetooth, camera, or manual QA proof.
+
+Do not paste secrets, customer data, raw transcripts, audio, meeting titles,
+speaker names, private URLs, raw file paths, billing details, or personal
+contact details into prompts. Local lanes see prompts on this machine; Windows
+lanes see prompts on the configured Windows worker.
 
 ## Twenty Common Scenarios
 
@@ -235,7 +393,7 @@ What it will not do by itself:
     - Mode: `night-shift`.
     - Best work: classify, dedupe, and draft clean issue text.
 
-18. **Multi-repo founder mode**
+18. **Multi-repo operator mode**
     - Compute: local + Windows.
     - Mode: one repo per run.
     - Best work: separate ledgers so morning review stays sane.
@@ -265,6 +423,15 @@ Then review:
 3. `token-report.txt`
 4. high-signal files in `artifacts/`
 
+The first screen of `morning.md` is intentionally ranked. It should answer:
+
+- What should I do first?
+- What are the top 5 actionable items?
+- How many local and Windows loops ran?
+- How many estimated input/output/total tokens were spent by lane?
+- Which artifacts were `KEEP`, `MAYBE`, or `REJECT`?
+- What stayed draft-only or manual/unknown?
+
 The right next action is usually one of these:
 
 - Ask Codex to turn one `KEEP` artifact into a PR.
@@ -284,3 +451,9 @@ Friendly phrases:
 - "Run Afterburner tonight."
 - "Morning brief."
 - "Stop Night Shift."
+
+## Project Notes
+
+License is currently pending; see `LICENSE`.
+
+Contribution notes live in `CONTRIBUTING.md`.

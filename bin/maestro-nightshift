@@ -6,6 +6,7 @@ import concurrent.futures
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,11 @@ from pathlib import Path
 HOME = Path.home()
 BIN = HOME / ".codex" / "bin"
 OVERNIGHT_ROOT = HOME / ".codex" / "maestro" / "overnight"
+DEFAULT_LOCAL_URL = "http://localhost:1234/v1"
+DEFAULT_LOCAL_MODEL = "phi-4-mini-instruct"
+DEFAULT_WINDOWS_URL = ""
+DEFAULT_WINDOWS_MODEL = "qwen3-coder:30b"
+VERSION = "0.1.0"
 
 MODE_DEFAULTS = {
     "quiet": {
@@ -81,24 +87,38 @@ def now_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def run_cmd(args, cwd=None, timeout=60, env=None) -> CmdResult:
+def run_cmd(args, cwd=None, timeout=60, env=None, pid_log: Path | None = None) -> CmdResult:
     command = " ".join(str(a) for a in args)
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [str(a) for a in args],
             cwd=str(cwd) if cwd else None,
             env=env,
             text=True,
-            capture_output=True,
-            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
         )
-        return CmdResult(command, proc.returncode, proc.stdout, proc.stderr)
+        if pid_log:
+            with pid_log.open("a", encoding="utf-8") as f:
+                f.write(f"{proc.pid}\t{int(time.time())}\t{command}\n")
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return CmdResult(command, proc.returncode, stdout, stderr)
     except subprocess.TimeoutExpired as exc:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+            stdout, stderr = proc.communicate(timeout=5)
+        except Exception:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except Exception:
+                pass
+            stdout, stderr = exc.stdout or "", exc.stderr or ""
         return CmdResult(
             command,
             124,
-            exc.stdout or "",
-            exc.stderr or f"timed out after {timeout}s",
+            stdout or "",
+            stderr or f"timed out after {timeout}s",
             timed_out=True,
         )
     except FileNotFoundError as exc:
@@ -106,9 +126,12 @@ def run_cmd(args, cwd=None, timeout=60, env=None) -> CmdResult:
 
 
 def apply_compute_overrides(args) -> None:
+    local_url = getattr(args, "local_url", None)
     local_model = getattr(args, "local_model", None)
     windows_url = getattr(args, "windows_url", None)
     windows_model = getattr(args, "windows_model", None)
+    if local_url:
+        os.environ["MAESTRO_LOCAL_BASE_URL"] = local_url.rstrip("/")
     if local_model:
         os.environ["MAESTRO_LOCAL_MODEL"] = local_model
     if windows_url:
@@ -121,6 +144,10 @@ def read_url_json(url: str, headers=None, timeout=8):
     req = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(req, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8", errors="replace"))
+
+
+def model_ids(data: dict) -> list[str]:
+    return [str(m.get("id")) for m in data.get("data", []) if m.get("id")]
 
 
 def create_ledger(mode: str) -> Path:
@@ -145,6 +172,16 @@ def latest_ledger() -> Path | None:
     return ledgers[-1] if ledgers else None
 
 
+def select_ledger(args) -> Path | None:
+    if getattr(args, "ledger", None) and getattr(args, "latest", False):
+        return None
+    if getattr(args, "ledger", None):
+        return Path(args.ledger).expanduser().resolve()
+    if getattr(args, "latest", False):
+        return latest_ledger()
+    return None
+
+
 def repo_root(repo: str | None) -> Path | None:
     if not repo:
         return None
@@ -160,7 +197,7 @@ def repo_root(repo: str | None) -> Path | None:
 def check_endpoint(name: str, url: str, headers=None) -> tuple[str, str]:
     try:
         data = read_url_json(url, headers=headers, timeout=8)
-        models = [m.get("id") for m in data.get("data", [])]
+        models = model_ids(data)
         return "GREEN", f"{name} reachable; models={models[:8]}"
     except urllib.error.URLError as exc:
         return "YELLOW", f"{name} not reachable: {exc}"
@@ -168,7 +205,53 @@ def check_endpoint(name: str, url: str, headers=None) -> tuple[str, str]:
         return "YELLOW", f"{name} returned unreadable response: {exc}"
 
 
-def doctor_checks(repo: str | None, run_smoke=False) -> tuple[str, list[tuple[str, str, str]]]:
+def check_model_endpoint(name: str, url: str, expected_model: str | None = None, headers=None) -> tuple[str, str]:
+    state, message = check_endpoint(name, url, headers=headers)
+    if state != "GREEN" or not expected_model:
+        return state, message
+    try:
+        data = read_url_json(url, headers=headers, timeout=8)
+        models = model_ids(data)
+    except Exception:
+        return state, message
+    if models and expected_model not in models:
+        return "YELLOW", f"{name} reachable; expected model '{expected_model}' not listed; models={models[:8]}"
+    return state, message
+
+
+def doctor_advice(rows: list[tuple[str, str, str]]) -> list[str]:
+    by_name = {name: state for name, state, _ in rows}
+    advice: list[str] = []
+    if by_name.get("maestro-delegate") == "RED" or by_name.get("maestro-token-report") == "RED":
+        advice.append("Install: from the cloned maestro-night-shift repo, run `./install.sh`.")
+    if by_name.get("local-models") == "YELLOW":
+        advice.append(
+            "Mac local: open LM Studio, enable the local server, and load "
+            f"`{os.environ.get('MAESTRO_LOCAL_MODEL', DEFAULT_LOCAL_MODEL)}` or pass `--local-model`."
+        )
+    if by_name.get("windows-worker") == "YELLOW":
+        advice.append(
+            "Windows worker: start an OpenAI-compatible server on the Windows machine, then set "
+            "`WINDOWS_WORKER_BASE_URL` and `WINDOWS_WORKER_MODEL` or pass `--windows-url` and `--windows-model`."
+        )
+    if by_name.get("claude") == "YELLOW":
+        advice.append("Claude: install and sign in to the `claude` CLI, or ignore this optional lane.")
+    if by_name.get("gh") == "YELLOW" or by_name.get("gh-auth") == "YELLOW":
+        advice.append("GitHub: install `gh` and run `gh auth login` if you want PR state in the context pack.")
+    if by_name.get("repo") == "RED":
+        advice.append("Repo: pass `--repo /path/to/a/git/repo`.")
+    if by_name.get("local-models") == "YELLOW" and by_name.get("windows-worker") == "YELLOW":
+        advice.append("No local models yet: run `maestro-nightshift plan --repo <repo>` for a no-model planning brief.")
+    elif by_name.get("local-models") == "GREEN" and by_name.get("windows-worker") == "YELLOW":
+        advice.append("Mac-only path: run `maestro-nightshift run --repo <repo> --mode quiet --max-windows 0`.")
+    elif by_name.get("local-models") == "YELLOW" and by_name.get("windows-worker") == "GREEN":
+        advice.append("Windows-only path: run `maestro-nightshift run --repo <repo> --mode quiet --max-local 0`.")
+    elif by_name.get("local-models") == "GREEN" and by_name.get("windows-worker") == "GREEN":
+        advice.append("Mac+Windows path: run `maestro-nightshift run --repo <repo> --mode night-shift`.")
+    return advice
+
+
+def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[str, list[tuple[str, str, str]]]:
     rows: list[tuple[str, str, str]] = []
 
     for label, path in [
@@ -185,16 +268,33 @@ def doctor_checks(repo: str | None, run_smoke=False) -> tuple[str, list[tuple[st
         found = shutil.which(command)
         rows.append((label, "GREEN" if found else "YELLOW", found or f"{command} not found"))
 
-    local_status, local_msg = check_endpoint("LM Studio", "http://localhost:1234/v1/models")
+    claude = shutil.which("claude")
+    rows.append(("claude", "GREEN" if claude else "YELLOW", claude or "claude CLI not found"))
+
+    if shutil.which("gh"):
+        gh_auth = run_cmd(["gh", "auth", "status"], timeout=30)
+        rows.append(("gh-auth", "GREEN" if gh_auth.rc == 0 else "YELLOW", (gh_auth.stderr or gh_auth.stdout).strip() or "ok"))
+
+    local_base = os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL)
+    local_model = os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL)
+    local_status, local_msg = check_model_endpoint("LM Studio", f"{local_base.rstrip('/')}/models", expected_model=local_model)
     rows.append(("local-models", local_status, local_msg))
 
-    base = os.environ.get("WINDOWS_WORKER_BASE_URL", "http://192.168.7.201:11434/v1")
+    base = os.environ.get("WINDOWS_WORKER_BASE_URL", "").strip()
     key = os.environ.get("WINDOWS_WORKER_API_KEY", "ollama")
-    win_status, win_msg = check_endpoint(
-        "Windows worker",
-        f"{base.rstrip('/')}/models",
-        headers={"Authorization": f"Bearer {key}"},
-    )
+    windows_model = os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL)
+    if base:
+        win_status, win_msg = check_model_endpoint(
+            "Windows worker",
+            f"{base.rstrip('/')}/models",
+            expected_model=windows_model,
+            headers={"Authorization": f"Bearer {key}"},
+        )
+    else:
+        win_status, win_msg = (
+            "YELLOW",
+            "Windows worker not configured; set WINDOWS_WORKER_BASE_URL or pass --windows-url",
+        )
     rows.append(("windows-worker", win_status, win_msg))
 
     root = repo_root(repo)
@@ -202,10 +302,13 @@ def doctor_checks(repo: str | None, run_smoke=False) -> tuple[str, list[tuple[st
         if root and root.exists():
             rev = run_cmd(["git", "-C", root, "rev-parse", "--short", "HEAD"], timeout=20)
             status = run_cmd(["git", "-C", root, "status", "--short"], timeout=20)
-            fetch = run_cmd(["git", "-C", root, "fetch", "origin", "--prune"], timeout=90)
             repo_state = "clean" if status.stdout.strip() == "" else f"dirty lines={len(status.stdout.splitlines())}"
             rows.append(("repo", "GREEN" if rev.rc == 0 else "RED", f"{root} head={rev.stdout.strip()} {repo_state}"))
-            rows.append(("repo-fetch", "GREEN" if fetch.rc == 0 else "YELLOW", fetch.stderr.strip() or fetch.stdout.strip() or "ok"))
+            if allow_fetch:
+                fetch = run_cmd(["git", "-C", root, "fetch", "origin", "--prune"], timeout=90)
+                rows.append(("repo-fetch", "GREEN" if fetch.rc == 0 else "YELLOW", fetch.stderr.strip() or fetch.stdout.strip() or "ok"))
+            else:
+                rows.append(("repo-fetch", "SKIPPED", "run command does not mutate repo refs; use doctor for fetch check"))
         else:
             rows.append(("repo", "RED", f"repo path missing: {root}"))
 
@@ -357,11 +460,61 @@ def read_meta(proof: str | None) -> dict:
         return {}
 
 
+FORBIDDEN_ACTION_RE = re.compile(
+    r"\b(merge|release|publish|tag|notarize|deploy|appcast|cask|credential|billing|delete|destructive|move user files?)\b",
+    re.IGNORECASE,
+)
+
+
+def first_label_value(output: str, labels: list[str]) -> str:
+    for raw_line in output.splitlines():
+        line = raw_line.strip().lstrip("-*0123456789. ")
+        lower = line.lower()
+        for label in labels:
+            needle = label.lower()
+            if lower.startswith(needle):
+                value = line[len(label) :].strip(" :-")
+                if value:
+                    return value
+    return ""
+
+
+def summarize_output(output: str) -> str:
+    for labels in [
+        ["BEST_NEXT_ACTION", "BEST NEXT ACTION"],
+        ["PROPOSED_CHANGE", "PROPOSED CHANGE"],
+        ["SUMMARY"],
+    ]:
+        value = first_label_value(output, labels)
+        if value:
+            return value
+    return " ".join(output.strip().split())[:180] or "No usable summary captured."
+
+
+def confidence_bonus(output: str) -> int:
+    confidence = first_label_value(output, ["CONFIDENCE"]).lower()
+    risk = first_label_value(output, ["RISK"]).lower()
+    if confidence == "high" or risk == "low":
+        return 8
+    if confidence == "medium" or risk == "medium":
+        return 4
+    if confidence == "low" or risk == "high":
+        return -6
+    return 0
+
+
 def score_output(rc: int, output: str) -> str:
     low = output.lower()
     if rc != 0:
         return "REJECT"
     if not output.strip():
+        return "REJECT"
+    if FORBIDDEN_ACTION_RE.search(output) and (
+        "safe_for_draft_pr: yes" in low
+        or "safe for draft pr: yes" in low
+        or "safe_for_codex_to_attempt: yes" in low
+        or "safe for codex to attempt: yes" in low
+    ):
         return "REJECT"
     if "forbidden" in low and ("merge" in low or "release" in low):
         return "MAYBE"
@@ -384,6 +537,41 @@ def score_output(rc: int, output: str) -> str:
     return "REJECT"
 
 
+def artifact_priority(row: dict) -> int:
+    base = {"KEEP": 100, "MAYBE": 45, "REJECT": 0}.get(row["score"], 0)
+    output = row.get("output", "")
+    if row["lane"] == "windows":
+        base += 5
+    if "test" in output.lower():
+        base += 6
+    if "exact" in output.lower() or "file" in output.lower():
+        base += 4
+    if FORBIDDEN_ACTION_RE.search(output):
+        base -= 25
+    base += confidence_bonus(output)
+    if row["rc"] != 0 or row["timed_out"]:
+        base -= 40
+    return base
+
+
+def ranked_results(results: list[dict], include_reject=False) -> list[dict]:
+    rows = [r for r in results if include_reject or r["score"] != "REJECT"]
+    return sorted(rows, key=lambda r: (-artifact_priority(r), r["score"], r["label"]))
+
+
+def token_totals_by_lane(results: list[dict]) -> dict[str, dict[str, int]]:
+    totals: dict[str, dict[str, int]] = {}
+    for row in results:
+        lane = row["lane"]
+        if lane not in totals:
+            totals[lane] = {"calls": 0, "input": 0, "output": 0, "total": 0}
+        totals[lane]["calls"] += 1
+        totals[lane]["input"] += int(row.get("input_tokens") or 0)
+        totals[lane]["output"] += int(row.get("output_tokens") or 0)
+        totals[lane]["total"] += int(row.get("tokens") or 0)
+    return totals
+
+
 def dispatch_one(lane: str, label: str, prompt: str, ledger: Path, mode: str, timeout=900) -> dict:
     delegate = BIN / "maestro-delegate"
     env = os.environ.copy()
@@ -391,7 +579,12 @@ def dispatch_one(lane: str, label: str, prompt: str, ledger: Path, mode: str, ti
     env.setdefault("MAESTRO_LOCAL_MAX_TOKENS", str(defaults["local_max_tokens"]))
     env.setdefault("MAESTRO_WINDOWS_MAX_TOKENS", str(defaults["windows_max_tokens"]))
     start = time.time()
-    res = run_cmd([delegate, lane, "--label", label, "--", prompt], timeout=timeout, env=env)
+    res = run_cmd(
+        [delegate, lane, "--label", label, "--", prompt],
+        timeout=timeout,
+        env=env,
+        pid_log=ledger / "processes.tsv",
+    )
     proof = parse_proof(res.stderr)
     safe_label = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-") or "task"
     artifact = ledger / "artifacts" / f"{safe_label}-{lane}.md"
@@ -409,13 +602,41 @@ def dispatch_one(lane: str, label: str, prompt: str, ledger: Path, mode: str, ti
         "proof": proof or "",
         "artifact": str(artifact),
         "score": score,
+        "priority": 0,
         "tokens": int(meta.get("total_tokens_estimate") or 0),
+        "input_tokens": int(meta.get("prompt_tokens_estimate") or meta.get("input_tokens") or 0),
+        "output_tokens": int(meta.get("output_tokens_estimate") or meta.get("output_tokens") or 0),
+        "summary": summarize_output(res.stdout),
+        "output": res.stdout,
         "output_preview": " ".join(res.stdout.strip().split())[:240],
     }
 
 
+def stop_recorded_processes(ledger: Path) -> tuple[int, int]:
+    process_file = ledger / "processes.tsv"
+    if not process_file.exists():
+        return 0, 0
+    stopped = 0
+    missing = 0
+    for line in process_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        parts = line.split("\t", 2)
+        if not parts or not parts[0].isdigit():
+            continue
+        pid = int(parts[0])
+        try:
+            os.killpg(pid, signal.SIGTERM)
+            stopped += 1
+        except ProcessLookupError:
+            missing += 1
+        except PermissionError:
+            missing += 1
+    return stopped, missing
+
+
 def write_harvest(ledger: Path, results: list[dict]) -> None:
     lines = ["# Harvest", ""]
+    for row in results:
+        row["priority"] = artifact_priority(row)
     keep = [r for r in results if r["score"] == "KEEP"]
     maybe = [r for r in results if r["score"] == "MAYBE"]
     reject = [r for r in results if r["score"] == "REJECT"]
@@ -423,16 +644,36 @@ def write_harvest(ledger: Path, results: list[dict]) -> None:
     lines.append(f"MAYBE: {len(maybe)}")
     lines.append(f"REJECT: {len(reject)}")
     lines.append("")
-    lines.append("| score | lane | label | tokens | artifact |")
-    lines.append("| --- | --- | --- | ---: | --- |")
-    for row in results:
-        lines.append(f"| {row['score']} | {row['lane']} | {row['label']} | {row['tokens']} | {row['artifact']} |")
+    lines.append("## Top Ranked Artifacts")
     lines.append("")
-    for row in keep[:12]:
-        lines.append(f"## KEEP {row['label']}")
-        lines.append(f"- lane: {row['lane']}")
-        lines.append(f"- artifact: {row['artifact']}")
-        lines.append(f"- preview: {row['output_preview']}")
+    ranked = ranked_results(results)
+    if ranked:
+        lines.append("| rank | score | priority | lane | label | action | artifact |")
+        lines.append("| ---: | --- | ---: | --- | --- | --- | --- |")
+        for index, row in enumerate(ranked[:10], start=1):
+            action = row["summary"].replace("|", "\\|")
+            lines.append(
+                f"| {index} | {row['score']} | {row['priority']} | {row['lane']} | {row['label']} | {action} | {row['artifact']} |"
+            )
+    else:
+        lines.append("No KEEP or MAYBE artifacts survived scoring.")
+    lines.append("")
+    lines.append("## Full Scorecard")
+    lines.append("")
+    lines.append("| score | priority | lane | label | tokens | artifact |")
+    lines.append("| --- | ---: | --- | --- | ---: | --- |")
+    for row in sorted(results, key=lambda r: (-r["priority"], r["label"])):
+        lines.append(f"| {row['score']} | {row['priority']} | {row['lane']} | {row['label']} | {row['tokens']} | {row['artifact']} |")
+    lines.append("")
+    for score, rows in [("KEEP", keep), ("MAYBE", maybe), ("REJECT", reject)]:
+        lines.append(f"## {score} Summary")
+        lines.append("")
+        if not rows:
+            lines.append("- None.")
+            lines.append("")
+            continue
+        for row in sorted(rows, key=lambda r: (-r["priority"], r["label"]))[:12]:
+            lines.append(f"- {row['label']} ({row['lane']}, priority {row['priority']}): {row['summary']}")
         lines.append("")
     (ledger / "harvest.md").write_text("\n".join(lines), encoding="utf-8")
 
@@ -464,30 +705,103 @@ def run_status(results: list[dict], target_tokens: int, overall: str) -> str:
 def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: int, overall: str) -> None:
     local = [r for r in results if r["lane"] == "local"]
     windows = [r for r in results if r["lane"] == "windows"]
+    for row in results:
+        row["priority"] = artifact_priority(row)
     total_tokens = sum(r["tokens"] for r in results)
     keep = len([r for r in results if r["score"] == "KEEP"])
     maybe = len([r for r in results if r["score"] == "MAYBE"])
     reject = len([r for r in results if r["score"] == "REJECT"])
     status = run_status(results, target_tokens, overall)
+    ranked = ranked_results(results)
+    first_action = ranked[0]["summary"] if ranked else "Fix the startup gate or rerun with reachable local/Windows lanes."
+    token_totals = token_totals_by_lane(results)
     lines = [
         "# Morning Brief",
         "",
         f"Status: {status}",
-        f"Mode: {mode}",
-        f"Startup gate: {overall}",
-        f"Local loops: {len(local)}",
-        f"Windows loops: {len(windows)}",
-        f"Estimated local+Windows tokens: {total_tokens}",
-        f"Token target: {target_tokens}",
-        f"Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}",
         "",
-        "Next action:",
-        "- Ask Codex to review the KEEP/MAYBE artifacts and turn only the best one or two into real PRs or issues.",
+        "What should I do first?",
+        f"- {first_action}",
         "",
-        "Safety:",
-        "- No merges, releases, tags, notarization, deploys, appcast/cask updates, billing, credentials, or user-file cleanup were performed by this command.",
-        "- Local and Windows outputs are drafts, not truth.",
+        "Top 5 actionable items:",
     ]
+    if ranked:
+        for index, row in enumerate(ranked[:5], start=1):
+            lines.append(
+                f"{index}. [{row['score']}] {row['summary']} ({row['lane']}/{row['label']}, priority {row['priority']})"
+            )
+    else:
+        lines.append("1. No usable artifacts survived scoring. Rerun after fixing the blockers below.")
+    lines.extend(
+        [
+            "",
+            "Run totals:",
+            f"- Mode: {mode}",
+            f"- Startup gate: {overall}",
+            f"- Local loops: {len(local)}",
+            f"- Windows loops: {len(windows)}",
+            f"- Estimated local+Windows tokens: {total_tokens}",
+            f"- Token target: {target_tokens}",
+            f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}",
+            f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}",
+            "",
+            "Token totals by lane:",
+        ]
+    )
+    for lane in sorted(token_totals):
+        row = token_totals[lane]
+        lines.append(
+            f"- {lane}: calls={row['calls']} input~{row['input']} output~{row['output']} total~{row['total']}"
+        )
+    if not token_totals:
+        lines.append("- none")
+    lines.extend(
+        [
+            "",
+            "KEEP summary:",
+        ]
+    )
+    for row in [r for r in ranked if r["score"] == "KEEP"][:5]:
+        lines.append(f"- {row['label']}: {row['summary']}")
+    if keep == 0:
+        lines.append("- None.")
+    lines.extend(
+        [
+            "",
+            "MAYBE summary:",
+        ]
+    )
+    for row in [r for r in ranked if r["score"] == "MAYBE"][:5]:
+        lines.append(f"- {row['label']}: {row['summary']}")
+    if maybe == 0:
+        lines.append("- None.")
+    lines.extend(
+        [
+            "",
+            "REJECT summary:",
+        ]
+    )
+    rejected = sorted([r for r in results if r["score"] == "REJECT"], key=lambda r: (-r["priority"], r["label"]))
+    for row in rejected[:5]:
+        lines.append(f"- {row['label']}: {row['summary']}")
+    if reject == 0:
+        lines.append("- None.")
+    lines.extend(
+        [
+            "",
+            "Needs user review:",
+            "- Review only the top ranked KEEP/MAYBE item first; worker output is draft input, not truth.",
+            "- Treat manual hardware/audio proof as UNKNOWN unless a human verified it.",
+            "",
+            "Safety:",
+            "- No merges, releases, tags, notarization, deploys, appcast/cask updates, billing, credentials, or user-file cleanup were performed by this command.",
+            "- Local and Windows outputs are drafts, not truth.",
+            "",
+            "Proof files:",
+            f"- Harvest: {ledger / 'harvest.md'}",
+            f"- Token report: {ledger / 'token-report.txt'}",
+        ]
+    )
     (ledger / "morning.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -497,14 +811,51 @@ def command_doctor(args) -> int:
     print(f"NIGHTSHIFT_DOCTOR: {overall}")
     for name, state, message in rows:
         print(f"{state}\t{name}\t{message}")
+    advice = doctor_advice(rows)
+    if advice:
+        print("")
+        print("Next steps:")
+        for item in advice:
+            print(f"- {item}")
     if overall == "RED":
         return 1
     return 0
 
 
+def require_git_repo(repo: str) -> Path | None:
+    root = repo_root(repo)
+    if not root or not root.exists():
+        print(f"NIGHTSHIFT_ERROR: repo path does not exist: {root or repo}", file=sys.stderr)
+        return None
+    check = run_cmd(["git", "-C", root, "rev-parse", "--show-toplevel"], timeout=20)
+    if check.rc != 0:
+        print(f"NIGHTSHIFT_ERROR: not a git repo: {root}", file=sys.stderr)
+        return None
+    return Path(check.stdout.strip())
+
+
+def validate_run_args(args) -> bool:
+    for name in ("max_local", "max_windows"):
+        value = getattr(args, name)
+        if value is not None and value < 0:
+            print(f"NIGHTSHIFT_ERROR: --{name.replace('_', '-')} must be 0 or greater", file=sys.stderr)
+            return False
+    for name in ("parallel_local", "parallel_windows", "timeout"):
+        value = getattr(args, name)
+        if value is not None and value < 1:
+            print(f"NIGHTSHIFT_ERROR: --{name.replace('_', '-')} must be 1 or greater", file=sys.stderr)
+            return False
+    if args.token_target is not None and args.token_target < 0:
+        print("NIGHTSHIFT_ERROR: --token-target must be 0 or greater", file=sys.stderr)
+        return False
+    return True
+
+
 def command_plan(args) -> int:
     ledger = create_ledger(args.mode)
-    root = repo_root(args.repo)
+    root = require_git_repo(args.repo)
+    if not root:
+        return 1
     context = repo_context_pack(root if root and root.exists() else None)
     (ledger / "board.md").write_text(build_board(args.mode), encoding="utf-8")
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
@@ -517,6 +868,8 @@ def command_plan(args) -> int:
 
 def command_run(args) -> int:
     apply_compute_overrides(args)
+    if not validate_run_args(args):
+        return 2
     defaults = MODE_DEFAULTS[args.mode].copy()
     max_local = defaults["local"] if args.max_local is None else args.max_local
     max_windows = defaults["windows"] if args.max_windows is None else args.max_windows
@@ -525,7 +878,11 @@ def command_run(args) -> int:
     target_tokens = defaults["target_tokens"] if args.token_target is None else args.token_target
 
     ledger = create_ledger(args.mode)
-    root = repo_root(args.repo)
+    root = require_git_repo(args.repo)
+    if not root:
+        write_morning(ledger, args.mode, [], defaults["target_tokens"] if args.token_target is None else args.token_target, "RED")
+        print(f"NIGHTSHIFT_RUN: RED | invalid repo | ledger={ledger}")
+        return 1
     (ledger / "mode.json").write_text(
         json.dumps(
             {
@@ -544,7 +901,7 @@ def command_run(args) -> int:
         encoding="utf-8",
     )
 
-    overall, rows = doctor_checks(args.repo, run_smoke=not args.skip_smoke)
+    overall, rows = doctor_checks(args.repo, run_smoke=not args.skip_smoke, allow_fetch=False)
     write_startup_gate(ledger, overall, rows)
     context = repo_context_pack(root if root and root.exists() else None)
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
@@ -614,7 +971,12 @@ def command_run(args) -> int:
                             "proof": "",
                             "artifact": "",
                             "score": "REJECT",
+                            "priority": 0,
                             "tokens": 0,
+                            "input_tokens": 0,
+                            "output_tokens": 0,
+                            "summary": str(exc),
+                            "output": "",
                             "output_preview": str(exc),
                         }
                     )
@@ -636,7 +998,13 @@ def command_run(args) -> int:
 
 
 def command_report(args) -> int:
-    ledger = Path(args.ledger).expanduser() if args.ledger else latest_ledger()
+    if args.ledger and args.latest:
+        print("NIGHTSHIFT_REPORT: RED | use either --latest or --ledger, not both")
+        return 2
+    if not args.ledger and not args.latest:
+        print("NIGHTSHIFT_REPORT: RED | choose --latest or --ledger <path>")
+        return 2
+    ledger = select_ledger(args)
     if not ledger or not ledger.exists():
         print("NIGHTSHIFT_REPORT: RED | no ledger found")
         return 1
@@ -655,13 +1023,20 @@ def command_report(args) -> int:
 
 
 def command_stop(args) -> int:
-    ledger = Path(args.ledger).expanduser() if args.ledger else latest_ledger()
+    if args.ledger and args.latest:
+        print("NIGHTSHIFT_STOP: RED | use either --latest or --ledger, not both")
+        return 2
+    if not args.ledger and not args.latest:
+        print("NIGHTSHIFT_STOP: RED | choose --latest or --ledger <path>")
+        return 2
+    ledger = select_ledger(args)
     if not ledger or not ledger.exists():
         print("NIGHTSHIFT_STOP: RED | no ledger found")
         return 1
     stop_file = ledger / "STOP"
     stop_file.write_text(f"stop requested at {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n", encoding="utf-8")
-    print(f"NIGHTSHIFT_STOP: GREEN | stop file written | ledger={ledger}")
+    stopped, missing = stop_recorded_processes(ledger)
+    print(f"NIGHTSHIFT_STOP: GREEN | stop file written | signaled={stopped} | already_gone={missing} | ledger={ledger}")
     return 0
 
 
@@ -670,10 +1045,12 @@ def build_parser() -> argparse.ArgumentParser:
         prog="maestro-nightshift",
         description="Run Maestro Night Shift: safe local/Windows overnight repo analysis and artifact generation.",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     doctor = sub.add_parser("doctor", help="check compute lanes and repo readiness")
     doctor.add_argument("--repo", required=False, help="repo path to check")
+    doctor.add_argument("--local-url", required=False, help="override MAESTRO_LOCAL_BASE_URL")
     doctor.add_argument("--local-model", required=False, help="override MAESTRO_LOCAL_MODEL")
     doctor.add_argument("--windows-url", required=False, help="override WINDOWS_WORKER_BASE_URL")
     doctor.add_argument("--windows-model", required=False, help="override WINDOWS_WORKER_MODEL")
@@ -693,6 +1070,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--parallel-local", type=int, default=None)
     run.add_argument("--parallel-windows", type=int, default=None)
     run.add_argument("--token-target", type=int, default=None)
+    run.add_argument("--local-url", required=False, help="override MAESTRO_LOCAL_BASE_URL")
     run.add_argument("--local-model", required=False, help="override MAESTRO_LOCAL_MODEL")
     run.add_argument("--windows-url", required=False, help="override WINDOWS_WORKER_BASE_URL")
     run.add_argument("--windows-model", required=False, help="override WINDOWS_WORKER_MODEL")

@@ -1,6 +1,6 @@
 ---
 name: maestro-overnight
-description: Launch and supervise Maestro Night Shift, a bounded overnight local-compute work mode. Use when Justin asks for Maestro Overnight, Night Shift, goodnight / going to sleep / run overnight / tokenmaxx / use local models / use Windows 3090, wants an on-button for bounded repo work, or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
+description: Launch and supervise Maestro Night Shift, a bounded overnight local-compute work mode. Use when the user asks for Maestro Overnight, Night Shift, goodnight / going to sleep / run overnight / tokenmaxx / use local models / use a Windows GPU worker, wants an on-button for bounded repo work, or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
 ---
 
 # Maestro Night Shift
@@ -19,7 +19,7 @@ maestro-nightshift report --latest
 
 Use this skill as the coordinator cockpit for a bounded overnight run. The goal is useful draft work, not autonomous shipping.
 
-Core rule: local and Windows lanes may draft; Codex reviews and verifies; Claude is rare; nothing merges, releases, publishes, tags, notarizes, changes credentials, or edits billing without Justin explicitly saying so after the morning review.
+Core rule: local and Windows lanes may draft; Codex reviews and verifies; Claude is rare; nothing merges, releases, publishes, tags, notarizes, changes credentials, or edits billing without the user explicitly saying so after the morning review.
 
 Hard default: boring-safe beats ambitious. If a cheap worker suggests broad,
 destructive, private-data, hardware-proof, release, or file-reorganization work,
@@ -41,7 +41,7 @@ Power modes:
 - `Quiet Shift`: low heat, small safe work. Maps to `Conservative`.
 - `Night Shift`: normal overnight compute. Maps to `Local Heavy`.
 - `Afterburner`: tokenmaxx / full-send local compute. Maps to `Tokenmaxx`.
-- `Morning Brief`: stop, harvest, summarize, and tell Justin what to review.
+- `Morning Brief`: stop, harvest, summarize, and tell the user what to review.
 
 Core UX:
 
@@ -78,13 +78,13 @@ work, or this exact chat as the cockpit.
 
 ## Modes
 
-Choose one mode unless Justin specifies another.
+Choose one mode unless the user specifies another.
 
 - `Conservative`: default. 1-3 tasks, max 1 draft PR per repo, local/Windows first, low heat.
 - `Local Heavy`: burn local Mac + Windows compute on useful repo work for hours.
   40-80 Mac local loops plus 20-40 Windows loops by default, max 2 draft PRs
   per repo, Codex filters results.
-- `Tokenmaxx`: run Mac local + Windows workers hard until Justin returns in
+- `Tokenmaxx`: run Mac local + Windows workers hard until the user returns in
   the morning or says `Complete`. Keep filling the queue, harvest often, and
   maximize useful local/Windows token throughput. Max draft PRs still bounded;
   no merge/release/publish actions.
@@ -92,9 +92,9 @@ Choose one mode unless Justin specifies another.
 - `Research`: read-heavy, produces briefs/issues/plans, code changes only if tiny and obvious.
 - `Morning Review`: stop active work, collect results, verify claims, and report the next action.
 
-If Justin wants the machines to "use tokens", "burn local compute", "work
+If the user wants the machines to "use tokens", "burn local compute", "work
 overnight", "use Windows", "use local models", or says the prior run was too
-cautious, use `Local Heavy`. If Justin says "tokenmaxx", "maximize hardware",
+cautious, use `Local Heavy`. If the user says "tokenmaxx", "maximize hardware",
 "run until morning", or "I'll turn it off in the morning", use `Tokenmaxx`. If
 the requested mode is unclear, use `Conservative`.
 
@@ -109,11 +109,11 @@ Before launching overnight work:
    ```
 3. Confirm these as facts or mark them `UNKNOWN`:
    - Mac local model server reachable, usually LM Studio at `localhost:1234`.
-   - Windows worker reachable at `http://192.168.7.201:11434/v1`.
+   - Windows worker reachable if `WINDOWS_WORKER_BASE_URL` or `--windows-url` is configured.
    - Target repo paths exist.
    - Target worktrees are clean enough or can use fresh isolated worktrees.
    - Power, sleep, and thermal posture are acceptable.
-4. Pick tasks from live repo truth, open issues/PRs, recent failures, TODOs, or Justin's prompt. Avoid stale memory as repo truth.
+4. Pick tasks from live repo truth, open issues/PRs, recent failures, TODOs, or the user's prompt. Avoid stale memory as repo truth.
 5. Create a run ledger path under `~/.codex/maestro/overnight/` when writing artifacts is useful.
 
 If a critical readiness check fails, do not improvise a long night. Fall back to a short research or planning run and report the blocker.
@@ -148,10 +148,10 @@ If one lane is down:
 - If Mac local is down, try one quick restart/remediation only if the fix is
   obvious; otherwise mark `LOCAL_DOWN` and do not call the run Tokenmaxx.
 - If Windows is down, mark `WINDOWS_DOWN`; continue only with Mac local if
-  Justin explicitly allowed degraded mode or the run is useful as read-only
+  the user explicitly allowed degraded mode or the run is useful as read-only
   planning.
 - If both cheap lanes are down, do not run. Report `RED` and the exact next
-  thing Justin should start or fix.
+  thing the user should start or fix.
 - If the repo is dirty, use it read-only only. Never edit it.
 
 Only after the startup gate is `GREEN` should Tokenmaxx begin high-volume loops.
@@ -324,9 +324,9 @@ Avoid or hold:
 - Hardware/audio/manual-proof claims without real proof.
 - Duplicate PRs when an open nightly PR already owns the gap.
 - File reorganization, renaming user artifacts, deleting data, moving captures,
-  or mutating audio unless Justin explicitly asked for that exact action.
+  or mutating audio unless the user explicitly asked for that exact action.
 - Any task where success requires this Mac's microphone, Bluetooth, AirPods,
-  camera, screen permissions, or a real meeting app while Justin is away.
+  camera, screen permissions, or a real meeting app while the user is away.
 
 ## Limits
 
@@ -334,11 +334,11 @@ Set explicit caps before launching workers. Defaults:
 
 - `max_runtime`: 8 hours.
 - `max_tasks`: 3 in Conservative, 6 in Fun.
-- `max_draft_prs`: 1 per repo unless Justin asks for more.
+- `max_draft_prs`: 1 per repo unless the user asks for more.
 - `max_cloud_calls`: 0-1 Claude calls, Codex only for coordination and final verification.
 - `max_failures`: stop a lane after 2 repeated failures on the same task.
 - `thermal`: stop or pause if fans/temperature become concerning.
-- `sleep`: do not prevent sleep unless Justin explicitly wants the machines held awake.
+- `sleep`: do not prevent sleep unless the user explicitly wants the machines held awake.
 
 `Local Heavy` defaults:
 
@@ -362,7 +362,7 @@ Set explicit caps before launching workers. Defaults:
 
 `Tokenmaxx` defaults:
 
-- `max_runtime`: until Justin says `Complete`, `Good morning`, or `stop the night`;
+- `max_runtime`: until the user says `Complete`, `Good morning`, or `stop the night`;
   otherwise cap at 12 hours.
 - `target_local_loops`: keep queue full; start with 120.
 - `target_windows_loops`: keep queue full; start with 80.
@@ -374,7 +374,7 @@ Set explicit caps before launching workers. Defaults:
 - `max_cloud_calls`: 0-1 Claude calls.
 - `harvest_interval`: 20-30 minutes.
 - `stop_if`: thermal/fan concern, repeated lane failure, network/model down,
-  repo safety risk, release blocker, outputs become mostly junk, or Justin
+  repo safety risk, release blocker, outputs become mostly junk, or the user
   says stop.
 - `must_report_underuse`: if total estimated local/Windows tokens are below
   2M by morning without a blocker, mark the run `YELLOW`.
@@ -433,7 +433,7 @@ When running `Local Heavy` or `Tokenmaxx`, do this instead of a single small wor
 5. Codex may turn only the best `KEEP` item into a draft PR, using a fresh
    worktree and real tests.
 6. If a worker finds something release-impacting, hold it for morning review.
-   Do not patch release flow overnight without explicit Justin approval.
+   Do not patch release flow overnight without the user's explicit approval.
 7. The final morning brief must include:
    - local loops run
    - Windows loops run
@@ -441,9 +441,12 @@ When running `Local Heavy` or `Tokenmaxx`, do this instead of a single small wor
    - estimated Windows input/output/total tokens
    - whether the minimum token budget was reached
    - artifacts kept/rejected
+   - compact `KEEP`, `MAYBE`, and `REJECT` summaries
+   - top 5 ranked actionable items
    - draft PRs opened
    - tests run
-   - what Justin should review first
+   - what the user should do first
+   - what the user should review first
    - what stayed unknown/manual
 
 If no draft PR is safe, still consider the night successful if it produced a
@@ -491,7 +494,7 @@ Do not use Tokenmaxx for:
 
 ## Rehearsal Test
 
-When Justin asks to test Maestro Overnight, run a tiny no-edit rehearsal:
+When the user asks to test Maestro Overnight, run a tiny no-edit rehearsal:
 
 1. Create a ledger under `~/.codex/maestro/overnight/test-<timestamp>/`.
 2. Run `~/.codex/bin/maestro-smoke.sh`.
@@ -510,7 +513,7 @@ outputs obey the schema and stay inside the safe work menu.
 
 ## Morning Stop
 
-When Justin says `Complete`, `Good morning`, `stop the night`, or similar:
+When the user says `Complete`, `Good morning`, `stop the night`, or similar:
 
 1. Stop or gracefully drain active `maestro`, `gnhf`, `codex`, `claude`, `opencode`, and worker processes that belong to the overnight run.
 2. Do not start new work.
@@ -535,10 +538,10 @@ MAESTRO_OVERNIGHT_STARTED: GREEN/YELLOW/RED | mode | runtime cap | tasks launche
 For morning:
 
 ```text
-MAESTRO_OVERNIGHT_COMPLETE: GREEN/YELLOW/RED | what got done | PRs/branches | proof | blocked | needs Justin | next action | lanes used: Codex=...; Claude=...; Local=...; Windows=...
+MAESTRO_OVERNIGHT_COMPLETE: GREEN/YELLOW/RED | what got done | PRs/branches | proof | blocked | needs user review | next action | lanes used: Codex=...; Claude=...; Local=...; Windows=...
 ```
 
-Keep the coordinator answer short. The first screen should tell Justin what happened, what is blocked, and what he should do first.
+Keep the coordinator answer short. The first screen should tell the user what happened, what is blocked, and what they should do first.
 
 For `Local Heavy` launch, include local/Windows loop counts:
 
@@ -555,5 +558,5 @@ MAESTRO_OVERNIGHT_STARTED: GREEN/YELLOW/RED | Tokenmaxx | run until morning/stop
 For `Local Heavy` morning:
 
 ```text
-MAESTRO_OVERNIGHT_COMPLETE: GREEN/YELLOW/RED | local loops run | Windows loops run | estimated local tokens | estimated Windows tokens | kept/rejected artifacts | PRs/branches | tests/proof | needs Justin | next action | lanes used: Codex=...; Claude=...; Local=...; Windows=...
+MAESTRO_OVERNIGHT_COMPLETE: GREEN/YELLOW/RED | local loops run | Windows loops run | estimated local tokens | estimated Windows tokens | kept/rejected artifacts | PRs/branches | tests/proof | needs user review | next action | lanes used: Codex=...; Claude=...; Local=...; Windows=...
 ```

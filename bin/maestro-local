@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 model="${MAESTRO_LOCAL_MODEL:-phi-4-mini-instruct}"
+base="${MAESTRO_LOCAL_BASE_URL:-http://localhost:1234/v1}"
 max_tokens="${MAESTRO_LOCAL_MAX_TOKENS:-512}"
 prompt="${*:-}"
 if [ -z "$prompt" ]; then
   echo "usage: maestro-local <prompt>" >&2
   exit 2
 fi
-response="$(curl -s http://localhost:1234/v1/chat/completions \
+response="$(curl -s "$base/chat/completions" \
   -H "Content-Type: application/json" \
   -d "$(python3 - "$model" "$prompt" "$max_tokens" <<'PY'
 import json, sys
