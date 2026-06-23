@@ -132,6 +132,10 @@ Required for a real run:
 - `~/.codex/bin/maestro-delegate`
 - `~/.codex/bin/maestro-token-report`
 
+If you install somewhere else, set `CODEX_HOME` before running `./install.sh`.
+Night Shift will use `$CODEX_HOME/bin`, `$CODEX_HOME/skills`, and
+`$CODEX_HOME/maestro/overnight`.
+
 Recommended:
 
 - LM Studio running at `http://localhost:1234`.
@@ -144,6 +148,13 @@ Check it:
 
 ```bash
 maestro-nightshift doctor --repo /path/to/project
+```
+
+If your shell cannot find `maestro-nightshift`, use either of these:
+
+```bash
+export PATH="$HOME/.codex/bin:$PATH"
+~/.codex/bin/maestro-nightshift doctor --repo /path/to/project
 ```
 
 Point it at different compute:
@@ -208,7 +219,7 @@ Optional lanes:
 
 - Claude: install and sign in to the `claude` CLI for rare hard reasoning tasks.
 - GitHub: install `gh` and run `gh auth login` to include open PR context.
-- Windows: use any OpenAI-compatible server and point `WINDOWS_WORKER_BASE_URL` at it.
+- Windows: use any OpenAI-compatible server and point `WINDOWS_WORKER_BASE_URL` at it. If you do not have one, leave it unset and run Mac-only with `--max-windows 0`.
 
 ## Who It Is For
 

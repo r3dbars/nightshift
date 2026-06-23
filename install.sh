@@ -43,6 +43,15 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bin_dir="$codex_home/bin"
 skill_dir="$codex_home/skills/maestro-overnight"
 
+shell_profile=""
+case "${SHELL:-}" in
+  */zsh) shell_profile="$HOME/.zshrc" ;;
+  */bash) shell_profile="$HOME/.bashrc" ;;
+esac
+if [[ -z "$shell_profile" ]]; then
+  shell_profile="$HOME/.profile"
+fi
+
 for required in git python3 curl rsync; do
   if ! command -v "$required" >/dev/null 2>&1; then
     echo "missing required command: $required" >&2
@@ -59,11 +68,18 @@ rsync -a --delete "$repo_root/skills/maestro-overnight/" "$skill_dir/"
 
 echo "Night Shift installed."
 echo "Installed command: $bin_dir/maestro-nightshift"
+"$bin_dir/maestro-nightshift" --version
 
 if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
   echo
-  echo "Add this to your shell profile if 'maestro-nightshift' is not found:"
+  echo "Use it in this terminal now:"
   echo "  export PATH=\"$bin_dir:\$PATH\""
+  echo
+  echo "Make that permanent:"
+  echo "  printf '%s\n' 'export PATH=\"$bin_dir:\$PATH\"' >> \"$shell_profile\""
+  echo
+  echo "Or skip PATH setup and run it directly:"
+  echo "  $bin_dir/maestro-nightshift doctor --repo /path/to/project"
 fi
 
 echo
@@ -71,8 +87,9 @@ echo "Next:"
 echo "  maestro-nightshift doctor --repo /path/to/project"
 echo
 echo "Optional compute to start before a real run:"
-echo "  Mac local: open LM Studio, start the local server, and load a chat model."
-echo "  Windows worker: set WINDOWS_WORKER_BASE_URL and WINDOWS_WORKER_MODEL if you have one."
+echo "  Mac local: open LM Studio, start the local server, and load phi-4-mini-instruct."
+echo "  Windows worker: export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1"
+echo "                  export WINDOWS_WORKER_MODEL=qwen3-coder:30b"
 echo "  Claude: install and sign in to the claude CLI if you want that reasoning lane."
 echo "  GitHub: install gh and run 'gh auth login' if you want PR context."
 

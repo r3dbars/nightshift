@@ -20,8 +20,9 @@ from pathlib import Path
 
 
 HOME = Path.home()
-BIN = HOME / ".codex" / "bin"
-OVERNIGHT_ROOT = HOME / ".codex" / "maestro" / "overnight"
+CODEX_HOME = Path(os.environ.get("CODEX_HOME", HOME / ".codex")).expanduser()
+BIN = CODEX_HOME / "bin"
+OVERNIGHT_ROOT = CODEX_HOME / "maestro" / "overnight"
 DEFAULT_LOCAL_URL = "http://localhost:1234/v1"
 DEFAULT_LOCAL_MODEL = "phi-4-mini-instruct"
 DEFAULT_WINDOWS_URL = ""
@@ -222,17 +223,23 @@ def check_model_endpoint(name: str, url: str, expected_model: str | None = None,
 def doctor_advice(rows: list[tuple[str, str, str]]) -> list[str]:
     by_name = {name: state for name, state, _ in rows}
     advice: list[str] = []
-    if by_name.get("maestro-delegate") == "RED" or by_name.get("maestro-token-report") == "RED":
+    if (
+        by_name.get("maestro-nightshift") == "RED"
+        or by_name.get("maestro-delegate") == "RED"
+        or by_name.get("maestro-token-report") == "RED"
+    ):
         advice.append("Install: from the cloned maestro-night-shift repo, run `./install.sh`.")
     if by_name.get("local-models") == "YELLOW":
         advice.append(
-            "Mac local: open LM Studio, enable the local server, and load "
-            f"`{os.environ.get('MAESTRO_LOCAL_MODEL', DEFAULT_LOCAL_MODEL)}` or pass `--local-model`."
+            "Mac local: open LM Studio, start the local server, and load "
+            f"`{os.environ.get('MAESTRO_LOCAL_MODEL', DEFAULT_LOCAL_MODEL)}`. "
+            "Then rerun doctor, or pass `--local-url` and `--local-model`."
         )
     if by_name.get("windows-worker") == "YELLOW":
         advice.append(
-            "Windows worker: start an OpenAI-compatible server on the Windows machine, then set "
-            "`WINDOWS_WORKER_BASE_URL` and `WINDOWS_WORKER_MODEL` or pass `--windows-url` and `--windows-model`."
+            "Windows worker: optional. To use it, run "
+            "`export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1` and "
+            "`export WINDOWS_WORKER_MODEL=qwen3-coder:30b`, or pass `--windows-url` and `--windows-model`."
         )
     if by_name.get("claude") == "YELLOW":
         advice.append("Claude: install and sign in to the `claude` CLI, or ignore this optional lane.")
@@ -255,6 +262,7 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
     rows: list[tuple[str, str, str]] = []
 
     for label, path in [
+        ("maestro-nightshift", BIN / "maestro-nightshift"),
         ("maestro-delegate", BIN / "maestro-delegate"),
         ("maestro-token-report", BIN / "maestro-token-report"),
         ("maestro-smoke", BIN / "maestro-smoke.sh"),
