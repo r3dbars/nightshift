@@ -3,7 +3,7 @@ name: maestro-overnight
 description: Launch and supervise Night Shift, a bounded overnight local-compute work mode. Use when the user asks for Maestro Overnight, Night Shift, goodnight / going to sleep / run overnight / tokenmaxx / use local models / use a Windows GPU worker, wants an on-button for bounded repo work, or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
 ---
 
-# Night Shift
+# Maestro Night Shift
 
 Former name: Maestro Overnight.
 
@@ -34,7 +34,9 @@ are not.
 
 ## Product Shape
 
-User-facing name: `Night Shift`.
+User-facing name: `Maestro Night Shift`.
+
+Short name: `Night Shift`.
 
 Power modes:
 
