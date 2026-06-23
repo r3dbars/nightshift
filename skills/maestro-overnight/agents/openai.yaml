@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maestro Overnight"
+  short_description: "Run bounded local-first overnight work."
+  default_prompt: "Use $maestro-overnight in Conservative mode for one safe repo-only overnight run."

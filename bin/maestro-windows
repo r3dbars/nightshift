@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+base="${WINDOWS_WORKER_BASE_URL:-http://192.168.7.201:11434/v1}"
+key="${WINDOWS_WORKER_API_KEY:-ollama}"
+model="${WINDOWS_WORKER_MODEL:-qwen3-coder:30b}"
+max_tokens="${MAESTRO_WINDOWS_MAX_TOKENS:-1024}"
+prompt="${*:-}"
+if [ -z "$prompt" ]; then
+  echo "usage: maestro-windows <prompt>" >&2
+  exit 2
+fi
+response="$(curl -s "$base/chat/completions" \
+  -H "Authorization: Bearer $key" \
+  -H "Content-Type: application/json" \
+  -d "$(python3 - "$model" "$prompt" "$max_tokens" <<'PY'
+import json, sys
+model, prompt, max_tokens = sys.argv[1], sys.argv[2], int(sys.argv[3])
+print(json.dumps({"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}))
+PY
+)")"
+content="$(python3 - "$response" <<'PY'
+import json, sys
+data=json.loads(sys.argv[1])
+if "choices" not in data:
+    print(json.dumps(data, sort_keys=True), file=sys.stderr)
+    raise SystemExit(1)
+print(data["choices"][0]["message"]["content"].strip())
+PY
+)"
+printf '%s\n' "$content"
+python3 - "$prompt" "$content" "$model" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+prompt, content, model = sys.argv[1], sys.argv[2], sys.argv[3]
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    "lane": "windows",
+    "model": model,
+    "message": f"Windows worker call: {model}",
+    "input_tokens": max(1, len(prompt)//4),
+    "output_tokens": max(1, len(content)//4),
+}
+event["total_tokens"] = event["input_tokens"] + event["output_tokens"]
+path = Path.home()/".codex/maestro-sidecar/events.jsonl"
+path.parent.mkdir(parents=True, exist_ok=True)
+with path.open("a", encoding="utf-8") as f:
+    f.write(json.dumps(event, sort_keys=True)+"\n")
+PY

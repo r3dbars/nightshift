@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: maestro-delegate <local|windows|claude> [--label LABEL] -- <prompt>
+
+Runs a Maestro lane through the configured wrapper and writes proof artifacts:
+  ~/.codex/maestro/runs/<timestamp>-<label>-<lane>/
+
+Artifacts:
+  prompt.sha256  prompt hash only, not raw prompt
+  output.txt     lane output
+  stderr.txt     lane stderr
+  meta.json      lane/model/exit/path/timing metadata
+
+Examples:
+  maestro-delegate local --label pr-dedupe -- "Summarize these PR titles..."
+  maestro-delegate windows --label code-review -- "Review this diff..."
+  maestro-delegate claude --label risk-review -- "Find correctness risks..."
+EOF
+}
+
+if [[ $# -lt 2 ]]; then
+  usage
+  exit 2
+fi
+
+lane="$1"
+shift
+
+label="task"
+if [[ "${1:-}" == "--label" ]]; then
+  if [[ $# -lt 3 ]]; then
+    usage
+    exit 2
+  fi
+  label="$2"
+  shift 2
+fi
+
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
+
+prompt="${*:-}"
+if [[ -z "$prompt" ]]; then
+  usage
+  exit 2
+fi
+
+case "$lane" in
+  local) command_path="${MAESTRO_LOCAL_CMD:-$HOME/.codex/bin/maestro-local}" ;;
+  windows) command_path="${MAESTRO_WINDOWS_CMD:-$HOME/.codex/bin/maestro-windows}" ;;
+  claude) command_path="${MAESTRO_CLAUDE_CMD:-$HOME/.codex/bin/maestro-claude}" ;;
+  *)
+    echo "unknown lane: $lane" >&2
+    usage
+    exit 2
+    ;;
+esac
+
+if [[ ! -x "$command_path" ]]; then
+  echo "lane command is not executable: $command_path" >&2
+  exit 127
+fi
+
+safe_label="$(printf '%s' "$label" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//; s/-$//')"
+if [[ -z "$safe_label" ]]; then
+  safe_label="task"
+fi
+
+ts="$(date -u +%Y%m%dT%H%M%SZ)"
+run_dir="$HOME/.codex/maestro/runs/${ts}-${safe_label}-${lane}"
+mkdir -p "$run_dir"
+
+prompt_hash="$(printf '%s' "$prompt" | shasum -a 256 | awk '{print $1}')"
+printf '%s\n' "$prompt_hash" > "$run_dir/prompt.sha256"
+printf '%s\n' "$command_path <prompt sha256:$prompt_hash>" > "$run_dir/command.txt"
+prompt_bytes="$(printf '%s' "$prompt" | wc -c | tr -d ' ')"
+prompt_tokens_estimate="$(python3 - "$prompt" <<'PY'
+import sys
+text = sys.argv[1]
+print(max(1, len(text) // 4))
+PY
+)"
+
+start_epoch="$(python3 - <<'PY'
+import time
+print(time.time())
+PY
+)"
+
+set +e
+"$command_path" "$prompt" > "$run_dir/output.txt" 2> "$run_dir/stderr.txt"
+rc=$?
+set -e
+
+end_epoch="$(python3 - <<'PY'
+import time
+print(time.time())
+PY
+)"
+
+python3 - "$run_dir" "$lane" "$label" "$command_path" "$prompt_hash" "$prompt_bytes" "$prompt_tokens_estimate" "$rc" "$start_epoch" "$end_epoch" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+run_dir = Path(sys.argv[1])
+lane, label, command_path, prompt_hash = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+prompt_bytes = int(sys.argv[6])
+prompt_tokens_estimate = int(sys.argv[7])
+rc = int(sys.argv[8])
+start = float(sys.argv[9])
+end = float(sys.argv[10])
+output = (run_dir / "output.txt").read_text(encoding="utf-8", errors="replace")
+stderr = (run_dir / "stderr.txt").read_text(encoding="utf-8", errors="replace")
+output_tokens_estimate = max(1, len(output) // 4) if output else 0
+meta = {
+    "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    "lane": lane,
+    "label": label,
+    "command": command_path,
+    "prompt_sha256": prompt_hash,
+    "returncode": rc,
+    "duration_seconds": round(max(0, end - start), 3),
+    "output_path": str(run_dir / "output.txt"),
+    "stderr_path": str(run_dir / "stderr.txt"),
+    "prompt_bytes": prompt_bytes,
+    "prompt_tokens_estimate": prompt_tokens_estimate,
+    "output_bytes": len(output.encode("utf-8")),
+    "output_tokens_estimate": output_tokens_estimate,
+    "total_tokens_estimate": prompt_tokens_estimate + output_tokens_estimate,
+    "stderr_bytes": len(stderr.encode("utf-8")),
+}
+(run_dir / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+event_path = Path.home() / ".codex" / "maestro-sidecar" / "events.jsonl"
+event_path.parent.mkdir(parents=True, exist_ok=True)
+event = {
+    "ts": meta["ts"],
+    "lane": lane,
+    "message": f"maestro-delegate {lane}: {label}",
+    "prompt_sha256": prompt_hash,
+    "output_path": meta["output_path"],
+    "returncode": rc,
+    "duration_seconds": meta["duration_seconds"],
+    "input_tokens": prompt_tokens_estimate,
+    "output_tokens": output_tokens_estimate,
+}
+event["total_tokens"] = event["input_tokens"] + event["output_tokens"]
+with event_path.open("a", encoding="utf-8") as f:
+    f.write(json.dumps(event, sort_keys=True) + "\n")
+PY
+
+cat "$run_dir/output.txt"
+printf '\nMAESTRO_PROOF=%s\n' "$run_dir" >&2
+
+exit "$rc"

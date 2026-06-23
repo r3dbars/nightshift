@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+prompt="${*:-}"
+if [ -z "$prompt" ]; then
+  echo "usage: maestro-claude <prompt>" >&2
+  exit 2
+fi
+content="$(claude -p "$prompt")"
+printf '%s\n' "$content"
+python3 - "$prompt" "$content" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+prompt, content = sys.argv[1], sys.argv[2]
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    "lane": "claude",
+    "model": "claude-cli",
+    "message": "Claude CLI call",
+    "input_tokens": max(1, len(prompt)//4),
+    "output_tokens": max(1, len(content)//4),
+}
+event["total_tokens"] = event["input_tokens"] + event["output_tokens"]
+path = Path.home()/".codex/maestro-sidecar/events.jsonl"
+path.parent.mkdir(parents=True, exist_ok=True)
+with path.open("a", encoding="utf-8") as f:
+    f.write(json.dumps(event, sort_keys=True)+"\n")
+PY
