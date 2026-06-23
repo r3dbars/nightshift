@@ -3,21 +3,31 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: ./install.sh [--doctor REPO]
+usage: ./install.sh [--codex-home PATH] [--doctor REPO]
 
 Installs Night Shift into:
   ${CODEX_HOME:-$HOME/.codex}/bin
   ${CODEX_HOME:-$HOME/.codex}/skills/maestro-overnight
 
 Options:
+  --codex-home PATH  install under PATH instead of ${CODEX_HOME:-$HOME/.codex}
   --doctor REPO   run maestro-nightshift doctor after installing
   -h, --help      show this help
 EOF
 }
 
 doctor_repo=""
+codex_home="${CODEX_HOME:-$HOME/.codex}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --codex-home)
+      if [[ $# -lt 2 ]]; then
+        echo "missing path after --codex-home" >&2
+        exit 2
+      fi
+      codex_home="$2"
+      shift 2
+      ;;
     --doctor)
       if [[ $# -lt 2 ]]; then
         echo "missing repo path after --doctor" >&2
@@ -38,7 +48,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-codex_home="${CODEX_HOME:-$HOME/.codex}"
+codex_home="${codex_home/#\~/$HOME}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bin_dir="$codex_home/bin"
 skill_dir="$codex_home/skills/maestro-overnight"

@@ -6,6 +6,11 @@ Night Shift is a local-first overnight workbench for AI coding agents. Give it
 a repo, connect the compute you already have, pick a mode, and wake up to a
 ranked morning brief instead of a pile of loose chat.
 
+Package status: private source-available package, pre-1.0. The repository is
+not public and the license is intentionally not an open-source license yet.
+See [PACKAGE.md](PACKAGE.md), [CHANGELOG.md](CHANGELOG.md), and
+[LICENSE](LICENSE) before redistributing it.
+
 It is built for developers with repo chores and unused nighttime compute:
 
 - **Mac local models** can triage, classify, and summarize privately.
@@ -162,6 +167,12 @@ One-command install:
 
 ```bash
 ./install.sh
+```
+
+Install into a different Codex home:
+
+```bash
+./install.sh --codex-home /path/to/codex-home
 ```
 
 Install and immediately run doctor:
@@ -514,6 +525,8 @@ Friendly phrases:
 
 ## Project Notes
 
-License is currently pending; see `LICENSE`.
+License is currently private/proprietary; see `LICENSE`.
 
 Contribution notes live in `CONTRIBUTING.md`.
+
+Package and release notes live in `PACKAGE.md` and `CHANGELOG.md`.
