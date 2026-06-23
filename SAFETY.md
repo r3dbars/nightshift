@@ -4,18 +4,40 @@ Night Shift is a bounded overnight work launcher. It is designed to
 produce drafts, audits, maps, and morning briefs. It is not an autonomous
 release, deploy, cleanup, or credential-management system.
 
+The safety promise is simple: overnight lanes may produce artifacts, but they
+do not get to ship. A human or Codex session must choose a reviewed artifact,
+make any code change in an isolated worktree, run checks, and open a draft PR.
+Merging or publishing still requires a separate manual approval.
+
 ## What It Never Does By Itself
 
 - Merges pull requests.
+- Pushes commits or branches from `maestro-nightshift run`.
 - Cuts releases, publishes, tags, notarizes, deploys, updates appcasts, or
   updates casks.
 - Changes credentials, secrets, billing, or account settings.
+- Makes repositories public or changes repository visibility.
 - Moves, deletes, or reorganizes user files.
 - Claims real hardware, audio, Bluetooth, camera, screen-share, install, or
   manual QA proof.
 
 Codex or a human must review worker output before it becomes a real code
 change, PR, merge, release, or public claim.
+
+## Manual Approval Boundaries
+
+Require explicit approval after the morning review before any of these actions:
+
+- Merge a PR or close a release blocker as done.
+- Publish a release, deploy, tag, notarize, update an appcast, or update a cask.
+- Change secrets, credentials, billing, account settings, or repository
+  visibility.
+- Send prompts or artifacts containing private data to non-local lanes.
+- Claim manual proof, hardware proof, install proof, audio proof, or real-user
+  validation.
+
+Green checks mean the automation ran. They do not prove manual, hardware, or
+public-surface behavior.
 
 ## What Lanes Can See
 
@@ -30,6 +52,10 @@ change, PR, merge, release, or public claim.
 Do not use non-local lanes for private notes, customer data, raw transcripts,
 audio, secrets, credentials, payment details, personal contact details, raw
 URLs, raw file paths, or unreleased sensitive plans.
+
+Public information can go to any configured lane. Private information should
+stay local. Sensitive information should not be pasted at all unless the task
+explicitly requires it and the lane is trusted for that data.
 
 ## What Gets Written To Disk
 
@@ -81,6 +107,18 @@ Do not paste:
   titles.
 
 For sensitive work, use only local lanes and keep prompts coarse.
+
+## Public Launch Blocker
+
+Do not change this repository from private to public as a routine docs or
+release step. Even if the current branch is clean, old closed PR refs, branch
+refs, review comments, fork refs, and cached GitHub objects can expose old
+history.
+
+The safest public-launch path is a fresh clean repository created from an
+audited export. The alternate path is a GitHub-supported purge of old refs, PR
+refs, cached objects, and forks before changing visibility. Until one of those
+paths is complete, keep this repository private.
 
 ## Network And Auth Defaults
 

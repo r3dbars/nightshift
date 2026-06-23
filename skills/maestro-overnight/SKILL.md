@@ -19,7 +19,7 @@ maestro-nightshift report --latest
 
 Use this skill as the coordinator cockpit for a bounded overnight run. The goal is useful draft work, not autonomous shipping.
 
-Core rule: local and Windows lanes may draft; Codex reviews and verifies; Claude is rare; nothing merges, releases, publishes, tags, notarizes, changes credentials, or edits billing without the user explicitly saying so after the morning review.
+Core rule: local and Windows lanes may draft; Codex reviews and verifies; Claude is rare; `maestro-nightshift run` does not edit the target repo; nothing pushes branches, merges, releases, publishes, tags, notarizes, changes repository visibility, changes credentials, or edits billing without the user explicitly saying so after the morning review.
 
 Hard default: boring-safe beats ambitious. If a cheap worker suggests broad,
 destructive, private-data, hardware-proof, release, or file-reorganization work,
@@ -49,7 +49,8 @@ Core UX:
 2. Point it at a project.
 3. Pick a mode.
 4. Go to sleep.
-5. Wake up to a morning brief, artifacts, and at most a few high-signal draft PRs.
+5. Wake up to a morning brief, artifacts, and at most a few high-signal draft PRs
+   that Codex or a human opened after review.
 
 This should meet users where they are:
 
@@ -57,8 +58,16 @@ This should meet users where they are:
 - Windows only: use Windows worker if exposed on the LAN.
 - Mac + Windows: use both.
 - Claude Code plan: use Claude sparingly for hard reasoning.
-- Codex plan: use Codex for orchestration, repo edits, PRs, and verification.
+- Codex plan: use Codex for orchestration, isolated worktree edits, draft PRs,
+  and verification.
 - No local models yet: run `doctor`, show exact setup blockers, and fall back to a planning brief.
+
+Public launch blocker: do not make the repository public from a normal Night
+Shift workflow. Old closed PR refs, branch refs, review comments, fork refs, and
+cached GitHub objects can expose old history even after the visible branch looks
+clean. The safest public path is a fresh clean repository from an audited export.
+The alternate path is a GitHub-supported purge of old refs, PR refs, cached
+objects, and forks before changing visibility.
 
 See `README.md` in this skill folder for the user-facing quickstart and 20 common scenarios.
 
@@ -87,7 +96,7 @@ Choose one mode unless the user specifies another.
 - `Tokenmaxx`: run Mac local + Windows workers hard until the user returns in
   the morning or says `Complete`. Keep filling the queue, harvest often, and
   maximize useful local/Windows token throughput. Max draft PRs still bounded;
-  no merge/release/publish actions.
+  no branch push/merge/release/publish actions from `run`.
 - `Fun`: 3-6 tasks, more experiments, still no merge/release.
 - `Research`: read-heavy, produces briefs/issues/plans, code changes only if tiny and obvious.
 - `Morning Review`: stop active work, collect results, verify claims, and report the next action.
@@ -209,9 +218,10 @@ Every non-Codex worker prompt should include:
 - `ROLE`: local triage / Windows draft worker / Claude risk reviewer.
 - `TASK`: one narrow task.
 - `ALLOWED`: exact files, commands, or read-only scope.
-- `FORBIDDEN`: merge, release, publish, tag, notarize, deploy, appcast/cask,
-  credentials, billing, private user data, destructive cleanup, broad rewrites,
-  real hardware/audio claims, and unapproved file reorganization.
+- `FORBIDDEN`: push branches, merge, release, publish, tag, notarize, deploy,
+  appcast/cask, repository visibility, credentials, billing, private user data,
+  destructive cleanup, broad rewrites, real hardware/audio claims, and
+  unapproved file reorganization.
 - `OUTPUT`: an exact schema.
 - `STOP`: stop after the requested output; do not continue inventing work.
 
@@ -234,7 +244,7 @@ Use this Windows draft template:
 ROLE: Windows draft worker.
 TASK: propose safe overnight work only.
 ALLOWED: tests, docs, fixtures, read-only audits, narrow issue lists, small draft PR ideas.
-FORBIDDEN: merge/release/publish/tag/notarize/deploy/appcast/cask, credentials, billing,
+FORBIDDEN: branch push/merge/release/publish/tag/notarize/deploy/appcast/cask, repository visibility, credentials, billing,
 private user data, destructive cleanup, file reorganization, audio mutation, broad rewrites,
 real hardware/audio proof claims.
 OUTPUT:
@@ -272,7 +282,7 @@ Use this Windows long-worker template:
 ROLE: Windows long-running draft worker.
 TASK: <one narrow implementation/review/test-planning task>
 ALLOWED: draft patches, pseudodiffs, test plans, file/path suggestions, review notes.
-FORBIDDEN: merge/release/publish/tag/notarize/deploy/appcast/cask, credentials, billing,
+FORBIDDEN: branch push/merge/release/publish/tag/notarize/deploy/appcast/cask, repository visibility, credentials, billing,
 private user data, destructive cleanup, file reorganization, audio mutation, broad rewrites,
 real hardware/audio proof claims.
 OUTPUT:
@@ -319,6 +329,8 @@ Good overnight tasks:
 Avoid or hold:
 
 - Merge, release, publish, tag, notarize, deploy, or update appcast/cask.
+- Push commits or branches from `maestro-nightshift run`.
+- Make repositories public or change repository visibility.
 - Broad "improve the app" prompts.
 - Secrets, credentials, billing, private user data, or destructive migrations.
 - Hardware/audio/manual-proof claims without real proof.
@@ -395,7 +407,8 @@ Use shell `timeout`, worker-level caps, or process supervision when available. I
 3. Use fresh worktrees or dedicated branches for repo changes.
 4. Keep each task narrow enough to review in the morning.
 5. Commit and push only the files changed for that task when the repo's global instructions require it.
-6. Open draft PRs only for clean, useful, low-risk work.
+6. Open draft PRs only for clean, useful, low-risk work after Codex or a human
+   reviews the artifact, edits in an isolated worktree, and runs checks.
 7. Save proof: command outputs, test names, PR links, branch names, and blockers.
 8. Stop lanes that drift, touch unrelated files, repeat failed fixes, or claim success without evidence.
 
@@ -485,7 +498,8 @@ Best Tokenmaxx workloads:
 
 Do not use Tokenmaxx for:
 
-- release cuts, merges, tags, notarization, appcast/cask updates, or deploys
+- branch pushes from `run`, release cuts, merges, tags, notarization,
+  appcast/cask updates, repository visibility changes, or deploys
 - real hardware/audio/manual-proof claims
 - broad refactors without human approval
 - destructive file cleanup or moving user artifacts
