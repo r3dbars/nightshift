@@ -5,7 +5,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: maestro-delegate <local|windows|claude> [--label LABEL] -- <prompt>
 
-Runs a Maestro lane through the configured wrapper and writes proof artifacts:
+Runs a Night Shift lane through the configured wrapper and writes proof artifacts:
   ~/.codex/maestro/runs/<timestamp>-<label>-<lane>/
 
 Artifacts:
