@@ -1,5 +1,7 @@
 # Night Shift
 
+![Night Shift hero image: local AI workers running overnight and producing a morning brief](assets/night-shift-hero.png)
+
 [![local-first](https://img.shields.io/badge/local--first-by_default-2ea44f)](#safety-and-privacy)
 [![drafts-not-deploys](https://img.shields.io/badge/drafts-not_deploys-6f42c1)](#what-it-will-do)
 [![morning-brief](https://img.shields.io/badge/output-morning_brief-0969da)](#morning-workflow)

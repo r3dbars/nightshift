@@ -61,8 +61,9 @@ package availability until those are true.
 
 ## Visual Suggestions
 
-- Hero image: a terminal with `maestro-nightshift run --mode night-shift` on the
-  left and a clean `morning.md` summary on the right.
+- Hero image: use [`assets/night-shift-hero.png`](assets/night-shift-hero.png),
+  a GPT-generated repo-owned image showing local AI workers running overnight
+  and producing a morning brief.
 - Diagram: repo plus compute lanes flowing into Night Shift, then into artifacts,
   token report, morning brief, and human/Codex review.
 - Screenshot: `doctor` output showing reachable lanes and honest yellow states.
@@ -71,14 +72,18 @@ package availability until those are true.
 - Social image: dark terminal desk, small status lights, headline "Let the
   machines take the night shift. You keep the keys."
 
-## Image Prompt Placeholder
+## Generated Image Prompt
 
-Create a clean product screenshot-style hero for a developer tool called
-"Night Shift". Show a macOS terminal running `maestro-nightshift run
---repo /path/to/project --mode night-shift`, a small lane status panel for Local,
-Windows, Claude, and Codex, and a morning brief panel with KEEP/MAYBE/REJECT
-counts. Style: quiet developer tooling, sharp text, no mascot, no sci-fi glow,
-no claims about autonomous deployment.
+Prompt used for the current hero image:
+
+> Create a polished open-source GitHub README hero image for a developer tool
+> named Night Shift. Concept: a quiet dark desk at night with a Mac laptop and a
+> compact Windows GPU tower softly glowing, terminal panes and small AI worker
+> cards flowing into a calm morning brief. Mood: practical, local-first,
+> trustworthy, not sci-fi. No logos, no brand marks, no readable text except
+> maybe abstract UI glyphs. Wide banner composition, 16:9, high contrast, modern
+> product illustration, crisp details, tasteful deep navy and warm amber accent
+> lighting.
 
 ## Short Launch Post
 
