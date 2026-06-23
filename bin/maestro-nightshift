@@ -75,6 +75,12 @@ BOARD_ITEMS = [
 ]
 
 
+class NightShiftParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: error: {message}\n\n{friendly_hint(self.prog, message)}\n")
+
+
 @dataclass
 class CmdResult:
     command: str
@@ -86,6 +92,20 @@ class CmdResult:
 
 def now_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def friendly_hint(prog: str, message: str = "") -> str:
+    if "run" in prog and "--repo" in message:
+        return "Try: maestro-nightshift run --repo /path/to/project --mode night-shift"
+    if "plan" in prog and "--repo" in message:
+        return "Try: maestro-nightshift plan --repo /path/to/project --mode night-shift"
+    if "doctor" in prog:
+        return "Try: maestro-nightshift doctor --repo /path/to/project"
+    if "report" in prog:
+        return "Try: maestro-nightshift report --latest"
+    if "stop" in prog:
+        return "Try: maestro-nightshift stop --latest"
+    return "Try: maestro-nightshift doctor --repo /path/to/project"
 
 
 def run_cmd(args, cwd=None, timeout=60, env=None, pid_log: Path | None = None) -> CmdResult:
@@ -870,7 +890,8 @@ def command_plan(args) -> int:
     (ledger / "mode.json").write_text(json.dumps({"mode": args.mode, **MODE_DEFAULTS[args.mode]}, indent=2) + "\n", encoding="utf-8")
     (ledger / "startup-gate.md").write_text("# Startup Gate\n\nStatus: NOT_RUN\n\nRun `maestro-nightshift doctor --repo <repo>` before a real night.\n", encoding="utf-8")
     print(f"NIGHTSHIFT_PLAN: GREEN | mode={args.mode} | ledger={ledger}")
-    print("Next: maestro-nightshift run --repo <repo> --mode " + args.mode)
+    print(f"Next: maestro-nightshift run --repo {root} --mode {args.mode}")
+    print(f"Preview: maestro-nightshift report --ledger {ledger}")
     return 0
 
 
@@ -1001,16 +1022,20 @@ def command_run(args) -> int:
         f"NIGHTSHIFT_RUN: {status} | mode={args.mode} | local={len([r for r in results if r['lane']=='local'])} "
         f"| windows={len([r for r in results if r['lane']=='windows'])} | tokens={total_tokens} | ledger={ledger}"
     )
+    print(f"Morning brief: maestro-nightshift report --ledger {ledger}")
+    print(f"Stop this run: maestro-nightshift stop --ledger {ledger}")
     print(token_report.strip())
     return 0
 
 
 def command_report(args) -> int:
     if args.ledger and args.latest:
-        print("NIGHTSHIFT_REPORT: RED | use either --latest or --ledger, not both")
+        print("NIGHTSHIFT_REPORT: RED | use either --latest or --ledger <path>, not both")
+        print("Try: maestro-nightshift report --latest")
         return 2
     if not args.ledger and not args.latest:
         print("NIGHTSHIFT_REPORT: RED | choose --latest or --ledger <path>")
+        print("Try: maestro-nightshift report --latest")
         return 2
     ledger = select_ledger(args)
     if not ledger or not ledger.exists():
@@ -1032,10 +1057,12 @@ def command_report(args) -> int:
 
 def command_stop(args) -> int:
     if args.ledger and args.latest:
-        print("NIGHTSHIFT_STOP: RED | use either --latest or --ledger, not both")
+        print("NIGHTSHIFT_STOP: RED | use either --latest or --ledger <path>, not both")
+        print("Try: maestro-nightshift stop --latest")
         return 2
     if not args.ledger and not args.latest:
         print("NIGHTSHIFT_STOP: RED | choose --latest or --ledger <path>")
+        print("Try: maestro-nightshift stop --latest")
         return 2
     ledger = select_ledger(args)
     if not ledger or not ledger.exists():
@@ -1049,14 +1076,30 @@ def command_stop(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = NightShiftParser(
         prog="maestro-nightshift",
         description="Run Night Shift: safe local/Windows overnight repo analysis and artifact generation.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent(
+            """
+            Common flow:
+              maestro-nightshift doctor --repo /path/to/project
+              maestro-nightshift plan --repo /path/to/project --mode night-shift
+              maestro-nightshift run --repo /path/to/project --mode night-shift
+              maestro-nightshift report --latest
+              maestro-nightshift stop --latest
+            """
+        ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    doctor = sub.add_parser("doctor", help="check compute lanes and repo readiness")
+    doctor = sub.add_parser(
+        "doctor",
+        help="check compute lanes and repo readiness",
+        description="Check local, Windows, Claude, GitHub, and repo readiness before a run.",
+        epilog="Example: maestro-nightshift doctor --repo /path/to/project",
+    )
     doctor.add_argument("--repo", required=False, help="repo path to check")
     doctor.add_argument("--local-url", required=False, help="override MAESTRO_LOCAL_BASE_URL")
     doctor.add_argument("--local-model", required=False, help="override MAESTRO_LOCAL_MODEL")
@@ -1065,35 +1108,55 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--smoke", action="store_true", help="also run maestro-smoke.sh")
     doctor.set_defaults(func=command_doctor)
 
-    plan = sub.add_parser("plan", help="create a ledger, board, and context pack without model calls")
-    plan.add_argument("--repo", required=True)
-    plan.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default="night-shift")
+    plan = sub.add_parser(
+        "plan",
+        help="create a ledger, board, and context pack without model calls",
+        description="Create a dry-run ledger, board, and repo context pack. No model calls are made.",
+        epilog="Example: maestro-nightshift plan --repo /path/to/project --mode night-shift",
+    )
+    plan.add_argument("--repo", required=True, help="git repo to inspect")
+    plan.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default="night-shift", help="work level to prepare")
     plan.set_defaults(func=command_plan)
 
-    run = sub.add_parser("run", help="run safe local/Windows overnight loops")
-    run.add_argument("--repo", required=True)
-    run.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default="night-shift")
-    run.add_argument("--max-local", type=int, default=None)
-    run.add_argument("--max-windows", type=int, default=None)
-    run.add_argument("--parallel-local", type=int, default=None)
-    run.add_argument("--parallel-windows", type=int, default=None)
-    run.add_argument("--token-target", type=int, default=None)
+    run = sub.add_parser(
+        "run",
+        help="run safe local/Windows overnight loops",
+        description="Run bounded local/Windows worker loops and write a morning brief ledger.",
+        epilog="Example: maestro-nightshift run --repo /path/to/project --mode night-shift",
+    )
+    run.add_argument("--repo", required=True, help="git repo to inspect")
+    run.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default="night-shift", help="quiet, normal, or afterburner run")
+    run.add_argument("--max-local", type=int, default=None, help="local model tasks to run; use 0 to skip")
+    run.add_argument("--max-windows", type=int, default=None, help="Windows worker tasks to run; use 0 to skip")
+    run.add_argument("--parallel-local", type=int, default=None, help="local workers at once")
+    run.add_argument("--parallel-windows", type=int, default=None, help="Windows workers at once")
+    run.add_argument("--token-target", type=int, default=None, help="estimated local+Windows token target")
     run.add_argument("--local-url", required=False, help="override MAESTRO_LOCAL_BASE_URL")
     run.add_argument("--local-model", required=False, help="override MAESTRO_LOCAL_MODEL")
     run.add_argument("--windows-url", required=False, help="override WINDOWS_WORKER_BASE_URL")
     run.add_argument("--windows-model", required=False, help="override WINDOWS_WORKER_MODEL")
-    run.add_argument("--timeout", type=int, default=900)
-    run.add_argument("--skip-smoke", action="store_true")
+    run.add_argument("--timeout", type=int, default=900, help="seconds before each worker task is stopped")
+    run.add_argument("--skip-smoke", action="store_true", help="skip the lane smoke check during startup")
     run.set_defaults(func=command_run)
 
-    report = sub.add_parser("report", help="summarize the latest or selected ledger")
-    report.add_argument("--latest", action="store_true", help="use latest ledger")
-    report.add_argument("--ledger", required=False)
+    report = sub.add_parser(
+        "report",
+        help="summarize the latest or selected ledger",
+        description="Print the morning brief for the latest or selected Night Shift ledger.",
+        epilog="Example: maestro-nightshift report --latest",
+    )
+    report.add_argument("--latest", action="store_true", help="use the newest Night Shift ledger")
+    report.add_argument("--ledger", required=False, help="specific ledger path; cannot be combined with --latest")
     report.set_defaults(func=command_report)
 
-    stop = sub.add_parser("stop", help="request graceful stop for latest or selected ledger")
-    stop.add_argument("--latest", action="store_true", help="use latest ledger")
-    stop.add_argument("--ledger", required=False)
+    stop = sub.add_parser(
+        "stop",
+        help="request graceful stop for latest or selected ledger",
+        description="Write a STOP file and signal recorded worker process groups for a ledger.",
+        epilog="Example: maestro-nightshift stop --latest",
+    )
+    stop.add_argument("--latest", action="store_true", help="stop the newest Night Shift ledger")
+    stop.add_argument("--ledger", required=False, help="specific ledger path; cannot be combined with --latest")
     stop.set_defaults(func=command_stop)
 
     return parser
