@@ -116,7 +116,7 @@ appcast, cask, credentials, billing, or user-file cleanup.
 ## token-report.txt
 
 ```text
-# Maestro Token Report
+# Night Shift Token Report
 
 Local:
 - calls: 40

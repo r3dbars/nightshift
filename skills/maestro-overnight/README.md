@@ -1,4 +1,4 @@
-# Maestro Night Shift
+# Night Shift
 
 [![local-first](https://img.shields.io/badge/local--first-by_default-2ea44f)](#safety-and-privacy)
 [![drafts-not-deploys](https://img.shields.io/badge/drafts-not_deploys-6f42c1)](#what-it-will-do)
@@ -6,7 +6,7 @@
 
 Put your idle AI compute to work while you sleep.
 
-Maestro Night Shift is a local-first overnight workbench for AI coding agents.
+Night Shift is a local-first overnight workbench for AI coding agents.
 Point it at a repo, point it at the compute you already have, pick a mode, and
 wake up to a morning brief with artifacts, safe draft ideas, token totals, and
 the next action.
@@ -33,7 +33,7 @@ Suggested GitHub description:
 
 ## Why This Exists
 
-Most AI coding tools are optimized for the moment you are sitting there. Maestro
+Most AI coding tools are optimized for the moment you are sitting there.
 Night Shift is optimized for the hours when you are not.
 
 It turns idle compute into bounded, reviewable repo work:
@@ -122,7 +122,7 @@ Visual placeholder for a future README hero:
 
 ```text
 +--------------+     +----------------------+     +---------------+
-| Your repo    | --> | Maestro Night Shift  | --> | Morning brief |
+| Your repo    | --> | Night Shift          | --> | Morning brief |
 | Your compute | --> | local / Windows / AI | --> | KEEP / MAYBE  |
 +--------------+     +----------------------+     +---------------+
 ```
@@ -513,7 +513,7 @@ The right next action is usually one of these:
 
 ## Naming And Package
 
-Product name: `Maestro Night Shift`
+Product name: `Night Shift`
 
 Short name: `Night Shift`
 

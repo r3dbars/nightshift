@@ -1,4 +1,4 @@
-# Maestro Night Shift Marketing Kit
+# Night Shift Marketing Kit
 
 Use this as public-facing copy for the repo, README, launch notes, or screenshots.
 Keep the promise small: Night Shift creates useful overnight drafts and a morning
@@ -6,7 +6,7 @@ brief. It does not ship while you sleep.
 
 ## One-Line Positioning
 
-Maestro Night Shift puts idle local AI compute to work overnight, then hands you
+Night Shift puts idle local AI compute to work overnight, then hands you
 a ranked morning brief instead of a mystery pile of agent output.
 
 ## GitHub Repo Description Options
@@ -35,7 +35,7 @@ Let the machines take the night shift. You still keep the keys.
 ## Launch Narrative
 
 Most AI coding tools are built for the moment you are actively steering them.
-Maestro Night Shift is built for the hours when your laptop, desktop GPU, and
+Night Shift is built for the hours when your laptop, desktop GPU, and
 repo backlog are all sitting there unused.
 
 You point it at a repo, choose the compute lanes that are allowed, and pick a
@@ -74,7 +74,7 @@ package availability until those are true.
 ## Image Prompt Placeholder
 
 Create a clean product screenshot-style hero for a developer tool called
-"Maestro Night Shift". Show a macOS terminal running `maestro-nightshift run
+"Night Shift". Show a macOS terminal running `maestro-nightshift run
 --repo /path/to/project --mode night-shift`, a small lane status panel for Local,
 Windows, Claude, and Codex, and a morning brief panel with KEEP/MAYBE/REJECT
 counts. Style: quiet developer tooling, sharp text, no mascot, no sci-fi glow,
@@ -82,7 +82,7 @@ no claims about autonomous deployment.
 
 ## Short Launch Post
 
-Maestro Night Shift is a local-first overnight workbench for AI coding agents.
+Night Shift is a local-first overnight workbench for AI coding agents.
 
 Point it at a repo, point it at your idle compute, and let local/Windows workers
 spend the night making maps, audits, draft plans, and issue candidates. In the

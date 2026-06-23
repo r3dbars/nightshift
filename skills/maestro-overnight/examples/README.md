@@ -109,7 +109,7 @@ sed -n '1,220p' ~/.codex/maestro/overnight/*/harvest.md | tail -n 120
 Then ask Codex:
 
 ```text
-Review the latest Maestro harvest. Pick the best KEEP item, verify it against
+Review the latest Night Shift harvest. Pick the best KEEP item, verify it against
 the repo, make only that narrow change, run tests, commit, push, and open a
 draft PR. Do not merge or release.
 ```

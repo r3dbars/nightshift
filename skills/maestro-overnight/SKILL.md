@@ -1,11 +1,9 @@
 ---
 name: maestro-overnight
-description: Launch and supervise Night Shift, a bounded overnight local-compute work mode. Use when the user asks for Maestro Overnight, Night Shift, goodnight / going to sleep / run overnight / tokenmaxx / use local models / use a Windows GPU worker, wants an on-button for bounded repo work, or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
+description: Launch and supervise Night Shift, a bounded overnight local-compute work mode. Use when the user asks for Night Shift, goodnight / going to sleep / run overnight / tokenmaxx / use local models / use a Windows GPU worker, wants an on-button for bounded repo work, or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
 ---
 
-# Maestro Night Shift
-
-Former name: Maestro Overnight.
+# Night Shift
 
 Tagline: put your idle AI hardware to work while you sleep.
 
@@ -34,7 +32,7 @@ are not.
 
 ## Product Shape
 
-User-facing name: `Maestro Night Shift`.
+User-facing name: `Night Shift`.
 
 Short name: `Night Shift`.
 
@@ -510,7 +508,7 @@ Do not use Tokenmaxx for:
 
 ## Rehearsal Test
 
-When the user asks to test Maestro Overnight, run a tiny no-edit rehearsal:
+When the user asks to test Night Shift, run a tiny no-edit rehearsal:
 
 1. Create a ledger under `~/.codex/maestro/overnight/test-<timestamp>/`.
 2. Run `~/.codex/bin/maestro-smoke.sh`.

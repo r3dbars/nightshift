@@ -77,7 +77,7 @@ lanes used: Codex=harvested and scored artifacts; Claude=skipped; Local=40 draft
 Copy-paste next step:
 
 ```text
-Codex, review the latest Maestro morning brief. Verify KEEP item 1 against the
+Codex, review the latest Night Shift morning brief. Verify KEEP item 1 against the
 repo. If it is real, make the smallest test-only change, run the mapped tests,
 commit, push, and open a draft PR. Do not merge or release.
 ```
