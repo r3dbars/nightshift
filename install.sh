@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 usage: ./install.sh [--doctor REPO]
 
-Installs Maestro Night Shift into:
+Installs Night Shift into:
   ${CODEX_HOME:-$HOME/.codex}/bin
   ${CODEX_HOME:-$HOME/.codex}/skills/maestro-overnight
 
@@ -57,7 +57,7 @@ chmod +x "$bin_dir"/maestro-*
 
 rsync -a --delete "$repo_root/skills/maestro-overnight/" "$skill_dir/"
 
-echo "Maestro Night Shift installed."
+echo "Night Shift installed."
 echo "Installed command: $bin_dir/maestro-nightshift"
 
 if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
