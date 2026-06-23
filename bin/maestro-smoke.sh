@@ -15,27 +15,31 @@ fi
 
 echo
 echo "== Local LM Studio lane =="
-if curl -fsS http://localhost:1234/v1/models >/tmp/maestro-local-models.json 2>/tmp/maestro-local-error.txt; then
+MAESTRO_LOCAL_BASE_URL="${MAESTRO_LOCAL_BASE_URL:-http://localhost:1234/v1}"
+MAESTRO_LOCAL_MODEL="${MAESTRO_LOCAL_MODEL:-phi-4-mini-instruct}"
+if curl -fsS "$MAESTRO_LOCAL_BASE_URL/models" >/tmp/maestro-local-models.json 2>/tmp/maestro-local-error.txt; then
   python3 - <<'PY'
 import json
 print([m["id"] for m in json.load(open("/tmp/maestro-local-models.json"))["data"]])
 PY
-  curl -s http://localhost:1234/v1/chat/completions \
+  curl -s "$MAESTRO_LOCAL_BASE_URL/chat/completions" \
     -H "Content-Type: application/json" \
-    -d '{"model":"phi-4-mini-instruct","messages":[{"role":"user","content":"Reply with exactly: MAESTRO_LOCAL_OK"}],"max_tokens":30}' \
+    -d "{\"model\":\"$MAESTRO_LOCAL_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: MAESTRO_LOCAL_OK\"}],\"max_tokens\":30}" \
     | python3 -c 'import sys,json; print(json.load(sys.stdin)["choices"][0]["message"]["content"].strip())' || true
 else
-  echo "LM Studio server not running"
+  echo "LM Studio server not reachable at $MAESTRO_LOCAL_BASE_URL"
   cat /tmp/maestro-local-error.txt
 fi
 
 echo
 echo "== Windows worker lane =="
-WINDOWS_WORKER_BASE_URL="${WINDOWS_WORKER_BASE_URL:-http://192.168.7.201:11434/v1}"
+WINDOWS_WORKER_BASE_URL="${WINDOWS_WORKER_BASE_URL:-}"
 WINDOWS_WORKER_MODEL="${WINDOWS_WORKER_MODEL:-qwen3-coder:30b}"
 WINDOWS_WORKER_API_KEY="${WINDOWS_WORKER_API_KEY:-ollama}"
 
-if curl -fsS "$WINDOWS_WORKER_BASE_URL/models" \
+if [ -z "$WINDOWS_WORKER_BASE_URL" ]; then
+  echo "Windows worker not configured. Set WINDOWS_WORKER_BASE_URL to enable this lane."
+elif curl -fsS "$WINDOWS_WORKER_BASE_URL/models" \
   -H "Authorization: Bearer $WINDOWS_WORKER_API_KEY" \
   >/tmp/maestro-windows-models.json 2>/tmp/maestro-windows-error.txt; then
   python3 - <<'PY'
