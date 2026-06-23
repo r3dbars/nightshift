@@ -12,8 +12,9 @@ maybe Claude, and definitely a pile of repo chores. Why are all of them asleep
 at the same time?"
 
 It is not an autonomous release bot. Local and Windows models can think, sort,
-review, and draft. Codex still reviews, edits, tests, opens PRs, merges, and
-ships.
+review, and draft. The `run` command does not edit the target repo. Codex or a
+human still reviews, edits, tests, and opens any PRs. Merges, releases, and
+public launches require explicit manual approval after review.
 
 For the safety and privacy boundary, including what worker lanes can see and
 what gets written to disk, read [SAFETY.md](SAFETY.md).
@@ -295,16 +296,36 @@ Good overnight work:
 What it will not do by itself:
 
 - Merge PRs.
+- Push commits or branches from the `run` command.
 - Cut releases.
 - Publish, tag, notarize, deploy, update appcasts, or update casks.
 - Touch credentials or billing.
 - Move or delete user files.
 - Claim hardware, audio, Bluetooth, camera, or manual QA proof.
 
+Code changes are PR-only: Night Shift artifacts can become a branch only after
+Codex or a human chooses one reviewed item, makes the change in an isolated
+worktree, runs checks, and opens a draft PR. Nothing from an overnight run is
+merged or shipped without a separate approval.
+
 Do not paste secrets, customer data, raw transcripts, audio, meeting titles,
 speaker names, private URLs, raw file paths, billing details, or personal
 contact details into prompts. Local lanes see prompts on this machine; Windows
 lanes see prompts on the configured Windows worker.
+
+## Public Launch Blocker
+
+Do not make this repository public just because the current docs look clean.
+Old closed PRs, branch refs, review comments, fork refs, and cached GitHub
+objects can expose old history even after the visible branch is cleaned up.
+
+Safest public path:
+
+1. Create a fresh clean public repository from an audited export.
+2. Or complete a GitHub-supported purge of old refs, PR refs, cached objects,
+   and forks before changing visibility.
+
+Until one of those is done, treat this repo as private-only.
 
 ## Twenty Common Scenarios
 
