@@ -132,4 +132,7 @@ sed -n '1,220p' "$latest/harvest.md"
 sed -n '1,160p' "$latest/token-report.txt"
 ```
 
-See [sample-morning-brief.md](sample-morning-brief.md) for fake sample output.
+See these fake sample outputs:
+
+- [sample-morning-brief.md](sample-morning-brief.md): what the morning summary looks like.
+- [sample-ledger-output.md](sample-ledger-output.md): what the ledger files look like.
