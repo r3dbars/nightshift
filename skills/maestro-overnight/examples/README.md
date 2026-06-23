@@ -1,8 +1,8 @@
-# Maestro Night Shift Examples
+# Night Shift Examples
 
 These are copy-paste starting points. Replace `/path/to/project` with your repo.
 
-Maestro Night Shift is artifact-first. Local, Windows, and Claude lanes can
+Night Shift is artifact-first. Local, Windows, and Claude lanes can
 think and draft. Codex verifies before code, PRs, merges, or releases happen.
 
 ## Quiet Shift

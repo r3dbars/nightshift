@@ -382,7 +382,7 @@ def repo_context_pack(repo: Path | None) -> str:
 
 
 def build_board(mode: str) -> str:
-    lines = [f"# Maestro Night Shift Board", "", f"Mode: {mode}", ""]
+    lines = [f"# Night Shift Board", "", f"Mode: {mode}", ""]
     lines.append("| item | safe lane | artifact |")
     lines.append("| --- | --- | --- |")
     for slug, task in BOARD_ITEMS:
@@ -1043,7 +1043,7 @@ def command_stop(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="maestro-nightshift",
-        description="Run Maestro Night Shift: safe local/Windows overnight repo analysis and artifact generation.",
+        description="Run Night Shift: safe local/Windows overnight repo analysis and artifact generation.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)

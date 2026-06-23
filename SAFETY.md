@@ -1,6 +1,6 @@
 # Safety And Privacy
 
-Maestro Night Shift is a bounded overnight work launcher. It is designed to
+Night Shift is a bounded overnight work launcher. It is designed to
 produce drafts, audits, maps, and morning briefs. It is not an autonomous
 release, deploy, cleanup, or credential-management system.
 

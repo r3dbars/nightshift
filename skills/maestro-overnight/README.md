@@ -1,8 +1,8 @@
-# Maestro Night Shift
+# Night Shift
 
 Put your idle AI compute to work while you sleep.
 
-Maestro Night Shift is a local-first overnight workbench for AI coding agents.
+Night Shift is a local-first overnight workbench for AI coding agents.
 Point it at a repo, point it at the compute you already have, pick a mode, and
 wake up to a morning brief with artifacts, safe draft ideas, token totals, and
 the next action.
@@ -79,7 +79,7 @@ Then choose one mode:
 
 ```mermaid
 flowchart LR
-    A["Repo"] --> B["Maestro Night Shift"]
+    A["Repo"] --> B["Night Shift"]
     C["Local model"] --> B
     D["Optional Windows worker"] --> B
     E["Optional Claude CLI"] --> B
@@ -441,7 +441,7 @@ The right next action is usually one of these:
 
 ## Naming
 
-Product name: `Maestro Night Shift`
+Product name: `Night Shift`
 
 Short command: `maestro-nightshift`
 

@@ -1,6 +1,6 @@
 # Contributing
 
-Maestro Night Shift should stay small, local-first, and honest about proof.
+Night Shift should stay small, local-first, and honest about proof.
 
 Before opening a PR:
 
