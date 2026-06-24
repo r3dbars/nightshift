@@ -45,6 +45,13 @@ maestro-nightshift run --repo /path/to/project --mode night-shift
 maestro-nightshift report --latest
 ```
 
+For active development on the skill or CLI, install in linked mode so edits in
+this checkout are immediately what Codex loads:
+
+```bash
+./install.sh --link
+```
+
 Expected morning shape:
 
 ```text
@@ -219,6 +226,16 @@ Install into a different Codex home:
 ```bash
 ./install.sh --codex-home /path/to/codex-home
 ```
+
+Install for development from this checkout:
+
+```bash
+./install.sh --link
+```
+
+Linked mode points `~/.codex/bin/maestro-*` and
+`~/.codex/skills/maestro-overnight` at this Git checkout, so changes under
+`bin/` or `skills/maestro-overnight/` can be committed and pushed normally.
 
 Install and immediately run doctor:
 

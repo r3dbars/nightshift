@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: ./install.sh [--codex-home PATH] [--doctor REPO]
+usage: ./install.sh [--codex-home PATH] [--link] [--doctor REPO]
 
 Installs Night Shift into:
   ${CODEX_HOME:-$HOME/.codex}/bin
@@ -11,12 +11,14 @@ Installs Night Shift into:
 
 Options:
   --codex-home PATH  install under PATH instead of ${CODEX_HOME:-$HOME/.codex}
+  --link             symlink bin files and the skill to this checkout for development
   --doctor REPO   run maestro-nightshift doctor after installing
   -h, --help      show this help
 EOF
 }
 
 doctor_repo=""
+link_install=0
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +29,10 @@ while [[ $# -gt 0 ]]; do
       fi
       codex_home="$2"
       shift 2
+      ;;
+    --link)
+      link_install=1
+      shift
       ;;
     --doctor)
       if [[ $# -lt 2 ]]; then
@@ -71,12 +77,26 @@ done
 
 mkdir -p "$bin_dir" "$skill_dir"
 
-cp "$repo_root"/bin/maestro-* "$bin_dir/"
-chmod +x "$bin_dir"/maestro-*
+if [[ "$link_install" -eq 1 ]]; then
+  for source in "$repo_root"/bin/maestro-*; do
+    target="$bin_dir/$(basename "$source")"
+    rm -f "$target"
+    ln -s "$source" "$target"
+  done
 
-rsync -a --delete "$repo_root/skills/maestro-overnight/" "$skill_dir/"
+  rm -rf "$skill_dir"
+  ln -s "$repo_root/skills/maestro-overnight" "$skill_dir"
+else
+  cp "$repo_root"/bin/maestro-* "$bin_dir/"
+  chmod +x "$bin_dir"/maestro-*
+
+  rsync -a --delete "$repo_root/skills/maestro-overnight/" "$skill_dir/"
+fi
 
 echo "Night Shift installed."
+if [[ "$link_install" -eq 1 ]]; then
+  echo "Install mode: linked to $repo_root"
+fi
 echo "Installed command: $bin_dir/maestro-nightshift"
 "$bin_dir/maestro-nightshift" --version
 
