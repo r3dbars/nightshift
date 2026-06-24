@@ -61,8 +61,12 @@ package availability until those are true.
 
 ## Visual Suggestions
 
-- Hero image: a terminal with `maestro-nightshift run --mode night-shift` on the
-  left and a clean `morning.md` summary on the right.
+- Hero image: use [`assets/night-shift-hero.png`](assets/night-shift-hero.png),
+  a GPT-generated repo-owned image showing tiny AI night-shift helpers doing
+  harmless repo chores while the human sleeps.
+- Mascot: use [`assets/night-shift-mascot.png`](assets/night-shift-mascot.png),
+  the tiny coffee-and-clipboard Night Shift helper. Good for README callouts,
+  social posts, stickers, and launch graphics.
 - Diagram: repo plus compute lanes flowing into Night Shift, then into artifacts,
   token report, morning brief, and human/Codex review.
 - Screenshot: `doctor` output showing reachable lanes and honest yellow states.
@@ -71,14 +75,32 @@ package availability until those are true.
 - Social image: dark terminal desk, small status lights, headline "Let the
   machines take the night shift. You keep the keys."
 
-## Image Prompt Placeholder
+## Generated Image Prompt
 
-Create a clean product screenshot-style hero for a developer tool called
-"Night Shift". Show a macOS terminal running `maestro-nightshift run
---repo /path/to/project --mode night-shift`, a small lane status panel for Local,
-Windows, Claude, and Codex, and a morning brief panel with KEEP/MAYBE/REJECT
-counts. Style: quiet developer tooling, sharp text, no mascot, no sci-fi glow,
-no claims about autonomous deployment.
+Prompt used for the current hero image:
+
+> Create a quirky, funny, shareable hero/social image for an open-source
+> developer tool called Night Shift. Concept: a cozy late-night home office
+> where tiny friendly robot interns are doing harmless repo chores while the
+> human sleeps nearby: one robot sorts sticky notes labeled with abstract
+> symbols, one carries a tiny coffee mug, one points at a morning brief on a
+> monitor, a GPU tower glows softly like a little furnace. Mood: playful, warm,
+> clever, indie hacker, not corporate. No logos, no brand marks, no readable
+> text, no scary sci-fi, no animals, no monsters. Wide 16:9 banner, polished
+> editorial illustration, crisp composition, warm lamp light, deep blue night
+> outside, tasteful humor, high-quality.
+
+Mascot prompt:
+
+> Create a standalone mascot for an open-source developer tool called Night
+> Shift. Character: a tiny friendly robot night-shift helper, warm and quirky,
+> carrying a small coffee mug and a clipboard with abstract checkmarks, wearing
+> a tiny soft nightcap or headlamp. It should feel like a helpful repo intern
+> that works while you sleep. Cute but not childish, indie hacker vibe, simple
+> silhouette, expressive, no logos, no readable text, no brand marks, no
+> animals, no monsters. Clean transparent or plain light background, centered
+> character, suitable for GitHub README mascot, app icon sticker, and social
+> posts. High quality polished illustration.
 
 ## Short Launch Post
 
