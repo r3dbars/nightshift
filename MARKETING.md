@@ -64,6 +64,9 @@ package availability until those are true.
 - Hero image: use [`assets/night-shift-hero.png`](assets/night-shift-hero.png),
   a GPT-generated repo-owned image showing tiny AI night-shift helpers doing
   harmless repo chores while the human sleeps.
+- Mascot: use [`assets/night-shift-mascot.png`](assets/night-shift-mascot.png),
+  the tiny coffee-and-clipboard Night Shift helper. Good for README callouts,
+  social posts, stickers, and launch graphics.
 - Diagram: repo plus compute lanes flowing into Night Shift, then into artifacts,
   token report, morning brief, and human/Codex review.
 - Screenshot: `doctor` output showing reachable lanes and honest yellow states.
@@ -86,6 +89,18 @@ Prompt used for the current hero image:
 > text, no scary sci-fi, no animals, no monsters. Wide 16:9 banner, polished
 > editorial illustration, crisp composition, warm lamp light, deep blue night
 > outside, tasteful humor, high-quality.
+
+Mascot prompt:
+
+> Create a standalone mascot for an open-source developer tool called Night
+> Shift. Character: a tiny friendly robot night-shift helper, warm and quirky,
+> carrying a small coffee mug and a clipboard with abstract checkmarks, wearing
+> a tiny soft nightcap or headlamp. It should feel like a helpful repo intern
+> that works while you sleep. Cute but not childish, indie hacker vibe, simple
+> silhouette, expressive, no logos, no readable text, no brand marks, no
+> animals, no monsters. Clean transparent or plain light background, centered
+> character, suitable for GitHub README mascot, app icon sticker, and social
+> posts. High quality polished illustration.
 
 ## Short Launch Post
 

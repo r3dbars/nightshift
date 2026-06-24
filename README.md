@@ -83,6 +83,13 @@ It turns idle compute into bounded, reviewable repo work:
 The joke version: it lets your machines have a productive little night shift,
 without letting them become management.
 
+## Mascot
+
+<img src="assets/night-shift-mascot.png" alt="Night Shift mascot: a tiny robot helper with coffee and a clipboard" width="220">
+
+This is the Night Shift helper: tiny, caffeinated, and only allowed to make
+drafts until a human checks the work.
+
 ## Launch Story
 
 The simplest version:
