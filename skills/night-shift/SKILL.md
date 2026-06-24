@@ -94,21 +94,25 @@ night-shift start
 The wizard should ask, in plain language:
 
 1. Which project should Night Shift look at?
-2. What AI tools should it use?
-   - Not sure, check for me.
-   - AI coding subscriptions, like Codex or Claude Code.
-   - Local AI on this Mac, like LM Studio or Ollama.
-   - Local AI on another computer.
-   - Local AI on this Mac and another computer.
-3. What is Night Shift allowed to do overnight?
+2. What do you want to wake up to?
+   - A short morning brief only.
+   - Ranked repo chores and test ideas.
+   - Draft PR candidates, but only after checks.
+3. Where is Night Shift allowed to send repo context?
+   - Keep it on this Mac.
+   - This Mac plus my other AI computer.
+   - Cloud coding subscriptions are okay for hard questions.
+4. Is this project private or sensitive?
+5. Do you already know what Night Shift should focus on?
+6. What is Night Shift allowed to do overnight?
    - Read only and make a morning brief.
    - Draft ideas locally, but do not push.
    - Suggest draft PRs after checks pass.
-4. How hard should Night Shift work?
+7. How hard should Night Shift work?
    - Quiet.
    - Normal.
    - Afterburner.
-5. When should Night Shift stop?
+8. When should Night Shift stop?
    - When I come back and say stop.
    - After 2 hours.
    - After 6 hours.
@@ -126,6 +130,8 @@ Before launching, always show a preview with:
   billing changes, or credential changes.
 
 The wizard saves preferences at `~/.codex/night-shift/config.json`.
+It also writes a setup lab under `~/.codex/maestro/overnight/<setup-ledger>/lab`
+with readiness, provider, and routing JSON files.
 Advanced users can still use `doctor`, `plan`, `run`, `report`, and `stop`
 directly.
 

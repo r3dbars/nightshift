@@ -5,6 +5,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import platform
 import re
 import signal
 import shutil
@@ -12,6 +13,8 @@ import subprocess
 import sys
 import textwrap
 import time
+import ipaddress
+import urllib.parse
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -30,6 +33,8 @@ DEFAULT_LOCAL_MODEL = "phi-4-mini-instruct"
 DEFAULT_WINDOWS_URL = ""
 DEFAULT_WINDOWS_MODEL = "qwen3-coder:30b"
 VERSION = "0.1.0"
+CONFIG_SCHEMA_VERSION = 2
+STOP_SECONDS = {"morning": None, "2h": 2 * 60 * 60, "6h": 6 * 60 * 60, "8h": 8 * 60 * 60}
 
 MODE_DEFAULTS = {
     "quiet": {
@@ -124,6 +129,18 @@ def save_config(config: dict) -> None:
     CONFIG_PATH.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def config_value(config: dict, key: str, default=None):
+    if key in config:
+        return config.get(key, default)
+    if key == "repo":
+        return config.get("project", {}).get("repo", default)
+    if key in {"wake_goal", "privacy_route", "permission", "mode", "stop", "project_private", "guidance", "goal_text", "power"}:
+        return config.get("preferences", {}).get(key, default)
+    if key in {"local_url", "local_model", "windows_url", "windows_model"}:
+        return config.get("legacy", {}).get(key, default)
+    return default
+
+
 def is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
@@ -178,6 +195,10 @@ def rows_by_name(rows: list[tuple[str, str, str]]) -> dict[str, tuple[str, str]]
     return {name: (state, message) for name, state, message in rows}
 
 
+def row_state(rows: list[tuple[str, str, str]], name: str) -> str:
+    return rows_by_name(rows).get(name, ("", ""))[0]
+
+
 def detected_tools(rows: list[tuple[str, str, str]]) -> list[str]:
     by_name = rows_by_name(rows)
     tools = []
@@ -185,15 +206,29 @@ def detected_tools(rows: list[tuple[str, str, str]]) -> list[str]:
         tools.append("local Mac AI")
     if by_name.get("windows-worker", ("", ""))[0] == "GREEN":
         tools.append("another computer")
-    if by_name.get("claude", ("", ""))[0] == "GREEN":
-        tools.append("Claude CLI")
     if by_name.get("gh-auth", ("", ""))[0] == "GREEN":
-        tools.append("GitHub CLI")
+        tools.append("GitHub CLI for repo context")
     return tools
 
 
 def mode_label(mode: str) -> str:
     return {"quiet": "Quiet", "night-shift": "Normal", "afterburner": "Afterburner"}.get(mode, mode)
+
+
+def wake_goal_label(goal: str) -> str:
+    return {
+        "brief": "A short morning brief only",
+        "chores": "Ranked repo chores and test ideas",
+        "draft-prs": "Draft PR candidates, but only after checks",
+    }.get(goal, goal)
+
+
+def privacy_route_label(route: str) -> str:
+    return {
+        "mac-only": "Keep repo context on this Mac",
+        "mac-and-lan": "Use this Mac plus my other AI computer",
+        "cloud-ok": "Cloud coding subscriptions are okay for hard questions",
+    }.get(route, route)
 
 
 def permission_label(permission: str) -> str:
@@ -213,22 +248,63 @@ def stop_label(stop: str) -> str:
     }.get(stop, stop)
 
 
+def mode_counts(mode: str, rows: list[tuple[str, str, str]] | None = None) -> str:
+    defaults = MODE_DEFAULTS.get(mode, MODE_DEFAULTS["night-shift"])
+    if rows is not None:
+        by_name = rows_by_name(rows)
+        local = defaults["local"] if by_name.get("local-models", ("", ""))[0] == "GREEN" else 0
+        windows = defaults["windows"] if by_name.get("windows-worker", ("", ""))[0] == "GREEN" else 0
+        if local and windows:
+            return f"about {local} Mac loops and {windows} other-computer loops"
+        if local:
+            return f"about {local} Mac loops"
+        if windows:
+            return f"about {windows} other-computer loops"
+        return "planning brief only until worker AI is reachable"
+    return f"about {defaults['local']} Mac loops and {defaults['windows']} other-computer loops"
+
+
 def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
     tools = detected_tools(rows)
     if not tools:
         tools = ["no worker AI found yet; planning brief only"]
+    repo = config.get("project", {}).get("repo", config.get("repo", "unknown"))
+    prefs = config.get("preferences", config)
+    mode = prefs.get("mode", "night-shift")
+    permission = prefs.get("permission", "brief")
+    stop = prefs.get("stop", "morning")
+    wake_goal = prefs.get("wake_goal", "brief")
+    privacy_route = prefs.get("privacy_route", "mac-only")
     lines = [
         "",
-        "Here is what Night Shift will do:",
+        "Night Shift preview",
         "",
-        f"Project: {config['repo']}",
-        f"AI tools: {', '.join(tools)}",
-        f"Mode: {mode_label(config['mode'])}",
-        f"Safety: {permission_label(config['permission'])}",
-        f"Stop: {stop_label(config['stop'])}",
-        "Output: morning brief and saved artifacts",
+        "Project:",
+        f"- {repo}",
         "",
-        "Will not: push, merge, release, deploy, delete files, change billing, or change credentials.",
+        "Tonight it WILL:",
+        "- Read the repo",
+        f"- Use: {', '.join(tools)}",
+        f"- Aim for: {wake_goal_label(wake_goal)}",
+        f"- Run in {mode_label(mode)} mode ({mode_counts(mode, rows)})",
+        f"- {permission_label(permission)}",
+        f"- {stop_label(stop)}",
+        "- Save a morning brief and artifacts",
+        "",
+        "Tonight it WILL NOT:",
+        "- Push commits",
+        "- Merge PRs",
+        "- Release, deploy, publish, tag, or notarize",
+        "- Delete or reorganize user files",
+        "- Change credentials, billing, or repo visibility",
+        "- Edit this checkout directly",
+        "- Keep running after the stop limit",
+        "",
+        "Privacy:",
+        f"- {privacy_route_label(privacy_route)}",
+        "",
+        "If this fails, run:",
+        f"  night-shift doctor --repo {repo}",
     ]
     return "\n".join(lines)
 
@@ -292,8 +368,153 @@ def read_url_json(url: str, headers=None, timeout=8):
         return json.loads(response.read().decode("utf-8", errors="replace"))
 
 
+def post_url_json(url: str, payload: dict, headers=None, timeout=20):
+    body = json.dumps(payload).encode("utf-8")
+    merged_headers = {"Content-Type": "application/json"}
+    merged_headers.update(headers or {})
+    req = urllib.request.Request(url, data=body, headers=merged_headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8", errors="replace"))
+
+
 def model_ids(data: dict) -> list[str]:
     return [str(m.get("id")) for m in data.get("data", []) if m.get("id")]
+
+
+def chat_probe(name: str, base_url: str, model: str, headers=None) -> tuple[str, str]:
+    try:
+        data = post_url_json(
+            f"{base_url.rstrip('/')}/chat/completions",
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": "Reply exactly: NIGHT_SHIFT_OK"}],
+                "max_tokens": 20,
+                "temperature": 0,
+            },
+            headers=headers,
+            timeout=30,
+        )
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if "NIGHT_SHIFT_OK" in content:
+            return "GREEN", f"{name} chat works with {model}"
+        return "YELLOW", f"{name} chat replied, but not with the expected setup token"
+    except Exception as exc:
+        return "YELLOW", f"{name} lists models, but chat failed with {model}: {exc}"
+
+
+def safe_remote_url(url: str) -> tuple[str, str]:
+    if not url.strip():
+        return "INFO", "no other-computer AI server configured"
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname or ""
+    if parsed.scheme != "http":
+        return "YELLOW", "use an http:// URL for OpenAI-compatible local servers"
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return "GREEN", "local URL"
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private:
+            return "GREEN", "private LAN URL"
+        return "YELLOW", "this does not look like a private LAN address; avoid sending repo context to public URLs"
+    except ValueError:
+        if host.endswith(".local") or "." not in host:
+            return "GREEN", "local network host name"
+    return "YELLOW", "could not confirm this is a local/private AI server"
+
+
+def free_gb(path: Path) -> float:
+    try:
+        usage = shutil.disk_usage(path if path.exists() else path.parent)
+        return round(usage.free / 1024**3, 1)
+    except Exception:
+        return 0.0
+
+
+def check_storage_permissions() -> tuple[str, str]:
+    targets = [CONFIG_DIR, OVERNIGHT_ROOT, CODEX_HOME / "maestro" / "runs", CODEX_HOME / "maestro-sidecar"]
+    try:
+        for target in targets:
+            target.mkdir(parents=True, exist_ok=True)
+            probe = target / ".night-shift-write-test"
+            probe.write_text("ok\n", encoding="utf-8")
+            probe.unlink()
+        return "GREEN", "Night Shift can write setup, ledgers, artifacts, and token logs"
+    except Exception as exc:
+        return "RED", f"cannot write Night Shift support files: {exc}"
+
+
+def check_power() -> tuple[str, str]:
+    if platform.system() != "Darwin" or not shutil.which("pmset"):
+        return "INFO", "power check skipped on this platform"
+    batt = run_cmd(["pmset", "-g", "batt"], timeout=10)
+    text = (batt.stdout + batt.stderr).lower()
+    if "ac power" in text:
+        return "GREEN", "plugged in; power looks safe for overnight work"
+    if "battery power" in text:
+        return "YELLOW", "this Mac appears to be on battery; plug in before Normal or Afterburner"
+    return "INFO", "could not determine battery/AC state"
+
+
+def check_recovery() -> tuple[str, str]:
+    latest = latest_ledger()
+    if not latest:
+        return "GREEN", "no previous Night Shift run found"
+    if (latest / "morning.md").exists():
+        return "GREEN", f"latest run has a morning brief: {latest.name}"
+    if (latest / "processes.tsv").exists() and not (latest / "STOP").exists():
+        return "YELLOW", f"unfinished run found: {latest}; run `night-shift stop --latest` or `night-shift report --latest`"
+    return "INFO", f"latest run looks incomplete but inactive: {latest.name}"
+
+
+def write_lab_files(ledger: Path, config: dict, rows: list[tuple[str, str, str]]) -> None:
+    lab = ledger / "lab"
+    lab.mkdir(exist_ok=True)
+    readiness = {
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "overall": "RED"
+        if any(state == "RED" for _, state, _ in rows)
+        else "YELLOW"
+        if any(state == "YELLOW" for _, state, _ in rows)
+        else "GREEN",
+        "checks": [{"name": name, "state": state, "message": message} for name, state, message in rows],
+    }
+    providers = {
+        "local": {
+            "url": config_value(config, "local_url", DEFAULT_LOCAL_URL),
+            "model": config_value(config, "local_model", DEFAULT_LOCAL_MODEL),
+            "ready": row_state(rows, "local-chat") == "GREEN" or row_state(rows, "local-models") == "GREEN",
+        },
+        "other_computer": {
+            "url": config_value(config, "windows_url", ""),
+            "model": config_value(config, "windows_model", DEFAULT_WINDOWS_MODEL),
+            "ready": row_state(rows, "windows-chat") == "GREEN" or row_state(rows, "windows-worker") == "GREEN",
+        },
+        "cloud": {
+            "allowed": config_value(config, "privacy_route", "mac-only") == "cloud-ok",
+            "credential_stored": False,
+        },
+    }
+    routing = {
+        "wake_goal": config_value(config, "wake_goal", "brief"),
+        "privacy_route": config_value(config, "privacy_route", "mac-only"),
+        "permission": config_value(config, "permission", "brief"),
+        "mode": config_value(config, "mode", "night-shift"),
+        "stop": config_value(config, "stop", "morning"),
+        "guidance": config_value(config, "guidance", "scan"),
+    }
+    (lab / "readiness.json").write_text(json.dumps(readiness, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (lab / "providers.json").write_text(json.dumps(providers, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (lab / "routing.json").write_text(json.dumps(routing, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def supports_os() -> tuple[str, str]:
+    system = platform.system()
+    py = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    if system in {"Darwin", "Linux"} and sys.version_info >= (3, 10):
+        return "GREEN", f"{system} with Python {py}; supported"
+    if sys.version_info < (3, 10):
+        return "RED", f"Python {py} is too old; install Python 3.10+"
+    return "YELLOW", f"{system} detected; Night Shift is best tested on macOS/Linux shells"
 
 
 def create_ledger(mode: str) -> Path:
@@ -380,15 +601,17 @@ def doctor_advice(rows: list[tuple[str, str, str]]) -> list[str]:
             f"`{os.environ.get('MAESTRO_LOCAL_MODEL', DEFAULT_LOCAL_MODEL)}`. "
             "Then rerun doctor, or pass `--local-url` and `--local-model`."
         )
-    if by_name.get("windows-worker") == "YELLOW":
+    if by_name.get("local-chat") == "YELLOW":
+        advice.append("Mac local chat: the model is listed, but chat failed. Reload the model and rerun doctor.")
+    if by_name.get("windows-worker") == "YELLOW" or by_name.get("windows-chat") == "YELLOW":
         advice.append(
             "Windows worker: optional. To use it, run "
             "`export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1` and "
             "`export WINDOWS_WORKER_MODEL=qwen3-coder:30b`, or pass `--windows-url` and `--windows-model`."
         )
-    if by_name.get("claude") == "YELLOW":
+    if by_name.get("claude") == "INFO":
         advice.append("Claude: install and sign in to the `claude` CLI, or ignore this optional lane.")
-    if by_name.get("gh") == "YELLOW" or by_name.get("gh-auth") == "YELLOW":
+    if by_name.get("gh") == "INFO" or by_name.get("gh-auth") in {"INFO", "YELLOW"}:
         advice.append("GitHub: install `gh` and run `gh auth login` if you want PR state in the context pack.")
     if by_name.get("repo") == "RED":
         advice.append("Repo: pass `--repo /path/to/a/git/repo`.")
@@ -406,6 +629,15 @@ def doctor_advice(rows: list[tuple[str, str, str]]) -> list[str]:
 def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[str, list[tuple[str, str, str]]]:
     rows: list[tuple[str, str, str]] = []
 
+    rows.append(("os-python", *supports_os()))
+    rows.append(("storage", *check_storage_permissions()))
+    free = free_gb(CODEX_HOME)
+    rows.append(("disk", "GREEN" if free >= 5 else "YELLOW", f"{free} GB free near {CODEX_HOME}"))
+    rows.append(("power", *check_power()))
+    rows.append(("recovery", *check_recovery()))
+    path_state = "GREEN" if str(BIN) in os.environ.get("PATH", "") else "INFO"
+    rows.append(("path", path_state, f"{BIN} is {'on' if path_state == 'GREEN' else 'not on'} PATH"))
+
     for label, path in [
         ("night-shift", BIN / "night-shift"),
         ("maestro-delegate", BIN / "maestro-delegate"),
@@ -419,47 +651,58 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
 
     for label, command in [("git", "git"), ("gh", "gh")]:
         found = shutil.which(command)
-        rows.append((label, "GREEN" if found else "YELLOW", found or f"{command} not found"))
+        state = "GREEN" if found else ("RED" if command == "git" else "INFO")
+        rows.append((label, state, found or f"{command} not found"))
 
     claude = shutil.which("claude")
-    rows.append(("claude", "GREEN" if claude else "YELLOW", claude or "claude CLI not found"))
+    rows.append(("claude", "GREEN" if claude else "INFO", claude or "claude CLI not found; optional"))
 
     if shutil.which("gh"):
         gh_auth = run_cmd(["gh", "auth", "status"], timeout=30)
-        rows.append(("gh-auth", "GREEN" if gh_auth.rc == 0 else "YELLOW", (gh_auth.stderr or gh_auth.stdout).strip() or "ok"))
+        rows.append(("gh-auth", "GREEN" if gh_auth.rc == 0 else "INFO", (gh_auth.stderr or gh_auth.stdout).strip() or "GitHub auth optional"))
 
     local_base = os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL)
     local_model = os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL)
     local_status, local_msg = check_model_endpoint("LM Studio", f"{local_base.rstrip('/')}/models", expected_model=local_model)
     rows.append(("local-models", local_status, local_msg))
+    if local_status == "GREEN":
+        rows.append(("local-chat", *chat_probe("LM Studio", local_base, local_model)))
 
     base = os.environ.get("WINDOWS_WORKER_BASE_URL", "").strip()
     key = os.environ.get("WINDOWS_WORKER_API_KEY", "ollama")
     windows_model = os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL)
     if base:
+        rows.append(("windows-url", *safe_remote_url(base)))
         win_status, win_msg = check_model_endpoint(
             "Windows worker",
             f"{base.rstrip('/')}/models",
             expected_model=windows_model,
             headers={"Authorization": f"Bearer {key}"},
         )
+        rows.append(("windows-worker", win_status, win_msg))
+        if win_status == "GREEN":
+            rows.append(("windows-chat", *chat_probe("Windows worker", base, windows_model, headers={"Authorization": f"Bearer {key}"})))
     else:
-        win_status, win_msg = (
-            "YELLOW",
-            "Windows worker not configured; set WINDOWS_WORKER_BASE_URL or pass --windows-url",
-        )
-    rows.append(("windows-worker", win_status, win_msg))
+        rows.append(("windows-worker", "INFO", "not configured; this is fine for Mac-only setup"))
 
     root = repo_root(repo)
     if repo:
         if root and root.exists():
             rev = run_cmd(["git", "-C", root, "rev-parse", "--short", "HEAD"], timeout=20)
             status = run_cmd(["git", "-C", root, "status", "--short"], timeout=20)
-            repo_state = "clean" if status.stdout.strip() == "" else f"dirty lines={len(status.stdout.splitlines())}"
-            rows.append(("repo", "GREEN" if rev.rc == 0 else "RED", f"{root} head={rev.stdout.strip()} {repo_state}"))
+            branch = run_cmd(["git", "-C", root, "branch", "--show-current"], timeout=20)
+            remote = run_cmd(["git", "-C", root, "remote", "get-url", "origin"], timeout=20)
+            dirty = status.stdout.strip() != ""
+            repo_state = "clean" if not dirty else f"dirty lines={len(status.stdout.splitlines())}; Night Shift will not edit this checkout"
+            state = "YELLOW" if dirty else ("GREEN" if rev.rc == 0 else "RED")
+            rows.append(("repo", state, f"{root} branch={branch.stdout.strip() or '(detached)'} head={rev.stdout.strip()} {repo_state}"))
+            rows.append(("repo-remote", "GREEN" if remote.rc == 0 else "INFO", remote.stdout.strip() or "no origin remote configured"))
             if allow_fetch:
-                fetch = run_cmd(["git", "-C", root, "fetch", "origin", "--prune"], timeout=90)
-                rows.append(("repo-fetch", "GREEN" if fetch.rc == 0 else "YELLOW", fetch.stderr.strip() or fetch.stdout.strip() or "ok"))
+                if remote.rc == 0:
+                    fetch = run_cmd(["git", "-C", root, "fetch", "origin", "--prune"], timeout=90)
+                    rows.append(("repo-fetch", "GREEN" if fetch.rc == 0 else "YELLOW", fetch.stderr.strip() or fetch.stdout.strip() or "ok"))
+                else:
+                    rows.append(("repo-fetch", "INFO", "skipped because no origin remote is configured"))
             else:
                 rows.append(("repo-fetch", "SKIPPED", "run command does not mutate repo refs; use doctor for fetch check"))
         else:
@@ -471,9 +714,10 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
         msg = (smoke.stdout + smoke.stderr).strip().replace("\n", " | ")
         rows.append(("lane-smoke", state, msg[:1200]))
 
-    if any(state == "RED" for _, state, _ in rows):
+    meaningful = [state for _, state, _ in rows if state not in {"INFO", "SKIPPED"}]
+    if any(state == "RED" for state in meaningful):
         overall = "RED"
-    elif any(state == "YELLOW" for _, state, _ in rows):
+    elif any(state == "YELLOW" for state in meaningful):
         overall = "YELLOW"
     else:
         overall = "GREEN"
@@ -1030,6 +1274,8 @@ def command_run(args) -> int:
     parallel_local = defaults["parallel_local"] if args.parallel_local is None else args.parallel_local
     parallel_windows = defaults["parallel_windows"] if args.parallel_windows is None else args.parallel_windows
     target_tokens = defaults["target_tokens"] if args.token_target is None else args.token_target
+    stop_after = getattr(args, "stop_after", None)
+    deadline = None if not stop_after or STOP_SECONDS.get(stop_after) is None else time.time() + STOP_SECONDS[stop_after]
 
     ledger = create_ledger(args.mode)
     root = require_git_repo(args.repo)
@@ -1047,6 +1293,7 @@ def command_run(args) -> int:
                 "parallel_local": parallel_local,
                 "parallel_windows": parallel_windows,
                 "token_target": target_tokens,
+                "stop_after": stop_after or "morning",
             },
             indent=2,
             sort_keys=True,
@@ -1057,6 +1304,20 @@ def command_run(args) -> int:
 
     overall, rows = doctor_checks(args.repo, run_smoke=not args.skip_smoke, allow_fetch=False)
     write_startup_gate(ledger, overall, rows)
+    write_lab_files(
+        ledger,
+        {
+            "project": {"repo": str(root)},
+            "preferences": {"mode": args.mode, "stop": stop_after or "morning"},
+            "legacy": {
+                "local_url": getattr(args, "local_url", None) or os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL),
+                "local_model": getattr(args, "local_model", None) or os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL),
+                "windows_url": getattr(args, "windows_url", None) or os.environ.get("WINDOWS_WORKER_BASE_URL", ""),
+                "windows_model": getattr(args, "windows_model", None) or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL),
+            },
+        },
+        rows,
+    )
     context = repo_context_pack(root if root and root.exists() else None)
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
     (ledger / "board.md").write_text(build_board(args.mode), encoding="utf-8")
@@ -1096,6 +1357,9 @@ def command_run(args) -> int:
                 continue
             if stop_file.exists():
                 break
+            if deadline and time.time() >= deadline:
+                stop_file.write_text(f"automatic stop limit reached at {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n", encoding="utf-8")
+                break
             lane_running[lane] += 1
             future = executor.submit(dispatch_one, lane, label, prompt, ledger, args.mode, args.timeout)
             pending[future] = lane
@@ -1108,7 +1372,13 @@ def command_run(args) -> int:
     with concurrent.futures.ThreadPoolExecutor(max_workers=total_workers) as executor:
         submit_ready(executor, pending, remaining)
         while pending:
-            done, _ = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
+            timeout = 60
+            if deadline:
+                timeout = max(1, min(60, int(deadline - time.time())))
+            done, _ = concurrent.futures.wait(pending, timeout=timeout, return_when=concurrent.futures.FIRST_COMPLETED)
+            if not done and deadline and time.time() >= deadline:
+                stop_file.write_text(f"automatic stop limit reached at {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n", encoding="utf-8")
+                break
             for future in done:
                 lane = pending.pop(future)
                 lane_running[lane] -= 1
@@ -1161,7 +1431,7 @@ def command_start(args) -> int:
         print("NIGHTSHIFT_START: RED | non-interactive shell; rerun with --yes, --dry-run, or --setup-only")
         return 2
 
-    repo = args.repo or saved.get("repo")
+    repo = args.repo or config_value(saved, "repo")
     if not repo:
         repo = current_git_repo()
 
@@ -1183,34 +1453,64 @@ def command_start(args) -> int:
         if name in ("local-models", "windows-worker", "claude", "gh-auth", "repo"):
             print(f"- {state} {name}: {message}")
 
-    local_url = args.local_url or saved.get("local_url") or os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL)
-    local_model = args.local_model or saved.get("local_model") or os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL)
-    windows_url = args.windows_url or saved.get("windows_url") or os.environ.get("WINDOWS_WORKER_BASE_URL", "")
-    windows_model = args.windows_model or saved.get("windows_model") or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL)
+    local_url = args.local_url or config_value(saved, "local_url") or os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL)
+    local_model = args.local_model or config_value(saved, "local_model") or os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL)
+    windows_url = args.windows_url or config_value(saved, "windows_url") or os.environ.get("WINDOWS_WORKER_BASE_URL", "")
+    windows_model = args.windows_model or config_value(saved, "windows_model") or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL)
 
-    ai_choice = saved.get("ai_choice", "check")
-    permission = saved.get("permission", "brief")
-    mode = args.mode or saved.get("mode", "night-shift")
-    stop = saved.get("stop", "morning")
+    wake_goal = config_value(saved, "wake_goal", "brief")
+    privacy_route = config_value(saved, "privacy_route", "mac-only")
+    project_private = config_value(saved, "project_private", "private")
+    guidance = config_value(saved, "guidance", "scan")
+    goal_text = config_value(saved, "goal_text", "")
+    permission = config_value(saved, "permission", "brief")
+    mode = args.mode or config_value(saved, "mode", "night-shift")
+    stop = config_value(saved, "stop", "morning")
 
     if not args.yes and is_interactive():
-        ai_choice = ask_choice(
-            "What AI tools do you want Night Shift to use?",
+        wake_goal = ask_choice(
+            "What do you want to wake up to?",
             [
-                ("check", "Not sure, check for me"),
-                ("subscriptions", "AI coding subscriptions, like Codex or Claude Code"),
-                ("mac", "Local AI on this Mac, like LM Studio or Ollama"),
-                ("other-computer", "Local AI on another computer"),
-                ("both-local", "Local AI on this Mac and another computer"),
+                ("brief", "A short morning brief only"),
+                ("chores", "Ranked repo chores and test ideas"),
+                ("draft-prs", "Draft PR candidates, but only after checks"),
             ],
-            ai_choice if ai_choice in {"check", "subscriptions", "mac", "other-computer", "both-local"} else "check",
+            wake_goal if wake_goal in {"brief", "chores", "draft-prs"} else "brief",
         )
+        privacy_route = ask_choice(
+            "Where is Night Shift allowed to send repo context?",
+            [
+                ("mac-only", "Keep it on this Mac"),
+                ("mac-and-lan", "This Mac plus my other AI computer"),
+                ("cloud-ok", "Cloud coding subscriptions are okay for hard questions"),
+            ],
+            privacy_route if privacy_route in {"mac-only", "mac-and-lan", "cloud-ok"} else "mac-only",
+        )
+        project_private = ask_choice(
+            "Is this project private or sensitive?",
+            [
+                ("private", "Yes, treat it as private"),
+                ("normal", "No, normal repo context is okay"),
+            ],
+            project_private if project_private in {"private", "normal"} else "private",
+        )
+        guidance = ask_choice(
+            "Do you already know what Night Shift should focus on?",
+            [
+                ("scan", "No, scan the repo and find useful work"),
+                ("goal", "Yes, I have a goal"),
+                ("issues", "Use open issues and PRs as guidance"),
+            ],
+            guidance if guidance in {"scan", "goal", "issues"} else "scan",
+        )
+        if guidance == "goal":
+            goal_text = ask_text("What should Night Shift focus on?", goal_text or "Find the highest-value safe next task")
 
-        if ai_choice in ("mac", "both-local"):
+        if privacy_route in ("mac-only", "mac-and-lan") or args.local_url or args.local_model:
             local_url = ask_text("Mac local AI URL", local_url)
             local_model = ask_text("Mac local model name", local_model)
-        if ai_choice in ("other-computer", "both-local"):
-            windows_url = ask_text("Other computer AI URL", windows_url or "http://WINDOWS_HOST:11434/v1")
+        if privacy_route == "mac-and-lan":
+            windows_url = ask_text("What is the AI server address for your other computer?", windows_url or "http://WINDOWS_HOST:11434/v1")
             windows_model = ask_text("Other computer model name", windows_model)
 
         permission = ask_choice(
@@ -1243,15 +1543,28 @@ def command_start(args) -> int:
         )
 
     config = {
-        "repo": repo_text,
-        "ai_choice": ai_choice,
-        "permission": permission,
-        "mode": mode,
-        "stop": stop,
-        "local_url": local_url,
-        "local_model": local_model,
-        "windows_url": windows_url,
-        "windows_model": windows_model,
+        "schema_version": CONFIG_SCHEMA_VERSION,
+        "project": {
+            "repo": repo_text,
+            "privacy": project_private,
+        },
+        "preferences": {
+            "wake_goal": wake_goal,
+            "privacy_route": privacy_route,
+            "permission": permission,
+            "mode": mode,
+            "stop": stop,
+            "guidance": guidance,
+            "goal_text": goal_text,
+            "allow_cloud_reasoning": privacy_route == "cloud-ok",
+            "allow_remote_lan_worker": privacy_route == "mac-and-lan",
+        },
+        "legacy": {
+            "local_url": local_url,
+            "local_model": local_model,
+            "windows_url": windows_url,
+            "windows_model": windows_model,
+        },
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     save_config(config)
@@ -1266,9 +1579,15 @@ def command_start(args) -> int:
         os.environ["WINDOWS_WORKER_MODEL"] = windows_model
 
     overall, rows = doctor_checks(repo_text, run_smoke=False, allow_fetch=False)
+    setup_ledger = create_ledger("setup")
+    write_startup_gate(setup_ledger, overall, rows)
+    write_lab_files(setup_ledger, config, rows)
     print(start_preview(config, rows))
     print("")
     print(f"Saved setup: {CONFIG_PATH}")
+    print(f"Setup lab: {setup_ledger / 'lab'}")
+    if privacy_route == "cloud-ok":
+        print("Cloud note: Night Shift will still store credentials outside config and will not send secrets on purpose.")
 
     if args.setup_only:
         print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
@@ -1307,6 +1626,7 @@ def command_start(args) -> int:
         windows_model=windows_model,
         timeout=args.timeout,
         skip_smoke=args.skip_smoke,
+        stop_after=stop,
     )
     return command_run(run_args)
 
@@ -1331,6 +1651,13 @@ def command_report(args) -> int:
     if morning.exists():
         print("")
         print(morning.read_text(encoding="utf-8", errors="replace").strip())
+    else:
+        print("")
+        print("No morning brief yet.")
+        if (ledger / "STOP").exists():
+            print("This run was stopped before a final brief was written.")
+        print(f"Try: night-shift stop --ledger {ledger}")
+        print(f"Then check: {ledger / 'startup-gate.md'}")
     if token_report.exists():
         print("")
         print("## Token Report")
@@ -1442,6 +1769,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--windows-url", required=False, help="override WINDOWS_WORKER_BASE_URL")
     run.add_argument("--windows-model", required=False, help="override WINDOWS_WORKER_MODEL")
     run.add_argument("--timeout", type=int, default=900, help="seconds before each worker task is stopped")
+    run.add_argument("--stop-after", choices=sorted(STOP_SECONDS), default=None, help="stop scheduling new work after this limit")
     run.add_argument("--skip-smoke", action="store_true", help="skip the lane smoke check during startup")
     run.set_defaults(func=command_run)
 

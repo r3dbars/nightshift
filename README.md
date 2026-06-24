@@ -149,27 +149,45 @@ night-shift stop --latest
 
 ## The Mental Model
 
-The wizard asks four beginner questions:
+The wizard asks beginner questions in this order:
 
 1. Which project should Night Shift look at?
-2. What AI tools should it use?
-3. What is it allowed to do overnight?
-4. How hard should it work?
+2. What do you want to wake up to?
+3. Where is repo context allowed to go?
+4. Is this project private or sensitive?
+5. What should Night Shift focus on?
+6. What is it allowed to do overnight?
+7. How hard should it work?
+8. When should it stop?
 
 Then it shows a summary before launching:
 
 ```text
-Here is what Night Shift will do:
+Night Shift preview
 
 Project: /path/to/project
-AI tools: local Mac AI, another computer, Claude CLI
-Mode: Normal
-Safety: Read only and make a morning brief
-Stop: Stop when I come back
-Output: morning brief and saved artifacts
+Tonight it WILL:
+- Read the repo
+- Use: local Mac AI
+- Aim for: Ranked repo chores and test ideas
+- Run in Normal mode
+- Read only and make a morning brief
+- Stop after 6 hours
+- Save a morning brief and artifacts
 
-Will not: push, merge, release, deploy, delete files, change billing, or change credentials.
+Tonight it WILL NOT:
+- Push commits
+- Merge PRs
+- Release, deploy, publish, tag, or notarize
+- Delete or reorganize user files
+- Change credentials, billing, or repo visibility
+- Edit this checkout directly
 ```
+
+The wizard also writes a setup lab under `~/.codex/maestro/overnight/`.
+Look for `lab/readiness.json`, `lab/providers.json`, and `lab/routing.json`.
+
+If something feels off, see [docs/troubleshooting.md](docs/troubleshooting.md).
 
 Advanced users can still choose a mode directly:
 

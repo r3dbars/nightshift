@@ -7,6 +7,12 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Expand the setup wizard into a beginner-friendly setup lab.
+- Add wake-up goal, privacy route, project sensitivity, guidance, and stop-timer setup questions.
+- Add setup lab artifacts for readiness, providers, and routing.
+- Treat missing Windows worker and GitHub/Claude lanes as optional info for Mac-only users.
+- Add real chat probes, disk/write/power/recovery checks, and stop-after enforcement.
+- Add troubleshooting docs for first-run setup.
 - Add `night-shift start`, a first-run setup wizard and safe launcher.
 - Rename the public command and bundled skill to `night-shift`.
 - Clarify the private/pre-license package status.
