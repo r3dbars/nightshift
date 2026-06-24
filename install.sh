@@ -58,7 +58,6 @@ codex_home="${codex_home/#\~/$HOME}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bin_dir="$codex_home/bin"
 skill_dir="$codex_home/skills/night-shift"
-old_skill_dir="$codex_home/skills/maestro-overnight"
 
 shell_profile=""
 case "${SHELL:-}" in
@@ -77,8 +76,6 @@ for required in git python3 curl rsync; do
 done
 
 mkdir -p "$bin_dir" "$codex_home/skills"
-rm -f "$bin_dir/maestro-nightshift"
-rm -rf "$old_skill_dir"
 
 if [[ "$link_install" -eq 1 ]]; then
   for source in "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift"; do
