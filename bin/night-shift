@@ -23,6 +23,8 @@ HOME = Path.home()
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", HOME / ".codex")).expanduser()
 BIN = CODEX_HOME / "bin"
 OVERNIGHT_ROOT = CODEX_HOME / "maestro" / "overnight"
+CONFIG_DIR = CODEX_HOME / "night-shift"
+CONFIG_PATH = CONFIG_DIR / "config.json"
 DEFAULT_LOCAL_URL = "http://localhost:1234/v1"
 DEFAULT_LOCAL_MODEL = "phi-4-mini-instruct"
 DEFAULT_WINDOWS_URL = ""
@@ -95,6 +97,8 @@ def now_stamp() -> str:
 
 
 def friendly_hint(prog: str, message: str = "") -> str:
+    if "start" in prog:
+        return "Try: night-shift start --repo /path/to/project"
     if "run" in prog and "--repo" in message:
         return "Try: night-shift run --repo /path/to/project --mode night-shift"
     if "plan" in prog and "--repo" in message:
@@ -105,7 +109,128 @@ def friendly_hint(prog: str, message: str = "") -> str:
         return "Try: night-shift report --latest"
     if "stop" in prog:
         return "Try: night-shift stop --latest"
-    return "Try: night-shift doctor --repo /path/to/project"
+    return "Try: night-shift start --repo /path/to/project"
+
+
+def load_config() -> dict:
+    try:
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_config(config: dict) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def is_interactive() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def current_git_repo() -> str:
+    result = run_cmd(["git", "rev-parse", "--show-toplevel"], timeout=10)
+    if result.rc == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return str(Path.cwd())
+
+
+def ask_text(prompt: str, default: str | None = None) -> str:
+    suffix = f" [{default}]" if default else ""
+    answer = input(f"{prompt}{suffix}: ").strip()
+    return answer or (default or "")
+
+
+def ask_choice(prompt: str, choices: list[tuple[str, str]], default: str) -> str:
+    print("")
+    print(prompt)
+    for index, (_, label) in enumerate(choices, start=1):
+        marker = " (default)" if choices[index - 1][0] == default else ""
+        print(f"{index}. {label}{marker}")
+    while True:
+        raw = input("> ").strip()
+        if not raw:
+            return default
+        if raw.isdigit():
+            index = int(raw)
+            if 1 <= index <= len(choices):
+                return choices[index - 1][0]
+        for key, label in choices:
+            if raw.lower() in (key.lower(), label.lower()):
+                return key
+        print("Please choose one of the numbers above.")
+
+
+def ask_yes_no(prompt: str, default=True) -> bool:
+    suffix = "Y/n" if default else "y/N"
+    while True:
+        raw = input(f"{prompt} [{suffix}]: ").strip().lower()
+        if not raw:
+            return default
+        if raw in ("y", "yes"):
+            return True
+        if raw in ("n", "no"):
+            return False
+        print("Please answer yes or no.")
+
+
+def rows_by_name(rows: list[tuple[str, str, str]]) -> dict[str, tuple[str, str]]:
+    return {name: (state, message) for name, state, message in rows}
+
+
+def detected_tools(rows: list[tuple[str, str, str]]) -> list[str]:
+    by_name = rows_by_name(rows)
+    tools = []
+    if by_name.get("local-models", ("", ""))[0] == "GREEN":
+        tools.append("local Mac AI")
+    if by_name.get("windows-worker", ("", ""))[0] == "GREEN":
+        tools.append("another computer")
+    if by_name.get("claude", ("", ""))[0] == "GREEN":
+        tools.append("Claude CLI")
+    if by_name.get("gh-auth", ("", ""))[0] == "GREEN":
+        tools.append("GitHub CLI")
+    return tools
+
+
+def mode_label(mode: str) -> str:
+    return {"quiet": "Quiet", "night-shift": "Normal", "afterburner": "Afterburner"}.get(mode, mode)
+
+
+def permission_label(permission: str) -> str:
+    return {
+        "brief": "Read only and make a morning brief",
+        "draft-local": "Draft ideas locally, but do not push",
+        "draft-prs": "Suggest draft PRs after checks pass",
+    }.get(permission, permission)
+
+
+def stop_label(stop: str) -> str:
+    return {
+        "morning": "Stop when I come back",
+        "2h": "Stop after 2 hours",
+        "6h": "Stop after 6 hours",
+        "8h": "Stop after 8 hours",
+    }.get(stop, stop)
+
+
+def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
+    tools = detected_tools(rows)
+    if not tools:
+        tools = ["no worker AI found yet; planning brief only"]
+    lines = [
+        "",
+        "Here is what Night Shift will do:",
+        "",
+        f"Project: {config['repo']}",
+        f"AI tools: {', '.join(tools)}",
+        f"Mode: {mode_label(config['mode'])}",
+        f"Safety: {permission_label(config['permission'])}",
+        f"Stop: {stop_label(config['stop'])}",
+        "Output: morning brief and saved artifacts",
+        "",
+        "Will not: push, merge, release, deploy, delete files, change billing, or change credentials.",
+    ]
+    return "\n".join(lines)
 
 
 def run_cmd(args, cwd=None, timeout=60, env=None, pid_log: Path | None = None) -> CmdResult:
@@ -1028,6 +1153,164 @@ def command_run(args) -> int:
     return 0
 
 
+def command_start(args) -> int:
+    saved = {} if args.reset else load_config()
+    apply_compute_overrides(args)
+
+    if not is_interactive() and not args.yes and not args.dry_run and not args.setup_only:
+        print("NIGHTSHIFT_START: RED | non-interactive shell; rerun with --yes, --dry-run, or --setup-only")
+        return 2
+
+    repo = args.repo or saved.get("repo")
+    if not repo:
+        repo = current_git_repo()
+
+    if not args.yes and is_interactive():
+        print("Welcome to Night Shift.")
+        print("I will ask a few quick questions, check what AI tools you have, and set up a safe overnight workflow.")
+        repo = ask_text("Which project should Night Shift look at?", repo)
+    elif not repo:
+        print("NIGHTSHIFT_START: RED | pass --repo /path/to/project or run from inside a git repo")
+        return 2
+
+    root = repo_root(repo)
+    repo_text = str(root or Path(repo).expanduser())
+
+    print("")
+    print("Checking what is available on this computer...")
+    overall, rows = doctor_checks(repo_text, run_smoke=False, allow_fetch=False)
+    for name, state, message in rows:
+        if name in ("local-models", "windows-worker", "claude", "gh-auth", "repo"):
+            print(f"- {state} {name}: {message}")
+
+    local_url = args.local_url or saved.get("local_url") or os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL)
+    local_model = args.local_model or saved.get("local_model") or os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL)
+    windows_url = args.windows_url or saved.get("windows_url") or os.environ.get("WINDOWS_WORKER_BASE_URL", "")
+    windows_model = args.windows_model or saved.get("windows_model") or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL)
+
+    ai_choice = saved.get("ai_choice", "check")
+    permission = saved.get("permission", "brief")
+    mode = args.mode or saved.get("mode", "night-shift")
+    stop = saved.get("stop", "morning")
+
+    if not args.yes and is_interactive():
+        ai_choice = ask_choice(
+            "What AI tools do you want Night Shift to use?",
+            [
+                ("check", "Not sure, check for me"),
+                ("subscriptions", "AI coding subscriptions, like Codex or Claude Code"),
+                ("mac", "Local AI on this Mac, like LM Studio or Ollama"),
+                ("other-computer", "Local AI on another computer"),
+                ("both-local", "Local AI on this Mac and another computer"),
+            ],
+            ai_choice if ai_choice in {"check", "subscriptions", "mac", "other-computer", "both-local"} else "check",
+        )
+
+        if ai_choice in ("mac", "both-local"):
+            local_url = ask_text("Mac local AI URL", local_url)
+            local_model = ask_text("Mac local model name", local_model)
+        if ai_choice in ("other-computer", "both-local"):
+            windows_url = ask_text("Other computer AI URL", windows_url or "http://WINDOWS_HOST:11434/v1")
+            windows_model = ask_text("Other computer model name", windows_model)
+
+        permission = ask_choice(
+            "What should Night Shift be allowed to do overnight?",
+            [
+                ("brief", "Read only and make a morning brief"),
+                ("draft-local", "Draft ideas locally, but do not push"),
+                ("draft-prs", "Suggest draft PRs after checks pass"),
+            ],
+            permission if permission in {"brief", "draft-local", "draft-prs"} else "brief",
+        )
+        mode = ask_choice(
+            "How hard should Night Shift work?",
+            [
+                ("quiet", "Quiet: light work, low heat"),
+                ("night-shift", "Normal: good overnight run"),
+                ("afterburner", "Afterburner: use more compute"),
+            ],
+            mode if mode in MODE_DEFAULTS else "night-shift",
+        )
+        stop = ask_choice(
+            "When should Night Shift stop?",
+            [
+                ("morning", "When I come back and say stop"),
+                ("2h", "After 2 hours"),
+                ("6h", "After 6 hours"),
+                ("8h", "After 8 hours"),
+            ],
+            stop if stop in {"morning", "2h", "6h", "8h"} else "morning",
+        )
+
+    config = {
+        "repo": repo_text,
+        "ai_choice": ai_choice,
+        "permission": permission,
+        "mode": mode,
+        "stop": stop,
+        "local_url": local_url,
+        "local_model": local_model,
+        "windows_url": windows_url,
+        "windows_model": windows_model,
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    save_config(config)
+
+    if local_url:
+        os.environ["MAESTRO_LOCAL_BASE_URL"] = local_url.rstrip("/")
+    if local_model:
+        os.environ["MAESTRO_LOCAL_MODEL"] = local_model
+    if windows_url:
+        os.environ["WINDOWS_WORKER_BASE_URL"] = windows_url.rstrip("/")
+    if windows_model:
+        os.environ["WINDOWS_WORKER_MODEL"] = windows_model
+
+    overall, rows = doctor_checks(repo_text, run_smoke=False, allow_fetch=False)
+    print(start_preview(config, rows))
+    print("")
+    print(f"Saved setup: {CONFIG_PATH}")
+
+    if args.setup_only:
+        print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
+        return 0
+
+    if args.dry_run:
+        print("NIGHTSHIFT_START: GREEN | dry run only | no run started")
+        return 0
+
+    if not args.yes and is_interactive():
+        if not ask_yes_no("Start Night Shift now?", default=True):
+            print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
+            return 0
+
+    by_name = rows_by_name(rows)
+    local_ready = by_name.get("local-models", ("", ""))[0] == "GREEN"
+    windows_ready = by_name.get("windows-worker", ("", ""))[0] == "GREEN"
+
+    if not local_ready and not windows_ready:
+        print("")
+        print("No local worker AI is reachable yet, so I will make a planning brief instead of pretending to run overnight.")
+        plan_args = argparse.Namespace(repo=repo_text, mode="quiet")
+        return command_plan(plan_args)
+
+    run_args = argparse.Namespace(
+        repo=repo_text,
+        mode=mode,
+        max_local=None,
+        max_windows=None,
+        parallel_local=None,
+        parallel_windows=None,
+        token_target=None,
+        local_url=local_url,
+        local_model=local_model,
+        windows_url=windows_url,
+        windows_model=windows_model,
+        timeout=args.timeout,
+        skip_smoke=args.skip_smoke,
+    )
+    return command_run(run_args)
+
+
 def command_report(args) -> int:
     if args.ledger and args.latest:
         print("NIGHTSHIFT_REPORT: RED | use either --latest or --ledger <path>, not both")
@@ -1083,16 +1366,39 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=textwrap.dedent(
             """
             Common flow:
+              night-shift start
+              night-shift report --latest
+              night-shift stop --latest
+
+            Advanced:
               night-shift doctor --repo /path/to/project
               night-shift plan --repo /path/to/project --mode night-shift
               night-shift run --repo /path/to/project --mode night-shift
-              night-shift report --latest
-              night-shift stop --latest
             """
         ),
     )
     parser.add_argument("--version", action="version", version=f"Night Shift {VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    start = sub.add_parser(
+        "start",
+        help="first-time setup wizard and safe launcher",
+        description="Walk through setup, detect available AI tools, save preferences, preview the plan, and start Night Shift.",
+        epilog="Example: night-shift start --repo /path/to/project",
+    )
+    start.add_argument("--repo", required=False, help="git repo to inspect; defaults to the current directory when possible")
+    start.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default=None, help="skip the mode question")
+    start.add_argument("--local-url", required=False, help="override MAESTRO_LOCAL_BASE_URL")
+    start.add_argument("--local-model", required=False, help="override MAESTRO_LOCAL_MODEL")
+    start.add_argument("--windows-url", required=False, help="override WINDOWS_WORKER_BASE_URL")
+    start.add_argument("--windows-model", required=False, help="override WINDOWS_WORKER_MODEL")
+    start.add_argument("--timeout", type=int, default=900, help="seconds before each worker task is stopped")
+    start.add_argument("--skip-smoke", action="store_true", help="skip the lane smoke check during startup")
+    start.add_argument("--setup-only", action="store_true", help="save setup answers and stop before launching")
+    start.add_argument("--dry-run", action="store_true", help="show what would happen without launching")
+    start.add_argument("--reset", action="store_true", help="ignore saved setup and ask again")
+    start.add_argument("--yes", action="store_true", help="use saved/default answers and start without prompting")
+    start.set_defaults(func=command_start)
 
     doctor = sub.add_parser(
         "doctor",

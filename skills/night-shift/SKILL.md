@@ -10,8 +10,7 @@ Tagline: put your idle AI hardware to work while you sleep.
 The simplest user promise:
 
 ```bash
-night-shift doctor --repo /path/to/project
-night-shift run --repo /path/to/project --mode night-shift
+night-shift start
 night-shift report --latest
 ```
 
@@ -45,11 +44,12 @@ Power modes:
 
 Core UX:
 
-1. Point it at compute.
-2. Point it at a project.
-3. Pick a mode.
-4. Go to sleep.
-5. Wake up to a morning brief, artifacts, and at most a few high-signal draft PRs
+1. User runs `night-shift start`.
+2. Night Shift asks a few plain-English setup questions.
+3. Night Shift detects available AI tools and saves preferences.
+4. Night Shift shows a "will / will not" preview before launching.
+5. User goes to sleep.
+6. User wakes up to a morning brief, artifacts, and at most a few high-signal draft PRs
    that Codex or a human opened after review.
 
 This should meet users where they are:
@@ -74,16 +74,60 @@ See `README.md` in this skill folder for the user-facing quickstart and 20 commo
 Preferred launcher:
 
 ```bash
-night-shift doctor --repo /path/to/project
-night-shift plan --repo /path/to/project --mode night-shift
-night-shift run --repo /path/to/project --mode night-shift
+night-shift start
 night-shift report --latest
 ```
 
-Use the launcher when the user wants a simple setup, a repeatable run, token
-accounting, or a portable "night shift" experience. Use direct Codex threads
-only when the task requires real repo edits, PRs, manual review, merges, release
-work, or this exact chat as the cockpit.
+Use `night-shift start` whenever the user wants a simple setup, a repeatable
+run, token accounting, or a portable "night shift" experience. Use direct Codex
+threads only when the task requires real repo edits, PRs, manual review, merges,
+release work, or this exact chat as the cockpit.
+
+## Setup Wizard
+
+For first-time users, launch with:
+
+```bash
+night-shift start
+```
+
+The wizard should ask, in plain language:
+
+1. Which project should Night Shift look at?
+2. What AI tools should it use?
+   - Not sure, check for me.
+   - AI coding subscriptions, like Codex or Claude Code.
+   - Local AI on this Mac, like LM Studio or Ollama.
+   - Local AI on another computer.
+   - Local AI on this Mac and another computer.
+3. What is Night Shift allowed to do overnight?
+   - Read only and make a morning brief.
+   - Draft ideas locally, but do not push.
+   - Suggest draft PRs after checks pass.
+4. How hard should Night Shift work?
+   - Quiet.
+   - Normal.
+   - Afterburner.
+5. When should Night Shift stop?
+   - When I come back and say stop.
+   - After 2 hours.
+   - After 6 hours.
+   - After 8 hours.
+
+Before launching, always show a preview with:
+
+- Project.
+- AI tools detected or configured.
+- Mode.
+- Safety setting.
+- Stop setting.
+- Output.
+- A clear "Will not" line: no push, merge, release, deploy, delete files,
+  billing changes, or credential changes.
+
+The wizard saves preferences at `~/.codex/night-shift/config.json`.
+Advanced users can still use `doctor`, `plan`, `run`, `report`, and `stop`
+directly.
 
 ## Modes
 
@@ -130,8 +174,7 @@ If a critical readiness check fails, do not improvise a long night. Fall back to
 For normal users, prefer the productized startup path:
 
 ```bash
-night-shift doctor --repo <repo>
-night-shift run --repo <repo> --mode quiet|night-shift|afterburner
+night-shift start
 ```
 
 The CLI writes the startup gate, board, artifacts, token report, and morning

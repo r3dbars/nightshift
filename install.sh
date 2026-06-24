@@ -110,12 +110,12 @@ if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
   echo "  printf '%s\n' 'export PATH=\"$bin_dir:\$PATH\"' >> \"$shell_profile\""
   echo
   echo "Or skip PATH setup and run it directly:"
-  echo "  $bin_dir/night-shift doctor --repo /path/to/project"
+  echo "  $bin_dir/night-shift start"
 fi
 
 echo
 echo "Next:"
-echo "  night-shift doctor --repo /path/to/project"
+echo "  night-shift start"
 echo
 echo "Optional compute to start before a real run:"
 echo "  Mac local: open LM Studio, start the local server, and load phi-4-mini-instruct."

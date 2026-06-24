@@ -53,10 +53,11 @@ without letting them become management.
 
 The simplest version:
 
-1. Run `doctor` to see which compute lanes are ready.
-2. Run `plan` to make the work queue boring and bounded.
-3. Run `run` when you are done steering for the night.
-4. Run `report --latest` in the morning.
+1. Run `night-shift start`.
+2. Answer a few plain-English setup questions.
+3. Review the "will / will not" summary.
+4. Let Night Shift run.
+5. Run `night-shift report --latest` in the morning.
 
 The promise is not "wake up to merged code." The promise is "wake up to a
 ranked, source-backed brief, proof paths, token totals, and a clear first move."
@@ -67,18 +68,19 @@ ranked, source-backed brief, proof paths, token totals, and a clear first move."
 git clone https://github.com/r3dbars/night-shift.git
 cd night-shift
 ./install.sh
-night-shift --version
-night-shift doctor --repo /path/to/project
-night-shift plan --repo /path/to/project --mode night-shift
-night-shift run --repo /path/to/project --mode night-shift
+night-shift start
 night-shift report --latest
 ```
 
 If `night-shift` is not on your `PATH`, run it directly:
 
 ```bash
-~/.codex/bin/night-shift doctor --repo /path/to/project
+~/.codex/bin/night-shift start
 ```
+
+`night-shift start` is the setup wizard. It checks what AI tools are available,
+asks what the user wants to allow, saves the answers, shows a clear preview, and
+then starts a safe run.
 
 Need copy-paste recipes? See
 [`skills/night-shift/examples`](skills/night-shift/examples).
@@ -94,12 +96,29 @@ night-shift stop --latest
 
 ## The Mental Model
 
-There are two things to point at:
+The wizard asks four beginner questions:
 
-1. Compute: Mac local model, Windows GPU worker, Claude CLI, Codex.
-2. Project: the repo you want improved.
+1. Which project should Night Shift look at?
+2. What AI tools should it use?
+3. What is it allowed to do overnight?
+4. How hard should it work?
 
-Then choose one mode:
+Then it shows a summary before launching:
+
+```text
+Here is what Night Shift will do:
+
+Project: /path/to/project
+AI tools: local Mac AI, another computer, Claude CLI
+Mode: Normal
+Safety: Read only and make a morning brief
+Stop: Stop when I come back
+Output: morning brief and saved artifacts
+
+Will not: push, merge, release, deploy, delete files, change billing, or change credentials.
+```
+
+Advanced users can still choose a mode directly:
 
 - `quiet`: low heat, low noise, small useful scans.
 - `night-shift`: normal overnight run.
@@ -150,9 +169,10 @@ One-command install:
 
 ```bash
 ./install.sh
+night-shift start
 ```
 
-Install and immediately run doctor:
+Advanced: install and immediately run doctor:
 
 ```bash
 ./install.sh --doctor /path/to/project
@@ -181,20 +201,20 @@ Recommended:
 - Claude CLI installed if you want the reasoning lane.
 - GitHub CLI signed in if you want PR state included in the context pack.
 
-Check it:
+Start the wizard:
 
 ```bash
-night-shift doctor --repo /path/to/project
+night-shift start
 ```
 
 If your shell cannot find `night-shift`, use either of these:
 
 ```bash
 export PATH="$HOME/.codex/bin:$PATH"
-~/.codex/bin/night-shift doctor --repo /path/to/project
+~/.codex/bin/night-shift start
 ```
 
-Point it at different compute:
+Advanced: point it at different compute:
 
 ```bash
 night-shift doctor --repo /path/to/project \
@@ -212,11 +232,11 @@ night-shift stop --latest
 night-shift report --ledger ~/.codex/maestro/overnight/night-shift-...
 ```
 
-If something is missing, the doctor output should tell you exactly what to start.
+If something is missing, the wizard and doctor output should tell you exactly what to start.
 The `run` command writes ledgers and artifacts only; it reads repo state but does
 not fetch, commit, branch, merge, publish, or edit the target repo.
 
-### What To Start
+### Advanced Recipes
 
 Mac-only:
 

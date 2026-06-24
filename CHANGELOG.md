@@ -7,6 +7,7 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Add `night-shift start`, a first-run setup wizard and safe launcher.
 - Rename the public command and bundled skill to `night-shift`.
 - Clarify the private/pre-license package status.
 - Document package contents, install layout, and release checklist.

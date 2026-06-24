@@ -70,7 +70,6 @@ Keep the root README, skill README, and `skills/night-shift/SKILL.md`
 aligned on the core command promise:
 
 ```bash
-night-shift doctor --repo /path/to/project
-night-shift run --repo /path/to/project --mode night-shift
+night-shift start
 night-shift report --latest
 ```

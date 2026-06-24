@@ -42,6 +42,11 @@ python3 bin/night-shift --help >/dev/null
 bin/night-shift --version | grep -q "Night Shift $version_file"
 bin/night-shift --help >/dev/null
 
+tmp_home="$(mktemp -d)"
+trap 'rm -rf "$tmp_home"' EXIT
+CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --dry-run --skip-smoke >/dev/null
+test -s "$tmp_home/night-shift/config.json"
+
 for required in README.md CONTRIBUTING.md SAFETY.md LICENSE CHANGELOG.md PACKAGE.md VERSION; do
   if [[ ! -s "$required" ]]; then
     echo "missing or empty package file: $required" >&2
