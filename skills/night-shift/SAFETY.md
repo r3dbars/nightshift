@@ -12,7 +12,7 @@ Merging or publishing still requires a separate manual approval.
 ## What It Never Does By Itself
 
 - Merges pull requests.
-- Pushes commits or branches from `maestro-nightshift run`.
+- Pushes commits or branches from `night-shift run`.
 - Cuts releases, publishes, tags, notarizes, deploys, updates appcasts, or
   updates casks.
 - Changes credentials, secrets, billing, or account settings.
@@ -140,12 +140,12 @@ export WINDOWS_WORKER_MODEL=qwen3-coder:30b
 Request a graceful stop for the latest run:
 
 ```bash
-maestro-nightshift stop --latest
+night-shift stop --latest
 ```
 
 The command writes a `STOP` file into the latest ledger, signals recorded
 delegate process groups, and prevents new workers from starting for that run.
 
-If you need an immediate stop, terminate the relevant `maestro-nightshift`,
+If you need an immediate stop, terminate the relevant `night-shift`,
 `maestro-delegate`, `maestro-local`, `maestro-windows`, `maestro-claude`,
 `curl`, or model-server processes from your shell or process manager.

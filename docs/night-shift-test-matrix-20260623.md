@@ -27,10 +27,10 @@ Artifact root: shared Night Shift result root `20260623T170159` (local paths int
 | 02 | CLI UX and Bad-Argument Behavior | YELLOW | PASS=8 FAIL=2 YELLOW=0 PENDING=0 | `lane-02-cli-ux.md and outputs/` | Invalid --mode for plan/run exits correctly but hint incorrectly suggests doctor instead of the active subcommand. |
 | 03 | Plan/Run Ledger Behavior | PASS | PASS=10 FAIL=0 YELLOW=0 PENDING=0 | `lane-03-tests.tsv and lane-03-work/` | No confirmed bug from lane evidence. |
 | 04 | Mac Local Model Lane | FAIL | PASS=9 FAIL=1 YELLOW=0 PENDING=0 | `lane-04-local-model.md and lane-04-proof/` | Local classification output was HOLD_DFS, which failed the strict allowed-label schema. |
-| 05 | Windows Worker Lane | FAIL | PASS=9 FAIL=1 YELLOW=0 PENDING=0 | `lane-05-windows-worker.md` | Timeout behavior test crashed while importing bin/maestro-nightshift through importlib; dataclass module registration produced AttributeError. |
+| 05 | Windows Worker Lane | FAIL | PASS=9 FAIL=1 YELLOW=0 PENDING=0 | `lane-05-windows-worker.md` | Timeout behavior test crashed while importing bin/night-shift through importlib; dataclass module registration produced AttributeError. |
 | 06 | Report and Stop Flows | PASS | PASS=10 FAIL=0 YELLOW=0 PENDING=0 | `lane-06-report-stop.md and lane-06-logs/` | No confirmed bug from lane evidence. |
 | 07 | Safety and Public Readiness Scan | YELLOW | PASS=8 FAIL=0 YELLOW=2 PENDING=0 | `lane-07-safety-public.md` | Public launch hold: private/source-available license placeholder, owner naming, and old closed PR/ref/cache exposure need resolution. |
-| 08 | Installed Skill and Repo Skill Sync | FAIL | PASS=1 FAIL=5 YELLOW=4 PENDING=0 | `lane-08-skill-install.md` | Installed skill and installed command are stale compared with repo source of truth; bare maestro-nightshift is not on PATH in this shell. |
+| 08 | Installed Skill and Repo Skill Sync | FAIL | PASS=1 FAIL=5 YELLOW=4 PENDING=0 | `lane-08-skill-install.md` | Installed skill and installed command are stale compared with repo source of truth; bare night-shift is not on PATH in this shell. |
 | 09 | Toy Repo Quiet Lifecycle | YELLOW | PASS=1 FAIL=0 YELLOW=3 PENDING=6 | `lane-09-*.log and tmp-toy/` | Only four lane logs were present, so six expected tests are missing/pending. |
 | 10 | README / Examples Command Smoke | FAIL | PASS=5 FAIL=1 YELLOW=4 PENDING=0 | `lane-10-command-logs/` | Example harvest sed commands fail because harvest.md and token-report.txt are missing after a zero-worker quiet run. |
 
@@ -71,8 +71,8 @@ Improvement ideas:
 
 | # | Test | Command / Run Evidence Summary | Status | Output Artifact Path | Bugs Found | Improvement Ideas |
 |---:|---|---|---:|---|---|---|
-| 1 | --help | python3 bin/maestro-nightshift --help exit 0 | PASS | `outputs/t01_help.*` | none confirmed | Keep common flow visible. |
-| 2 | --version | --version prints maestro-nightshift 0.1.0 exit 0 | PASS | `outputs/t02_version.*` | none confirmed | Good version smoke. |
+| 1 | --help | python3 bin/night-shift --help exit 0 | PASS | `outputs/t01_help.*` | none confirmed | Keep common flow visible. |
+| 2 | --version | --version prints night-shift 0.1.0 exit 0 | PASS | `outputs/t02_version.*` | none confirmed | Good version smoke. |
 | 3 | plan missing repo | plan without --repo exits 2 with plan --repo hint | PASS | `outputs/t03_missing_required_repo.*` | none confirmed | Good targeted hint. |
 | 4 | plan invalid mode | plan --mode chaos exits 2 but hint says doctor | FAIL | `outputs/t04_invalid_plan_mode.*` | Wrong friendly hint for plan invalid mode. | Use plan-specific hint. |
 | 5 | run invalid mode | run --mode chaos exits 2 but hint says doctor | FAIL | `outputs/t05_invalid_run_mode.*` | Wrong friendly hint for run invalid mode. | Use run-specific hint. |
@@ -80,7 +80,7 @@ Improvement ideas:
 | 7 | report conflicting selectors | report --latest --ledger exits 2 with conflict message | PASS | `outputs/t07_report_conflicting_selectors.*` | none confirmed | Good selector guard. |
 | 8 | stop missing selector | stop exits 2 and asks for --latest or --ledger | PASS | `outputs/t08_stop_missing_selector.*` | none confirmed | Good selector error. |
 | 9 | stop conflicting selectors | stop --latest --ledger exits 2 with conflict message | PASS | `outputs/t09_stop_conflicting_selectors.*` | none confirmed | Good selector guard. |
-| 10 | missing command | bare maestro-nightshift exits 2 and gives starter hint | PASS | `outputs/t10_missing_command.*` | none confirmed | Good beginner path. |
+| 10 | missing command | bare night-shift exits 2 and gives starter hint | PASS | `outputs/t10_missing_command.*` | none confirmed | Good beginner path. |
 
 ### Lane 03: Plan/Run Ledger Behavior
 
@@ -93,7 +93,7 @@ Improvement ideas:
 
 | # | Test | Command / Run Evidence Summary | Status | Output Artifact Path | Bugs Found | Improvement Ideas |
 |---:|---|---|---:|---|---|---|
-| 1 | version command | reported maestro-nightshift 0.1.0 | PASS | `lane-03-tests.tsv` | none confirmed | Good version check. |
+| 1 | version command | reported night-shift 0.1.0 | PASS | `lane-03-tests.tsv` | none confirmed | Good version check. |
 | 2 | plan creates quiet ledger | quiet plan ledger created under lane-03-work/codex-home | PASS | `lane-03-work/codex-home/maestro/overnight/` | none confirmed | Keep ledger path in output. |
 | 3 | plan ledger files | board/context/startup/mode/artifacts present | PASS | `lane-03-work/codex-home/maestro/overnight/` | none confirmed | Good ledger completeness. |
 | 4 | board content | 12 safe board items plus quiet mode/safety line | PASS | `lane-03-work/codex-home/maestro/overnight/` | none confirmed | Good safety board. |
@@ -131,7 +131,7 @@ Improvement ideas:
 Lane status: `FAIL`
 Output artifact path: `lane-05-windows-worker.md`
 Bugs found:
-- Timeout behavior test crashed while importing bin/maestro-nightshift through importlib; dataclass module registration produced AttributeError.
+- Timeout behavior test crashed while importing bin/night-shift through importlib; dataclass module registration produced AttributeError.
 Improvement ideas:
 - Avoid importlib-loading CLI script in tests, or register module before exec_module; add a real timeout test path.
 
@@ -197,7 +197,7 @@ Improvement ideas:
 Lane status: `FAIL`
 Output artifact path: `lane-08-skill-install.md`
 Bugs found:
-- Installed skill and installed command are stale compared with repo source of truth; bare maestro-nightshift is not on PATH in this shell.
+- Installed skill and installed command are stale compared with repo source of truth; bare night-shift is not on PATH in this shell.
 Improvement ideas:
 - Rerun install.sh or sync repo skill/bin into real CODEX_HOME, then recheck PATH.
 
@@ -250,7 +250,7 @@ Improvement ideas:
 |---:|---|---|---:|---|---|---|
 | 1 | package check | scripts/check-package.sh exit 0 | PASS | `lane-10-command-logs/test-01.log` | none confirmed | Good package smoke. |
 | 2 | temp install | ./install.sh --codex-home temp exit 0 | PASS | `lane-10-command-logs/test-02.log` | none confirmed | Good install smoke. |
-| 3 | version after install | installed maestro-nightshift --version exit 0 | PASS | `lane-10-command-logs/test-03.log` | none confirmed | Good version path. |
+| 3 | version after install | installed night-shift --version exit 0 | PASS | `lane-10-command-logs/test-03.log` | none confirmed | Good version path. |
 | 4 | README doctor | doctor exit 0 but NIGHTSHIFT_DOCTOR: YELLOW for optional Windows unconfigured | YELLOW | `lane-10-command-logs/test-04.log` | Mac-only doctor returns yellow. | Clarify examples for Mac-only users. |
 | 5 | README plan night-shift | plan --mode night-shift exit 0 | PASS | `lane-10-command-logs/test-05.log` | none confirmed | Good plan example. |
 | 6 | zero-worker quiet run | run exit 0 but NIGHTSHIFT_RUN: YELLOW no cheap compute lanes reachable | YELLOW | `lane-10-command-logs/test-06.log` | Zero-worker run creates yellow ledger. | Explain expected yellow in examples. |
@@ -265,9 +265,9 @@ Improvement ideas:
 - Lane 01: Doctor reports YELLOW when Windows is unconfigured; acceptable for Mac-only but needs clear expectation.
 - Lane 02: Invalid --mode for plan/run exits correctly but hint incorrectly suggests doctor instead of the active subcommand.
 - Lane 04: Local classification output was HOLD_DFS, which failed the strict allowed-label schema.
-- Lane 05: Timeout behavior test crashed while importing bin/maestro-nightshift through importlib; dataclass module registration produced AttributeError.
+- Lane 05: Timeout behavior test crashed while importing bin/night-shift through importlib; dataclass module registration produced AttributeError.
 - Lane 07: Public launch hold: private/source-available license placeholder, owner naming, and old closed PR/ref/cache exposure need resolution.
-- Lane 08: Installed skill and installed command are stale compared with repo source of truth; bare maestro-nightshift is not on PATH in this shell.
+- Lane 08: Installed skill and installed command are stale compared with repo source of truth; bare night-shift is not on PATH in this shell.
 - Lane 09: Only four lane logs were present, so six expected tests are missing/pending.
 - Lane 09: Quiet run produced YELLOW with one local loop, zero Windows loops, zero tokens, and rejected artifact.
 - Lane 10: Example harvest sed commands fail because harvest.md and token-report.txt are missing after a zero-worker quiet run.

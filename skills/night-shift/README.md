@@ -64,24 +64,24 @@ ranked, source-backed brief, proof paths, token totals, and a clear first move."
 ## Quick Start
 
 ```bash
-git clone https://github.com/r3dbars/maestro-night-shift.git
-cd maestro-night-shift
+git clone https://github.com/r3dbars/night-shift.git
+cd night-shift
 ./install.sh
-maestro-nightshift --version
-maestro-nightshift doctor --repo /path/to/project
-maestro-nightshift plan --repo /path/to/project --mode night-shift
-maestro-nightshift run --repo /path/to/project --mode night-shift
-maestro-nightshift report --latest
+night-shift --version
+night-shift doctor --repo /path/to/project
+night-shift plan --repo /path/to/project --mode night-shift
+night-shift run --repo /path/to/project --mode night-shift
+night-shift report --latest
 ```
 
-If `maestro-nightshift` is not on your `PATH`, run it directly:
+If `night-shift` is not on your `PATH`, run it directly:
 
 ```bash
-~/.codex/bin/maestro-nightshift doctor --repo /path/to/project
+~/.codex/bin/night-shift doctor --repo /path/to/project
 ```
 
 Need copy-paste recipes? See
-[`skills/maestro-overnight/examples`](skills/maestro-overnight/examples).
+[`skills/night-shift/examples`](skills/night-shift/examples).
 
 Need shareable launch copy, repo-description options, and visual ideas? See
 [MARKETING.md](MARKETING.md).
@@ -89,7 +89,7 @@ Need shareable launch copy, repo-description options, and visual ideas? See
 Stop a run:
 
 ```bash
-maestro-nightshift stop --latest
+night-shift stop --latest
 ```
 
 ## The Mental Model
@@ -184,20 +184,20 @@ Recommended:
 Check it:
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project
+night-shift doctor --repo /path/to/project
 ```
 
-If your shell cannot find `maestro-nightshift`, use either of these:
+If your shell cannot find `night-shift`, use either of these:
 
 ```bash
 export PATH="$HOME/.codex/bin:$PATH"
-~/.codex/bin/maestro-nightshift doctor --repo /path/to/project
+~/.codex/bin/night-shift doctor --repo /path/to/project
 ```
 
 Point it at different compute:
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project \
+night-shift doctor --repo /path/to/project \
   --local-url http://localhost:1234/v1 \
   --local-model phi-4-mini-instruct \
   --windows-url http://windows-host.local:11434/v1 \
@@ -207,9 +207,9 @@ maestro-nightshift doctor --repo /path/to/project \
 Use `--latest` or `--ledger <path>` when reporting or stopping:
 
 ```bash
-maestro-nightshift report --latest
-maestro-nightshift stop --latest
-maestro-nightshift report --ledger ~/.codex/maestro/overnight/night-shift-...
+night-shift report --latest
+night-shift stop --latest
+night-shift report --ledger ~/.codex/maestro/overnight/night-shift-...
 ```
 
 If something is missing, the doctor output should tell you exactly what to start.
@@ -222,8 +222,8 @@ Mac-only:
 
 ```bash
 open -a "LM Studio"
-maestro-nightshift doctor --repo /path/to/project
-maestro-nightshift run --repo /path/to/project --mode quiet --max-windows 0
+night-shift doctor --repo /path/to/project
+night-shift run --repo /path/to/project --mode quiet --max-windows 0
 ```
 
 Windows worker only:
@@ -231,8 +231,8 @@ Windows worker only:
 ```bash
 export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1
 export WINDOWS_WORKER_MODEL=qwen3-coder:30b
-maestro-nightshift doctor --repo /path/to/project --windows-url "$WINDOWS_WORKER_BASE_URL"
-maestro-nightshift run --repo /path/to/project --mode quiet --max-local 0
+night-shift doctor --repo /path/to/project --windows-url "$WINDOWS_WORKER_BASE_URL"
+night-shift run --repo /path/to/project --mode quiet --max-local 0
 ```
 
 Mac plus Windows:
@@ -241,15 +241,15 @@ Mac plus Windows:
 open -a "LM Studio"
 export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1
 export WINDOWS_WORKER_MODEL=qwen3-coder:30b
-maestro-nightshift doctor --repo /path/to/project --windows-url "$WINDOWS_WORKER_BASE_URL"
-maestro-nightshift run --repo /path/to/project --mode night-shift
+night-shift doctor --repo /path/to/project --windows-url "$WINDOWS_WORKER_BASE_URL"
+night-shift run --repo /path/to/project --mode night-shift
 ```
 
 No local model yet:
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project
-maestro-nightshift plan --repo /path/to/project --mode quiet
+night-shift doctor --repo /path/to/project
+night-shift plan --repo /path/to/project --mode quiet
 ```
 
 Optional lanes:
@@ -485,7 +485,7 @@ and a clear next action, not surprise merges or releases.
 In the morning:
 
 ```bash
-maestro-nightshift report --latest
+night-shift report --latest
 ```
 
 Then review:
@@ -517,9 +517,9 @@ Product name: `Night Shift`
 
 Short name: `Night Shift`
 
-Short command: `maestro-nightshift`
+Short command: `night-shift`
 
-Repository/package name: `maestro-night-shift`
+Repository/package name: `night-shift`
 
 Friendly phrases:
 

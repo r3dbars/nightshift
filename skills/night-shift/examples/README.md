@@ -10,9 +10,9 @@ think and draft. Codex verifies before code, PRs, merges, or releases happen.
 Use this for low heat, short runs, or a laptop on battery.
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project
-maestro-nightshift run --repo /path/to/project --mode quiet
-maestro-nightshift report --latest
+night-shift doctor --repo /path/to/project
+night-shift run --repo /path/to/project --mode quiet
+night-shift report --latest
 ```
 
 Good Quiet Shift tasks:
@@ -26,15 +26,15 @@ Good Quiet Shift tasks:
 Use this for a normal overnight run.
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project --smoke
-maestro-nightshift plan --repo /path/to/project --mode night-shift
-maestro-nightshift run --repo /path/to/project --mode night-shift
+night-shift doctor --repo /path/to/project --smoke
+night-shift plan --repo /path/to/project --mode night-shift
+night-shift run --repo /path/to/project --mode night-shift
 ```
 
 In the morning:
 
 ```bash
-maestro-nightshift report --latest
+night-shift report --latest
 ```
 
 ## Afterburner
@@ -42,15 +42,15 @@ maestro-nightshift report --latest
 Use this when you want to spend idle local and Windows compute hard.
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project --smoke
-maestro-nightshift run --repo /path/to/project --mode afterburner
+night-shift doctor --repo /path/to/project --smoke
+night-shift run --repo /path/to/project --mode afterburner
 ```
 
 Stop it cleanly:
 
 ```bash
-maestro-nightshift stop --latest
-maestro-nightshift report --latest
+night-shift stop --latest
+night-shift report --latest
 ```
 
 Afterburner should still avoid merges, releases, deploys, credentials, billing,
@@ -62,8 +62,8 @@ Use this when LM Studio is your only worker.
 
 ```bash
 export MAESTRO_LOCAL_MODEL=phi-4-mini-instruct
-maestro-nightshift doctor --repo /path/to/project
-maestro-nightshift run --repo /path/to/project --mode quiet --max-windows 0
+night-shift doctor --repo /path/to/project
+night-shift run --repo /path/to/project --mode quiet --max-windows 0
 ```
 
 Best fit: private triage, TODO mining, docs drift, and test-gap maps.
@@ -73,11 +73,11 @@ Best fit: private triage, TODO mining, docs drift, and test-gap maps.
 Use this when you have a Windows GPU worker on your LAN.
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project \
+night-shift doctor --repo /path/to/project \
   --windows-url http://windows-host.local:11434/v1 \
   --windows-model qwen3-coder:30b
 
-maestro-nightshift run --repo /path/to/project \
+night-shift run --repo /path/to/project \
   --mode night-shift \
   --windows-url http://windows-host.local:11434/v1 \
   --windows-model qwen3-coder:30b
@@ -102,7 +102,7 @@ The proof path prints as `MAESTRO_PROOF=...`. Keep that path in the run notes.
 Use Codex after the run to turn only the best artifact into real work.
 
 ```bash
-maestro-nightshift report --latest
+night-shift report --latest
 sed -n '1,220p' ~/.codex/maestro/overnight/*/harvest.md | tail -n 120
 ```
 
@@ -119,8 +119,8 @@ draft PR. Do not merge or release.
 Use this when you wake up or want to stop the run.
 
 ```bash
-maestro-nightshift stop --latest
-maestro-nightshift report --latest
+night-shift stop --latest
+night-shift report --latest
 ```
 
 Read these first:

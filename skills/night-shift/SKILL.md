@@ -1,5 +1,5 @@
 ---
-name: maestro-overnight
+name: night-shift
 description: Launch and supervise Night Shift, a bounded overnight local-compute work mode. Use when the user asks for Night Shift, goodnight / going to sleep / run overnight / tokenmaxx / use local models / use a Windows GPU worker, wants an on-button for bounded repo work, or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
 ---
 
@@ -10,14 +10,14 @@ Tagline: put your idle AI hardware to work while you sleep.
 The simplest user promise:
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project
-maestro-nightshift run --repo /path/to/project --mode night-shift
-maestro-nightshift report --latest
+night-shift doctor --repo /path/to/project
+night-shift run --repo /path/to/project --mode night-shift
+night-shift report --latest
 ```
 
 Use this skill as the coordinator cockpit for a bounded overnight run. The goal is useful draft work, not autonomous shipping.
 
-Core rule: local and Windows lanes may draft; Codex reviews and verifies; Claude is rare; `maestro-nightshift run` does not edit the target repo; nothing pushes branches, merges, releases, publishes, tags, notarizes, changes repository visibility, changes credentials, or edits billing without the user explicitly saying so after the morning review.
+Core rule: local and Windows lanes may draft; Codex reviews and verifies; Claude is rare; `night-shift run` does not edit the target repo; nothing pushes branches, merges, releases, publishes, tags, notarizes, changes repository visibility, changes credentials, or edits billing without the user explicitly saying so after the morning review.
 
 Hard default: boring-safe beats ambitious. If a cheap worker suggests broad,
 destructive, private-data, hardware-proof, release, or file-reorganization work,
@@ -74,10 +74,10 @@ See `README.md` in this skill folder for the user-facing quickstart and 20 commo
 Preferred launcher:
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project
-maestro-nightshift plan --repo /path/to/project --mode night-shift
-maestro-nightshift run --repo /path/to/project --mode night-shift
-maestro-nightshift report --latest
+night-shift doctor --repo /path/to/project
+night-shift plan --repo /path/to/project --mode night-shift
+night-shift run --repo /path/to/project --mode night-shift
+night-shift report --latest
 ```
 
 Use the launcher when the user wants a simple setup, a repeatable run, token
@@ -130,8 +130,8 @@ If a critical readiness check fails, do not improvise a long night. Fall back to
 For normal users, prefer the productized startup path:
 
 ```bash
-maestro-nightshift doctor --repo <repo>
-maestro-nightshift run --repo <repo> --mode quiet|night-shift|afterburner
+night-shift doctor --repo <repo>
+night-shift run --repo <repo> --mode quiet|night-shift|afterburner
 ```
 
 The CLI writes the startup gate, board, artifacts, token report, and morning
@@ -165,7 +165,7 @@ If one lane is down:
 
 Only after the startup gate is `GREEN` should Tokenmaxx begin high-volume loops.
 
-`maestro-nightshift run` performs this gate before dispatching model loops. If
+`night-shift run` performs this gate before dispatching model loops. If
 Mac local or Windows is down, it degrades honestly or stops instead of pretending
 the lane ran.
 
@@ -329,7 +329,7 @@ Good overnight tasks:
 Avoid or hold:
 
 - Merge, release, publish, tag, notarize, deploy, or update appcast/cask.
-- Push commits or branches from `maestro-nightshift run`.
+- Push commits or branches from `night-shift run`.
 - Make repositories public or change repository visibility.
 - Broad "improve the app" prompts.
 - Secrets, credentials, billing, private user data, or destructive migrations.

@@ -61,7 +61,7 @@ package availability until those are true.
 
 ## Visual Suggestions
 
-- Hero image: a terminal with `maestro-nightshift run --mode night-shift` on the
+- Hero image: a terminal with `night-shift run --mode night-shift` on the
   left and a clean `morning.md` summary on the right.
 - Diagram: repo plus compute lanes flowing into Night Shift, then into artifacts,
   token report, morning brief, and human/Codex review.
@@ -74,7 +74,7 @@ package availability until those are true.
 ## Image Prompt Placeholder
 
 Create a clean product screenshot-style hero for a developer tool called
-"Night Shift". Show a macOS terminal running `maestro-nightshift run
+"Night Shift". Show a macOS terminal running `night-shift run
 --repo /path/to/project --mode night-shift`, a small lane status panel for Local,
 Windows, Claude, and Codex, and a morning brief panel with KEEP/MAYBE/REJECT
 counts. Style: quiet developer tooling, sharp text, no mascot, no sci-fi glow,

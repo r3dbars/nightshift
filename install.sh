@@ -7,12 +7,12 @@ usage: ./install.sh [--codex-home PATH] [--link] [--doctor REPO]
 
 Installs Night Shift into:
   ${CODEX_HOME:-$HOME/.codex}/bin
-  ${CODEX_HOME:-$HOME/.codex}/skills/maestro-overnight
+  ${CODEX_HOME:-$HOME/.codex}/skills/night-shift
 
 Options:
   --codex-home PATH  install under PATH instead of ${CODEX_HOME:-$HOME/.codex}
   --link             symlink bin files and the skill to this checkout for development
-  --doctor REPO   run maestro-nightshift doctor after installing
+  --doctor REPO   run night-shift doctor after installing
   -h, --help      show this help
 EOF
 }
@@ -57,7 +57,8 @@ done
 codex_home="${codex_home/#\~/$HOME}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bin_dir="$codex_home/bin"
-skill_dir="$codex_home/skills/maestro-overnight"
+skill_dir="$codex_home/skills/night-shift"
+old_skill_dir="$codex_home/skills/maestro-overnight"
 
 shell_profile=""
 case "${SHELL:-}" in
@@ -75,30 +76,33 @@ for required in git python3 curl rsync; do
   fi
 done
 
-mkdir -p "$bin_dir" "$skill_dir"
+mkdir -p "$bin_dir" "$codex_home/skills"
+rm -f "$bin_dir/maestro-nightshift"
+rm -rf "$old_skill_dir"
 
 if [[ "$link_install" -eq 1 ]]; then
-  for source in "$repo_root"/bin/maestro-*; do
+  for source in "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift"; do
     target="$bin_dir/$(basename "$source")"
     rm -f "$target"
     ln -s "$source" "$target"
   done
 
   rm -rf "$skill_dir"
-  ln -s "$repo_root/skills/maestro-overnight" "$skill_dir"
+  ln -s "$repo_root/skills/night-shift" "$skill_dir"
 else
-  cp "$repo_root"/bin/maestro-* "$bin_dir/"
-  chmod +x "$bin_dir"/maestro-*
+  mkdir -p "$skill_dir"
+  cp "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift" "$bin_dir/"
+  chmod +x "$bin_dir"/maestro-* "$bin_dir/night-shift"
 
-  rsync -a --delete "$repo_root/skills/maestro-overnight/" "$skill_dir/"
+  rsync -a --delete "$repo_root/skills/night-shift/" "$skill_dir/"
 fi
 
 echo "Night Shift installed."
 if [[ "$link_install" -eq 1 ]]; then
   echo "Install mode: linked to $repo_root"
 fi
-echo "Installed command: $bin_dir/maestro-nightshift"
-"$bin_dir/maestro-nightshift" --version
+echo "Installed command: $bin_dir/night-shift"
+"$bin_dir/night-shift" --version
 
 if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
   echo
@@ -109,12 +113,12 @@ if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
   echo "  printf '%s\n' 'export PATH=\"$bin_dir:\$PATH\"' >> \"$shell_profile\""
   echo
   echo "Or skip PATH setup and run it directly:"
-  echo "  $bin_dir/maestro-nightshift doctor --repo /path/to/project"
+  echo "  $bin_dir/night-shift doctor --repo /path/to/project"
 fi
 
 echo
 echo "Next:"
-echo "  maestro-nightshift doctor --repo /path/to/project"
+echo "  night-shift doctor --repo /path/to/project"
 echo
 echo "Optional compute to start before a real run:"
 echo "  Mac local: open LM Studio, start the local server, and load phi-4-mini-instruct."
@@ -125,5 +129,5 @@ echo "  GitHub: install gh and run 'gh auth login' if you want PR context."
 
 if [[ -n "$doctor_repo" ]]; then
   echo
-  "$bin_dir/maestro-nightshift" doctor --repo "$doctor_repo"
+  "$bin_dir/night-shift" doctor --repo "$doctor_repo"
 fi

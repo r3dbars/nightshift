@@ -1,4 +1,4 @@
 interface:
   display_name: "Night Shift"
   short_description: "Run bounded local-first overnight work."
-  default_prompt: "Use $maestro-overnight in Conservative mode for one safe repo-only Night Shift run."
+  default_prompt: "Use $night-shift in Conservative mode for one safe repo-only Night Shift run."

@@ -8,21 +8,21 @@ project. Keep the install and release surface boring and explicit.
 `./install.sh` installs into `${CODEX_HOME:-$HOME/.codex}` by default:
 
 ```text
-bin/maestro-nightshift
+bin/night-shift
 bin/maestro-delegate
 bin/maestro-local
 bin/maestro-windows
 bin/maestro-claude
 bin/maestro-smoke.sh
 bin/maestro-token-report
-skills/maestro-overnight/
+skills/night-shift/
 ```
 
 Use `./install.sh --codex-home PATH` to install into another Codex home.
 
 ## Command Names
 
-The user-facing command is `maestro-nightshift`.
+The user-facing command is `night-shift`.
 
 Helper commands keep the `maestro-` prefix because they are lane wrappers used
 by the CLI and by Codex coordinator prompts:
@@ -34,12 +34,12 @@ by the CLI and by Codex coordinator prompts:
 - `maestro-smoke.sh`
 - `maestro-token-report`
 
-Do not introduce a second public command name unless the old one remains as a
-documented compatibility alias.
+Do not introduce a second public command name. Keep the beginner path to one
+command: `night-shift`.
 
 ## Versioning
 
-- Current version lives in `VERSION` and `bin/maestro-nightshift`.
+- Current version lives in `VERSION` and `bin/night-shift`.
 - Tags should be `vMAJOR.MINOR.PATCH`.
 - Pre-1.0 changes may break command flags or ledger formats, but the changelog
   should say so plainly.
@@ -50,12 +50,12 @@ documented compatibility alias.
 Before a private release tag:
 
 1. Update `VERSION`.
-2. Update `VERSION` inside `bin/maestro-nightshift`.
+2. Update `VERSION` inside `bin/night-shift`.
 3. Update `CHANGELOG.md`.
 4. Run `scripts/check-package.sh`.
 5. Run `./install.sh --codex-home "$(mktemp -d)"`.
-6. From that temporary install, run `maestro-nightshift --version` and
-   `maestro-nightshift --help`.
+6. From that temporary install, run `night-shift --version` and
+   `night-shift --help`.
 7. Confirm `LICENSE` still matches the intended distribution status.
 
 ## Skill Bundle
@@ -63,14 +63,14 @@ Before a private release tag:
 The bundled skill is installed at:
 
 ```text
-${CODEX_HOME:-$HOME/.codex}/skills/maestro-overnight/
+${CODEX_HOME:-$HOME/.codex}/skills/night-shift/
 ```
 
-Keep the root README, skill README, and `skills/maestro-overnight/SKILL.md`
+Keep the root README, skill README, and `skills/night-shift/SKILL.md`
 aligned on the core command promise:
 
 ```bash
-maestro-nightshift doctor --repo /path/to/project
-maestro-nightshift run --repo /path/to/project --mode night-shift
-maestro-nightshift report --latest
+night-shift doctor --repo /path/to/project
+night-shift run --repo /path/to/project --mode night-shift
+night-shift report --latest
 ```
