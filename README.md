@@ -149,16 +149,30 @@ night-shift stop --latest
 
 ## The Mental Model
 
-The wizard asks beginner questions in this order:
+The wizard starts like a tiny decision brief:
+
+```text
+Welcome to Night Shift.
+
+First time here, so I will set up the basics with you.
+We are choosing four things:
+- the repo to read
+- what would make tomorrow morning useful
+- where your code is allowed to go
+- how hard and how long Night Shift should work
+
+Safe default: local, read-only, no pushes, no merges, no releases.
+```
+
+Then it asks beginner questions in this order:
 
 1. Which project should Night Shift look at?
-2. What do you want to wake up to?
-3. Where is repo context allowed to go?
-4. Is this project private or sensitive?
-5. What should Night Shift focus on?
-6. What is it allowed to do overnight?
-7. How hard should it work?
-8. When should it stop?
+2. What would make tomorrow morning a win?
+3. What should Night Shift aim at first?
+4. Where is repo context allowed to go tonight?
+5. What is Night Shift allowed to prepare?
+6. How much energy should it use?
+7. When should it stop?
 
 Then it shows a summary before launching:
 

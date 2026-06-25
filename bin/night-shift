@@ -191,6 +191,20 @@ def ask_yes_no(prompt: str, default=True) -> bool:
         print("Please answer yes or no.")
 
 
+def print_first_run_intro() -> None:
+    print("Welcome to Night Shift.")
+    print("")
+    print("First time here, so I will set up the basics with you.")
+    print("We are choosing four things:")
+    print("- the repo to read")
+    print("- what would make tomorrow morning useful")
+    print("- where your code is allowed to go")
+    print("- how hard and how long Night Shift should work")
+    print("")
+    print("Safe default: local, read-only, no pushes, no merges, no releases.")
+    print("You can change this later.")
+
+
 def rows_by_name(rows: list[tuple[str, str, str]]) -> dict[str, tuple[str, str]]:
     return {name: (state, message) for name, state, message in rows}
 
@@ -1483,8 +1497,7 @@ def command_start(args) -> int:
         repo = current_git_repo()
 
     if not args.yes and is_interactive():
-        print("Welcome to Night Shift.")
-        print("I will ask a few quick questions, check what AI tools you have, and set up a safe overnight workflow.")
+        print_first_run_intro()
         repo = ask_text("Which project should Night Shift look at?", repo)
     elif not repo:
         print("NIGHTSHIFT_START: RED | pass --repo /path/to/project or run from inside a git repo")
@@ -1520,65 +1533,59 @@ def command_start(args) -> int:
 
     if not args.yes and is_interactive():
         wake_goal = ask_choice(
-            "What do you want to wake up to?",
+            "What would make tomorrow morning a win?",
             [
-                ("brief", "A short morning brief only"),
-                ("chores", "Ranked repo chores and test ideas"),
-                ("draft-prs", "Draft PR candidates, but only after checks"),
+                ("brief", "A calm morning brief: what happened, what matters, what to do first"),
+                ("chores", "A ranked hit list: bugs, tests, docs, and small safe chores"),
+                ("draft-prs", "Draft PR candidates: still no pushing or merging from Night Shift"),
             ],
             wake_goal if wake_goal in {"brief", "chores", "draft-prs"} else "brief",
         )
-        privacy_route = ask_choice(
-            "Where is Night Shift allowed to send repo context?",
-            [
-                ("mac-only", "Keep it on this Mac"),
-                ("mac-and-lan", "This Mac plus my other AI computer"),
-                ("cloud-ok", "Cloud coding subscriptions are okay for hard questions"),
-            ],
-            privacy_route if privacy_route in {"mac-only", "mac-and-lan", "cloud-ok"} else "mac-only",
-        )
-        project_private = ask_choice(
-            "Is this project private or sensitive?",
-            [
-                ("private", "Yes, treat it as private"),
-                ("normal", "No, normal repo context is okay"),
-            ],
-            project_private if project_private in {"private", "normal"} else "private",
-        )
         guidance = ask_choice(
-            "Do you already know what Night Shift should focus on?",
+            "What should Night Shift aim at first?",
             [
-                ("scan", "No, scan the repo and find useful work"),
-                ("goal", "Yes, I have a goal"),
-                ("issues", "Use open issues and PRs as guidance"),
+                ("scan", "Find the sharpest safe work for me"),
+                ("goal", "I have one mission for tonight"),
+                ("issues", "Use open issues and PRs as the map"),
             ],
             guidance if guidance in {"scan", "goal", "issues"} else "scan",
         )
         if guidance == "goal":
-            goal_text = ask_text("What should Night Shift focus on?", goal_text or "Find the highest-value safe next task")
+            goal_text = ask_text("In one sentence, what is tonight's mission?", goal_text or "Find the highest-value safe next task")
+
+        privacy_route = ask_choice(
+            "Where is repo context allowed to go tonight?",
+            [
+                ("mac-only", "Only this Mac: safest and private"),
+                ("mac-and-lan", "This Mac plus my other AI computer on my network"),
+                ("cloud-ok", "Cloud coding subscriptions are okay for hard questions"),
+            ],
+            privacy_route if privacy_route in {"mac-only", "mac-and-lan", "cloud-ok"} else "mac-only",
+        )
+        project_private = "normal" if privacy_route == "cloud-ok" else "private"
 
         if privacy_route in ("mac-only", "mac-and-lan") or args.local_url or args.local_model:
-            local_url = ask_text("Mac local AI URL", local_url)
-            local_model = ask_text("Mac local model name", local_model)
+            local_url = ask_text("Mac local AI URL. Press Enter for LM Studio's usual address", local_url)
+            local_model = ask_text("Mac local model name. Press Enter for the starter model", local_model)
         if privacy_route == "mac-and-lan":
             windows_url = ask_text("What is the AI server address for your other computer?", windows_url or "http://WINDOWS_HOST:11434/v1")
             windows_model = ask_text("Other computer model name", windows_model)
 
         permission = ask_choice(
-            "What should Night Shift be allowed to do overnight?",
+            "What is Night Shift allowed to prepare?",
             [
-                ("brief", "Read only and make a morning brief"),
-                ("draft-local", "Draft ideas locally, but do not push"),
-                ("draft-prs", "Suggest draft PRs after checks pass"),
+                ("brief", "Read-only: make a morning brief"),
+                ("draft-local", "Draft plans and artifacts locally, but do not push"),
+                ("draft-prs", "Prepare draft PR candidates for me to review"),
             ],
             permission if permission in {"brief", "draft-local", "draft-prs"} else "brief",
         )
         mode = ask_choice(
-            "How hard should Night Shift work?",
+            "How much energy should it use?",
             [
                 ("quiet", "Quiet: light work, low heat"),
                 ("night-shift", "Normal: good overnight run"),
-                ("afterburner", "Afterburner: use more compute"),
+                ("afterburner", "Afterburner: use more compute and make more artifacts"),
             ],
             mode if mode in MODE_DEFAULTS else "night-shift",
         )

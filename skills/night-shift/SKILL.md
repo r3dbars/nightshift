@@ -91,28 +91,46 @@ For first-time users, launch with:
 night-shift start
 ```
 
-The wizard should ask, in plain language:
+The wizard should start like a tiny decision brief:
+
+```text
+Welcome to Night Shift.
+
+First time here, so I will set up the basics with you.
+We are choosing four things:
+- the repo to read
+- what would make tomorrow morning useful
+- where your code is allowed to go
+- how hard and how long Night Shift should work
+
+Safe default: local, read-only, no pushes, no merges, no releases.
+You can change this later.
+```
+
+Then ask forcing questions, in plain language:
 
 1. Which project should Night Shift look at?
-2. What do you want to wake up to?
-   - A short morning brief only.
-   - Ranked repo chores and test ideas.
-   - Draft PR candidates, but only after checks.
-3. Where is Night Shift allowed to send repo context?
-   - Keep it on this Mac.
-   - This Mac plus my other AI computer.
+2. What would make tomorrow morning a win?
+   - A calm morning brief: what happened, what matters, what to do first.
+   - A ranked hit list: bugs, tests, docs, and small safe chores.
+   - Draft PR candidates: still no pushing or merging from Night Shift.
+3. What should Night Shift aim at first?
+   - Find the sharpest safe work for me.
+   - I have one mission for tonight.
+   - Use open issues and PRs as the map.
+4. Where is repo context allowed to go tonight?
+   - Only this Mac: safest and private.
+   - This Mac plus my other AI computer on my network.
    - Cloud coding subscriptions are okay for hard questions.
-4. Is this project private or sensitive?
-5. Do you already know what Night Shift should focus on?
-6. What is Night Shift allowed to do overnight?
-   - Read only and make a morning brief.
-   - Draft ideas locally, but do not push.
-   - Suggest draft PRs after checks pass.
-7. How hard should Night Shift work?
-   - Quiet.
-   - Normal.
-   - Afterburner.
-8. When should Night Shift stop?
+5. What is Night Shift allowed to prepare?
+   - Read-only: make a morning brief.
+   - Draft plans and artifacts locally, but do not push.
+   - Prepare draft PR candidates for me to review.
+6. How much energy should it use?
+   - Quiet: light work, low heat.
+   - Normal: good overnight run.
+   - Afterburner: use more compute and make more artifacts.
+7. When should Night Shift stop?
    - When I come back and say stop.
    - After 2 hours.
    - After 6 hours.

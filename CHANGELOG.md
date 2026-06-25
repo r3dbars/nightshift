@@ -16,6 +16,7 @@ commands, ledger formats, and packaging details.
 - Make first-run setup checks friendlier and hide raw token-scope/auth noise from the wizard.
 - Avoid setup ledger crashes when two runs start in the same second.
 - Fix Python 3.9 doctor support and invalid-mode command hints.
+- Rework the first-run wizard into a warmer decision-brief flow inspired by GStack Office Hours.
 - Add `night-shift start`, a first-run setup wizard and safe launcher.
 - Rename the public command and bundled skill to `night-shift`.
 - Clarify the private/pre-license package status.
