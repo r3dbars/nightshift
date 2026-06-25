@@ -13,6 +13,9 @@ commands, ledger formats, and packaging details.
 - Treat missing Windows worker and GitHub/Claude lanes as optional info for Mac-only users.
 - Add real chat probes, disk/write/power/recovery checks, and stop-after enforcement.
 - Add troubleshooting docs for first-run setup.
+- Make first-run setup checks friendlier and hide raw token-scope/auth noise from the wizard.
+- Avoid setup ledger crashes when two runs start in the same second.
+- Fix Python 3.9 doctor support and invalid-mode command hints.
 - Add `night-shift start`, a first-run setup wizard and safe launcher.
 - Rename the public command and bundled skill to `night-shift`.
 - Clarify the private/pre-license package status.

@@ -104,9 +104,9 @@ def now_stamp() -> str:
 def friendly_hint(prog: str, message: str = "") -> str:
     if "start" in prog:
         return "Try: night-shift start --repo /path/to/project"
-    if "run" in prog and "--repo" in message:
+    if "run" in prog:
         return "Try: night-shift run --repo /path/to/project --mode night-shift"
-    if "plan" in prog and "--repo" in message:
+    if "plan" in prog:
         return "Try: night-shift plan --repo /path/to/project --mode night-shift"
     if "doctor" in prog:
         return "Try: night-shift doctor --repo /path/to/project"
@@ -307,6 +307,43 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
         f"  night-shift doctor --repo {repo}",
     ]
     return "\n".join(lines)
+
+
+def friendly_setup_row(name: str, state: str, message: str) -> str | None:
+    if name == "local-models":
+        if state == "GREEN":
+            return "Mac AI: found it. Your local model server is reachable."
+        return "Mac AI: I cannot reach it yet. You can still save setup, and I can make a planning brief."
+    if name == "local-chat":
+        if state == "GREEN":
+            return "Mac AI chat: tested successfully."
+        return "Mac AI chat: the server answered, but the model did not complete the quick chat test."
+    if name == "windows-worker":
+        if state == "GREEN":
+            return "Other computer: found it on your network."
+        if state == "INFO":
+            return "Other computer: not set up, which is totally fine for Mac-only mode."
+        return "Other computer: not reachable right now. I will not count on it unless it comes online."
+    if name == "repo":
+        if state == "GREEN":
+            return "Project: looks like a clean Git repo."
+        if "dirty lines=" in message:
+            return "Project: has unsaved changes. That is okay; Night Shift will not edit this checkout directly."
+        return f"Project: {message}"
+    if name == "power":
+        if state == "YELLOW":
+            return "Power: this Mac looks like it is on battery. Plug it in before a real overnight run."
+        if state == "GREEN":
+            return "Power: plugged in and ready."
+    if name == "gh-auth":
+        if state == "GREEN":
+            return "GitHub: signed in, so repo and PR context can be included."
+        return "GitHub: not signed in. That is optional; repo-only work still works."
+    if name == "claude":
+        if state == "GREEN":
+            return "Claude CLI: available if you choose cloud/subscription help later."
+        return "Claude CLI: not found. That is optional."
+    return None
 
 
 def run_cmd(args, cwd=None, timeout=60, env=None, pid_log: Path | None = None) -> CmdResult:
@@ -510,17 +547,25 @@ def write_lab_files(ledger: Path, config: dict, rows: list[tuple[str, str, str]]
 def supports_os() -> tuple[str, str]:
     system = platform.system()
     py = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    if system in {"Darwin", "Linux"} and sys.version_info >= (3, 10):
+    if system in {"Darwin", "Linux"} and sys.version_info >= (3, 9):
         return "GREEN", f"{system} with Python {py}; supported"
-    if sys.version_info < (3, 10):
-        return "RED", f"Python {py} is too old; install Python 3.10+"
+    if sys.version_info < (3, 9):
+        return "RED", f"Python {py} is too old; install Python 3.9 or newer"
     return "YELLOW", f"{system} detected; Night Shift is best tested on macOS/Linux shells"
 
 
 def create_ledger(mode: str) -> Path:
     OVERNIGHT_ROOT.mkdir(parents=True, exist_ok=True)
-    ledger = OVERNIGHT_ROOT / f"night-shift-{now_stamp()}-{mode}"
-    ledger.mkdir(parents=True, exist_ok=False)
+    base = OVERNIGHT_ROOT / f"night-shift-{now_stamp()}-{mode}"
+    ledger = base
+    for index in range(2, 100):
+        try:
+            ledger.mkdir(parents=True, exist_ok=False)
+            break
+        except FileExistsError:
+            ledger = OVERNIGHT_ROOT / f"{base.name}-{index}"
+    else:
+        raise FileExistsError(f"could not create unique ledger under {OVERNIGHT_ROOT}")
     (ledger / "artifacts").mkdir()
     return ledger
 
@@ -1428,7 +1473,9 @@ def command_start(args) -> int:
     apply_compute_overrides(args)
 
     if not is_interactive() and not args.yes and not args.dry_run and not args.setup_only:
-        print("NIGHTSHIFT_START: RED | non-interactive shell; rerun with --yes, --dry-run, or --setup-only")
+        print("NIGHTSHIFT_START: RED | I need a keyboard for the setup questions.")
+        print("Try: night-shift start --repo /path/to/project --yes --dry-run")
+        print("Or run: night-shift start from a normal terminal window.")
         return 2
 
     repo = args.repo or config_value(saved, "repo")
@@ -1447,11 +1494,15 @@ def command_start(args) -> int:
     repo_text = str(root or Path(repo).expanduser())
 
     print("")
-    print("Checking what is available on this computer...")
+    print("Give me a second to check what is ready on this computer...")
     overall, rows = doctor_checks(repo_text, run_smoke=False, allow_fetch=False)
+    shown = set()
     for name, state, message in rows:
-        if name in ("local-models", "windows-worker", "claude", "gh-auth", "repo"):
-            print(f"- {state} {name}: {message}")
+        if name in ("local-models", "local-chat", "windows-worker", "claude", "gh-auth", "repo", "power"):
+            friendly = friendly_setup_row(name, state, message)
+            if friendly and friendly not in shown:
+                print(f"- {friendly}")
+                shown.add(friendly)
 
     local_url = args.local_url or config_value(saved, "local_url") or os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL)
     local_model = args.local_model or config_value(saved, "local_model") or os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL)
@@ -1590,10 +1641,12 @@ def command_start(args) -> int:
         print("Cloud note: Night Shift will still store credentials outside config and will not send secrets on purpose.")
 
     if args.setup_only:
+        print("All set. I saved setup and did not start a run.")
         print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
         return 0
 
     if args.dry_run:
+        print("Dry run complete. Nothing was started.")
         print("NIGHTSHIFT_START: GREEN | dry run only | no run started")
         return 0
 
@@ -1608,7 +1661,8 @@ def command_start(args) -> int:
 
     if not local_ready and not windows_ready:
         print("")
-        print("No local worker AI is reachable yet, so I will make a planning brief instead of pretending to run overnight.")
+        print("I cannot reach worker AI yet, so I will make a simple planning brief instead of pretending to run overnight.")
+        print("Next easy fix: open LM Studio, start the local server, and rerun `night-shift start`.")
         plan_args = argparse.Namespace(repo=repo_text, mode="quiet")
         return command_plan(plan_args)
 
