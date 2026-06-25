@@ -81,6 +81,16 @@ BOARD_ITEMS = [
     ("proof-audit", "Check whether current proof separates deterministic, telemetry, and manual evidence."),
 ]
 
+ACTION_THEMES = [
+    ("tests", re.compile(r"\b(test|tests|fixture|fixtures|smoke|regression|coverage)\b", re.IGNORECASE)),
+    ("docs", re.compile(r"\b(readme|docs?|documentation|quickstart|troubleshooting|copy|example)\b", re.IGNORECASE)),
+    ("install", re.compile(r"\b(install|path|linked mode|package|doctor|setup wizard|first-run|first run)\b", re.IGNORECASE)),
+    ("telemetry", re.compile(r"\b(telemetry|analytics|event|events|dashboard|posthog|sentry)\b", re.IGNORECASE)),
+    ("pr-triage", re.compile(r"\b(pr|pull request|branch|merge|stale)\b", re.IGNORECASE)),
+    ("safety", re.compile(r"\b(safety|privacy|secret|credential|billing|release|deploy|publish)\b", re.IGNORECASE)),
+    ("cleanup", re.compile(r"\b(duplicate|dedupe|refactor|oversized|smell|cleanup|ownership)\b", re.IGNORECASE)),
+]
+
 
 class NightShiftParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
@@ -248,9 +258,17 @@ def privacy_route_label(route: str) -> str:
 def permission_label(permission: str) -> str:
     return {
         "brief": "Read only and make a morning brief",
-        "draft-local": "Draft ideas locally, but do not push",
-        "draft-prs": "Suggest draft PRs after checks pass",
+        "draft-local": "Draft local patch plans and issue candidates, but do not push",
+        "draft-prs": "Prepare draft PR candidates for review, but do not push or merge",
     }.get(permission, permission)
+
+
+def autonomy_copy(permission: str) -> str:
+    return {
+        "brief": "Read-only. Make a brief and a ranked queue.",
+        "draft-local": "More helpful. Draft exact local patch plans, tests, and issue candidates.",
+        "draft-prs": "Most autonomous. Prepare review-ready draft PR candidates, still with no push or merge from `run`.",
+    }.get(permission, "Read-only. Make a brief and a ranked queue.")
 
 
 def stop_label(stop: str) -> str:
@@ -302,11 +320,13 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
         f"- Aim for: {wake_goal_label(wake_goal)}",
         f"- Run in {mode_label(mode)} mode ({mode_counts(mode, rows)})",
         f"- {permission_label(permission)}",
+        f"- Autonomy: {autonomy_copy(permission)}",
         f"- {stop_label(stop)}",
-        "- Save a morning brief and artifacts",
+        "- Save a repo scan, deduped work queue, morning brief, and artifacts",
         "",
         "Tonight it WILL NOT:",
         "- Push commits",
+        "- Open PRs without a separate Codex or human review step",
         "- Merge PRs",
         "- Release, deploy, publish, tag, or notarize",
         "- Delete or reorganize user files",
@@ -837,23 +857,279 @@ def repo_context_pack(repo: Path | None) -> str:
     return "\n\n".join(body)
 
 
-def build_board(mode: str) -> str:
-    lines = [f"# Night Shift Board", "", f"Mode: {mode}", ""]
+def command_lines(repo: Path, commands: list[list[str]], timeout=60) -> list[dict]:
+    rows: list[dict] = []
+    for cmd in commands:
+        res = run_cmd(cmd, cwd=repo, timeout=timeout)
+        rows.append(
+            {
+                "command": " ".join(str(part) for part in cmd),
+                "rc": res.rc,
+                "stdout": res.stdout.strip(),
+                "stderr": res.stderr.strip(),
+            }
+        )
+    return rows
+
+
+def repo_signal_scan(repo: Path | None) -> dict:
+    if not repo or not repo.exists():
+        return {"status": "missing", "message": "repo path missing or not provided"}
+
+    scan: dict = {
+        "status": "ok",
+        "repo": str(repo),
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    commands = command_lines(
+        repo,
+        [
+            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "branch", "--show-current"],
+            ["git", "status", "--short"],
+            ["git", "diff", "--name-only", "HEAD~10..HEAD"],
+            ["git", "ls-files"],
+        ],
+        timeout=60,
+    )
+    scan["git"] = commands
+    scan["head"] = commands[0]["stdout"] if commands and commands[0]["rc"] == 0 else ""
+    scan["branch"] = commands[1]["stdout"] if len(commands) > 1 and commands[1]["rc"] == 0 else ""
+    scan["dirty_lines"] = commands[2]["stdout"].splitlines() if len(commands) > 2 and commands[2]["stdout"] else []
+    recent_files = commands[3]["stdout"].splitlines()[:80] if len(commands) > 3 and commands[3]["stdout"] else []
+    if not recent_files:
+        recent = run_cmd(["git", "log", "--name-only", "--pretty=format:", "--max-count=10"], cwd=repo, timeout=60)
+        recent_files = list(dict.fromkeys([line.strip() for line in recent.stdout.splitlines() if line.strip()]))[:80]
+    scan["recent_files"] = recent_files
+    tracked = commands[4]["stdout"].splitlines() if len(commands) > 4 and commands[4]["stdout"] else []
+    scan["tracked_count"] = len(tracked)
+    scan["doc_files"] = [f for f in tracked if f.lower().endswith((".md", ".mdx", ".rst"))][:60]
+    scan["test_files"] = [
+        f
+        for f in tracked
+        if re.search(r"(^|/)(test|tests|spec|specs)(/|$)|(_test|\.test|\.spec)\.", f, re.IGNORECASE)
+    ][:80]
+    scan["source_files"] = [
+        f
+        for f in tracked
+        if f.endswith((".py", ".js", ".ts", ".tsx", ".jsx", ".swift", ".go", ".rs", ".rb", ".sh"))
+    ][:120]
+    todo_sample: list[str] = []
+    if shutil.which("rg"):
+        todo = run_cmd(["rg", "-n", "TODO|FIXME|HACK|XXX", str(repo), "--glob", "!build/**"], timeout=60)
+        todo_sample = todo.stdout.splitlines()[:80] if todo.stdout else []
+    scan["todo_count_sample"] = len(todo_sample)
+    scan["todo_sample"] = todo_sample
+    scan["test_commands"] = detect_test_commands(repo, tracked)
+    if shutil.which("gh"):
+        prs = run_cmd(
+            [
+                "gh",
+                "pr",
+                "list",
+                "--limit",
+                "40",
+                "--json",
+                "number,title,isDraft,mergeStateStatus,headRefName,updatedAt",
+            ],
+            cwd=repo,
+            timeout=60,
+        )
+        scan["github_open_prs_raw"] = prs.stdout.strip() if prs.rc == 0 else ""
+        scan["github_open_prs_error"] = prs.stderr.strip() if prs.rc != 0 else ""
+    return scan
+
+
+def detect_test_commands(repo: Path, tracked: list[str]) -> list[str]:
+    commands: list[str] = []
+    names = set(tracked)
+    if "package.json" in names:
+        try:
+            package = json.loads((repo / "package.json").read_text(encoding="utf-8"))
+            scripts = package.get("scripts", {})
+            for script in ("test", "lint", "typecheck", "check"):
+                if script in scripts:
+                    commands.append(f"npm run {script}")
+        except Exception:
+            commands.append("npm test")
+    if "pyproject.toml" in names or "pytest.ini" in names:
+        commands.append("python -m pytest")
+    if "Makefile" in names:
+        commands.append("make test")
+    if "scripts/check-package.sh" in names:
+        commands.append("bash scripts/check-package.sh")
+    if any(f.endswith(".xcodeproj/project.pbxproj") for f in names):
+        commands.append("xcodebuild test")
+    return commands[:8]
+
+
+def write_repo_scan(ledger: Path, scan: dict) -> None:
+    (ledger / "repo-scan.json").write_text(json.dumps(scan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    lines = ["# Repo Scan", ""]
+    lines.append(f"Repo: {scan.get('repo', 'unknown')}")
+    lines.append(f"Branch: {scan.get('branch', '(unknown)')}")
+    lines.append(f"Head: {scan.get('head', '(unknown)')}")
+    lines.append(f"Tracked files: {scan.get('tracked_count', 0)}")
+    dirty = scan.get("dirty_lines") or []
+    lines.append(f"Dirty checkout: {'yes' if dirty else 'no'}")
+    lines.append("")
+    lines.append("Recent files:")
+    for path in (scan.get("recent_files") or [])[:20]:
+        lines.append(f"- {path}")
+    if not scan.get("recent_files"):
+        lines.append("- None found.")
+    lines.append("")
+    lines.append("Detected test commands:")
+    for command in scan.get("test_commands") or []:
+        lines.append(f"- `{command}`")
+    if not scan.get("test_commands"):
+        lines.append("- None detected.")
+    lines.append("")
+    lines.append("TODO/FIXME sample:")
+    for item in (scan.get("todo_sample") or [])[:20]:
+        lines.append(f"- {item}")
+    if not scan.get("todo_sample"):
+        lines.append("- None found in the sample.")
+    lines.append("")
+    (ledger / "repo-scan.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: str, guidance: str = "scan", goal_text: str = "") -> list[dict]:
+    queue: list[dict] = []
+
+    def add(slug: str, kind: str, prompt: str, reason: str, files: list[str] | None = None) -> None:
+        if slug in {item["slug"] for item in queue}:
+            return
+        queue.append(
+            {
+                "slug": slug,
+                "kind": kind,
+                "prompt": prompt,
+                "reason": reason,
+                "files": files or [],
+            }
+        )
+
+    recent = scan.get("recent_files") or []
+    tests = scan.get("test_files") or []
+    docs = scan.get("doc_files") or []
+    todos = scan.get("todo_sample") or []
+    test_commands = scan.get("test_commands") or []
+
+    if guidance == "goal" and goal_text.strip():
+        add(
+            "mission-brief",
+            "mission",
+            f"Turn this user mission into the smallest safe repo task: {goal_text.strip()}",
+            "User supplied a specific mission.",
+            recent[:12],
+        )
+    if recent:
+        add(
+            "recent-change-test-gap",
+            "tests",
+            "Find the highest-value missing deterministic test around the most recent changed files. Prefer one narrow test or fixture, not a broad rewrite.",
+            "Recent files are often where a useful regression check belongs.",
+            recent[:20],
+        )
+    if test_commands:
+        add(
+            "test-command-proof",
+            "proof",
+            "Check whether the detected test commands are the right proof path for a small morning PR. Identify the fastest command and the gap it proves.",
+            "Night Shift should hand the user exact verification commands.",
+        )
+    if docs:
+        add(
+            "docs-command-drift",
+            "docs",
+            "Find one stale or confusing setup command, quickstart step, or report command in the docs. Prefer beginner-facing fixes.",
+            "Docs are safe overnight work and make the project easier to run.",
+            docs[:20],
+        )
+    if todos:
+        add(
+            "todo-risk-triage",
+            "triage",
+            "Cluster TODO/FIXME/HACK comments into one morning-ready issue candidate with exact files and risk.",
+            "TODOs often contain real small chores if they are deduped.",
+        )
+    if "github_open_prs_raw" in scan:
+        add(
+            "open-pr-dedupe",
+            "triage",
+            "Compare open PRs against current repo context and identify duplicates, stale branches, or one safe next review action.",
+            "Open PRs are real repo work, not generic suggestions.",
+        )
+    add(
+        "small-safe-fix-candidate",
+        "patch-plan",
+        "Find one small safe change that Codex could make tomorrow in an isolated worktree. Require exact files, exact tests, and a reason it is low risk.",
+        "This is the core autonomy step: useful, bounded, reviewable work.",
+        recent[:20],
+    )
+    add(
+        "morning-brief-actionability",
+        "product",
+        "Review the repo output surfaces and propose one change that would make the morning brief easier to act on in 60 seconds.",
+        "The user should wake up to choices, not homework.",
+    )
+    add(
+        "safety-boundary-proof",
+        "safety",
+        "Find one place where the repo should more clearly separate drafts, tests, manual proof, and release/deploy authority.",
+        "More autonomy needs stronger boundaries.",
+    )
+    if permission in {"draft-local", "draft-prs"}:
+        add(
+            "draft-pr-candidate",
+            "draft-pr",
+            "Select the best low-risk draft PR candidate. Include title, files, patch plan, tests, risk, and why it should or should not be attempted.",
+            "The user allowed Night Shift to prepare more than a read-only brief.",
+            recent[:20],
+        )
+
+    limit = {"quiet": 6, "night-shift": 10, "afterburner": 12}.get(mode, 10)
+    return queue[:limit]
+
+
+def build_board(mode: str, queue: list[dict] | None = None, permission: str = "brief") -> str:
+    lines = [f"# Night Shift Board", "", f"Mode: {mode}", f"Autonomy: {autonomy_copy(permission)}", ""]
     lines.append("| item | safe lane | artifact |")
     lines.append("| --- | --- | --- |")
-    for slug, task in BOARD_ITEMS:
-        lines.append(f"| {slug} | local/windows | {task} |")
+    items = queue or [{"slug": slug, "prompt": task, "kind": "scan"} for slug, task in BOARD_ITEMS]
+    for item in items:
+        lines.append(f"| {item['slug']} | local/windows | {item['prompt']} |")
     lines.append("")
-    lines.append("All work is artifact-first. No merge, release, publish, tag, notarize, deploy, appcast, cask, credentials, billing, or user-file cleanup.")
+    lines.append("All work is artifact-first. `night-shift run` does not push, merge, release, publish, tag, notarize, deploy, appcast, cask, change credentials, change billing, or clean up user files.")
+    lines.append("The morning brief should dedupe repeated ideas into a few repo-specific choices.")
     return "\n".join(lines)
 
 
-def local_prompt(task_slug: str, task_text: str, context_pack: str) -> str:
+def task_context_block(task: dict) -> str:
+    files = task.get("files") or []
+    file_lines = "\n".join(f"- {path}" for path in files[:24]) if files else "- No specific files preselected; infer from repo context."
+    return textwrap.dedent(
+        f"""
+        WORK_QUEUE_ITEM:
+        - slug: {task.get('slug', 'task')}
+        - kind: {task.get('kind', 'scan')}
+        - why this matters: {task.get('reason', 'selected from repo scan')}
+        - candidate files:
+        {file_lines}
+        """
+    ).strip()
+
+
+def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict | None = None, permission: str = "brief") -> str:
     context = context_pack[:14000]
+    queue_context = task_context_block(task or {"slug": task_slug, "prompt": task_text})
     return textwrap.dedent(
         f"""
         ROLE: Mac local repo analyst.
         TASK: {task_text}
+        AUTONOMY: {autonomy_copy(permission)}
+        {queue_context}
         PROJECT_CONTEXT:
         {context}
 
@@ -866,19 +1142,25 @@ def local_prompt(task_slug: str, task_text: str, context_pack: str) -> str:
         1. TASK_ID: {task_slug}
         2. FINDINGS: exactly 5 bullets max
         3. BEST_NEXT_ACTION: one concrete task
-        4. SAFE_FOR_DRAFT_PR: yes/no
-        5. CONFIDENCE: low/medium/high
+        4. FILES_TO_TOUCH: up to 5 exact paths, or none
+        5. TESTS_TO_RUN: exact commands, or none
+        6. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
+        7. SAFE_FOR_DRAFT_PR: yes/no
+        8. CONFIDENCE: low/medium/high
         STOP: no extra text.
         """
     ).strip()
 
 
-def windows_prompt(task_slug: str, task_text: str, context_pack: str) -> str:
+def windows_prompt(task_slug: str, task_text: str, context_pack: str, task: dict | None = None, permission: str = "brief") -> str:
     context = context_pack[:18000]
+    queue_context = task_context_block(task or {"slug": task_slug, "prompt": task_text})
     return textwrap.dedent(
         f"""
         ROLE: Windows long-running draft worker.
         TASK: {task_text}
+        AUTONOMY: {autonomy_copy(permission)}
+        {queue_context}
         PROJECT_CONTEXT:
         {context}
 
@@ -894,8 +1176,9 @@ def windows_prompt(task_slug: str, task_text: str, context_pack: str) -> str:
         4. PROPOSED_CHANGE: concise patch plan or review findings
         5. TESTS_TO_RUN: exact commands
         6. RISK: low/medium/high
-        7. SAFE_FOR_CODEX_TO_ATTEMPT: yes/no
-        8. lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
+        7. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
+        8. SAFE_FOR_CODEX_TO_ATTEMPT: yes/no
+        9. lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
         STOP: no extra text.
         """
     ).strip()
@@ -920,10 +1203,19 @@ FORBIDDEN_ACTION_RE = re.compile(
     r"\b(merge|release|publish|tag|notarize|deploy|appcast|cask|credential|billing|delete|destructive|move user files?)\b",
     re.IGNORECASE,
 )
+UNSAFE_APPROVAL_RE = re.compile(
+    r"\b(should|can|will|safe to|go ahead and)\s+(push|merge|release|publish|tag|notarize|deploy|delete|move|change credentials|change billing)\b"
+    r"|\b(push commits|merge prs|cut releases|deploy to|publish to|update appcast|update cask)\b",
+    re.IGNORECASE,
+)
 
 
 def first_label_value(output: str, labels: list[str]) -> str:
-    for raw_line in output.splitlines():
+    def clean_value(value: str) -> str:
+        return re.sub(r"^\d+[.)]\s+", "", value.strip())
+
+    lines = output.splitlines()
+    for index, raw_line in enumerate(lines):
         line = raw_line.strip().lstrip("-*0123456789. ")
         lower = line.lower()
         for label in labels:
@@ -931,7 +1223,14 @@ def first_label_value(output: str, labels: list[str]) -> str:
             if lower.startswith(needle):
                 value = line[len(label) :].strip(" :-")
                 if value:
-                    return value
+                    return clean_value(value)
+                for next_line in lines[index + 1 :]:
+                    next_value = next_line.strip().strip("-* ")
+                    if not next_value:
+                        continue
+                    if re.match(r"^[A-Z_ ]+:\s*$", next_value):
+                        break
+                    return clean_value(next_value)
     return ""
 
 
@@ -945,6 +1244,23 @@ def summarize_output(output: str) -> str:
         if value:
             return value
     return " ".join(output.strip().split())[:180] or "No usable summary captured."
+
+
+def action_type(output: str) -> str:
+    value = first_label_value(output, ["ACTION_TYPE", "ACTION TYPE"]).lower()
+    value = re.sub(r"[^a-z-]+", "", value)
+    if value in {"brief", "issue", "patch-plan", "draft-pr-candidate", "reject"}:
+        return value
+    low = output.lower()
+    if "draft pr candidate" in low or "draft-pr-candidate" in low:
+        return "draft-pr-candidate"
+    if "safe_for_draft_pr: yes" in low or "safe for draft pr: yes" in low:
+        return "draft-pr-candidate"
+    if "proposed_change" in low or "proposed change" in low:
+        return "patch-plan"
+    if "issue" in low:
+        return "issue"
+    return "brief"
 
 
 def confidence_bonus(output: str) -> int:
@@ -965,7 +1281,7 @@ def score_output(rc: int, output: str) -> str:
         return "REJECT"
     if not output.strip():
         return "REJECT"
-    if FORBIDDEN_ACTION_RE.search(output) and (
+    if UNSAFE_APPROVAL_RE.search(output) and (
         "safe_for_draft_pr: yes" in low
         or "safe for draft pr: yes" in low
         or "safe_for_codex_to_attempt: yes" in low
@@ -1002,12 +1318,60 @@ def artifact_priority(row: dict) -> int:
         base += 6
     if "exact" in output.lower() or "file" in output.lower():
         base += 4
-    if FORBIDDEN_ACTION_RE.search(output):
+    if UNSAFE_APPROVAL_RE.search(output):
         base -= 25
     base += confidence_bonus(output)
     if row["rc"] != 0 or row["timed_out"]:
         base -= 40
     return base
+
+
+def label_family(label: str) -> str:
+    return re.sub(r"-\d{3}$", "", label)
+
+
+def summary_theme(text: str) -> str:
+    for name, regex in ACTION_THEMES:
+        if regex.search(text):
+            return name
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    stop = {"the", "and", "for", "with", "that", "this", "from", "into", "night", "shift", "add", "update"}
+    useful = [word for word in words if len(word) > 2 and word not in stop]
+    return "-".join(useful[:4]) or "general"
+
+
+def dedupe_key(row: dict) -> str:
+    summary = row.get("summary", "")
+    return f"{label_family(row.get('label', 'task'))}:{summary_theme(summary)}:{action_type(row.get('output', ''))}"
+
+
+def deduped_work_items(results: list[dict], limit: int | None = None) -> list[dict]:
+    clusters: dict[str, dict] = {}
+    for row in ranked_results(results):
+        key = dedupe_key(row)
+        if key not in clusters:
+            clusters[key] = {
+                "key": key,
+                "primary": row,
+                "supporting": [],
+                "lanes": set(),
+                "labels": set(),
+                "priority": artifact_priority(row),
+                "action_type": action_type(row.get("output", "")),
+                "theme": summary_theme(row.get("summary", "")),
+            }
+        cluster = clusters[key]
+        cluster["supporting"].append(row)
+        cluster["lanes"].add(row.get("lane", "unknown"))
+        cluster["labels"].add(row.get("label", "unknown"))
+        cluster["priority"] = max(cluster["priority"], artifact_priority(row)) + min(len(cluster["supporting"]) - 1, 5)
+        if artifact_priority(row) > artifact_priority(cluster["primary"]):
+            cluster["primary"] = row
+    items = sorted(clusters.values(), key=lambda item: (-item["priority"], item["key"]))
+    for item in items:
+        item["lanes"] = sorted(item["lanes"])
+        item["labels"] = sorted(item["labels"])
+    return items[:limit] if limit else items
 
 
 def ranked_results(results: list[dict], include_reject=False) -> list[dict]:
@@ -1063,6 +1427,7 @@ def dispatch_one(lane: str, label: str, prompt: str, ledger: Path, mode: str, ti
         "input_tokens": int(meta.get("prompt_tokens_estimate") or meta.get("input_tokens") or 0),
         "output_tokens": int(meta.get("output_tokens_estimate") or meta.get("output_tokens") or 0),
         "summary": summarize_output(res.stdout),
+        "action_type": action_type(res.stdout),
         "output": res.stdout,
         "output_preview": " ".join(res.stdout.strip().split())[:240],
     }
@@ -1114,6 +1479,22 @@ def write_harvest(ledger: Path, results: list[dict]) -> None:
     else:
         lines.append("No KEEP or MAYBE artifacts survived scoring.")
     lines.append("")
+    lines.append("## Deduped Work Queue")
+    lines.append("")
+    work_items = deduped_work_items(results, limit=10)
+    if work_items:
+        lines.append("| rank | action | support | lanes | candidate | primary artifact |")
+        lines.append("| ---: | --- | ---: | --- | --- | --- |")
+        for index, item in enumerate(work_items, start=1):
+            row = item["primary"]
+            summary = row["summary"].replace("|", "\\|")
+            lanes = ", ".join(item["lanes"])
+            lines.append(
+                f"| {index} | {item['action_type']} | {len(item['supporting'])} | {lanes} | {summary} | {row['artifact']} |"
+            )
+    else:
+        lines.append("No work queue items survived dedupe.")
+    lines.append("")
     lines.append("## Full Scorecard")
     lines.append("")
     lines.append("| score | priority | lane | label | tokens | artifact |")
@@ -1132,6 +1513,44 @@ def write_harvest(ledger: Path, results: list[dict]) -> None:
             lines.append(f"- {row['label']} ({row['lane']}, priority {row['priority']}): {row['summary']}")
         lines.append("")
     (ledger / "harvest.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_work_queue(ledger: Path, results: list[dict]) -> list[dict]:
+    items = deduped_work_items(results, limit=12)
+    serializable = []
+    for item in items:
+        row = item["primary"]
+        serializable.append(
+            {
+                "rank": len(serializable) + 1,
+                "key": item["key"],
+                "action_type": item["action_type"],
+                "theme": item["theme"],
+                "supporting_artifacts": len(item["supporting"]),
+                "lanes": item["lanes"],
+                "labels": item["labels"],
+                "priority": item["priority"],
+                "summary": row["summary"],
+                "score": row["score"],
+                "primary_artifact": row["artifact"],
+                "proof": row.get("proof", ""),
+            }
+        )
+    (ledger / "work-queue.json").write_text(json.dumps(serializable, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    lines = ["# Work Queue", ""]
+    if not serializable:
+        lines.append("No usable work queue items survived scoring and dedupe.")
+    for item in serializable:
+        lines.append(f"## {item['rank']}. {item['summary']}")
+        lines.append("")
+        lines.append(f"- Action: {item['action_type']}")
+        lines.append(f"- Score: {item['score']}")
+        lines.append(f"- Support: {item['supporting_artifacts']} artifact(s)")
+        lines.append(f"- Lanes: {', '.join(item['lanes']) or 'unknown'}")
+        lines.append(f"- Primary artifact: {item['primary_artifact']}")
+        lines.append("")
+    (ledger / "work-queue.md").write_text("\n".join(lines), encoding="utf-8")
+    return items
 
 
 def write_token_report(ledger: Path, results: list[dict]) -> str:
@@ -1169,7 +1588,12 @@ def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: i
     reject = len([r for r in results if r["score"] == "REJECT"])
     status = run_status(results, target_tokens, overall)
     ranked = ranked_results(results)
-    first_action = ranked[0]["summary"] if ranked else "Fix the startup gate or rerun with reachable local/Windows lanes."
+    work_items = deduped_work_items(results, limit=5)
+    first_action = (
+        work_items[0]["primary"]["summary"]
+        if work_items
+        else "Fix the startup gate or rerun with reachable local/Windows lanes."
+    )
     token_totals = token_totals_by_lane(results)
     lines = [
         "# Morning Brief",
@@ -1179,12 +1603,14 @@ def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: i
         "What should I do first?",
         f"- {first_action}",
         "",
-        "Top 5 actionable items:",
+        "Top unique choices:",
     ]
-    if ranked:
-        for index, row in enumerate(ranked[:5], start=1):
+    if work_items:
+        for index, item in enumerate(work_items, start=1):
+            row = item["primary"]
             lines.append(
-                f"{index}. [{row['score']}] {row['summary']} ({row['lane']}/{row['label']}, priority {row['priority']})"
+                f"{index}. [{row['score']}] {row['summary']} "
+                f"(action={item['action_type']}, support={len(item['supporting'])}, lanes={','.join(item['lanes'])})"
             )
     else:
         lines.append("1. No usable artifacts survived scoring. Rerun after fixing the blockers below.")
@@ -1200,6 +1626,7 @@ def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: i
             f"- Token target: {target_tokens}",
             f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}",
             f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}",
+            f"- Unique work queue items: {len(deduped_work_items(results))}",
             "",
             "Token totals by lane:",
         ]
@@ -1214,22 +1641,26 @@ def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: i
     lines.extend(
         [
             "",
-            "KEEP summary:",
+            "Ready to review:",
         ]
     )
-    for row in [r for r in ranked if r["score"] == "KEEP"][:5]:
-        lines.append(f"- {row['label']}: {row['summary']}")
-    if keep == 0:
+    ready = [item for item in deduped_work_items(results) if item["primary"]["score"] == "KEEP"]
+    for item in ready[:5]:
+        row = item["primary"]
+        lines.append(f"- {item['action_type']}: {row['summary']} ({len(item['supporting'])} supporting artifact(s))")
+    if not ready:
         lines.append("- None.")
     lines.extend(
         [
             "",
-            "MAYBE summary:",
+            "Needs a rewrite or second look:",
         ]
     )
-    for row in [r for r in ranked if r["score"] == "MAYBE"][:5]:
-        lines.append(f"- {row['label']}: {row['summary']}")
-    if maybe == 0:
+    needs_rewrite = [item for item in deduped_work_items(results) if item["primary"]["score"] == "MAYBE"]
+    for item in needs_rewrite[:5]:
+        row = item["primary"]
+        lines.append(f"- {item['action_type']}: {row['summary']} ({len(item['supporting'])} supporting artifact(s))")
+    if not needs_rewrite:
         lines.append("- None.")
     lines.extend(
         [
@@ -1254,6 +1685,8 @@ def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: i
             "- Local and Windows outputs are drafts, not truth.",
             "",
             "Proof files:",
+            f"- Repo scan: {ledger / 'repo-scan.md'}",
+            f"- Work queue: {ledger / 'work-queue.md'}",
             f"- Harvest: {ledger / 'harvest.md'}",
             f"- Token report: {ledger / 'token-report.txt'}",
         ]
@@ -1313,7 +1746,11 @@ def command_plan(args) -> int:
     if not root:
         return 1
     context = repo_context_pack(root if root and root.exists() else None)
-    (ledger / "board.md").write_text(build_board(args.mode), encoding="utf-8")
+    scan = repo_signal_scan(root)
+    write_repo_scan(ledger, scan)
+    queue = build_repo_work_queue(root, scan, args.mode, "brief")
+    (ledger / "board.md").write_text(build_board(args.mode, queue, "brief"), encoding="utf-8")
+    (ledger / "planned-work-queue.json").write_text(json.dumps(queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
     (ledger / "mode.json").write_text(json.dumps({"mode": args.mode, **MODE_DEFAULTS[args.mode]}, indent=2) + "\n", encoding="utf-8")
     (ledger / "startup-gate.md").write_text("# Startup Gate\n\nStatus: NOT_RUN\n\nRun `night-shift doctor --repo <repo>` before a real night.\n", encoding="utf-8")
@@ -1334,6 +1771,9 @@ def command_run(args) -> int:
     parallel_windows = defaults["parallel_windows"] if args.parallel_windows is None else args.parallel_windows
     target_tokens = defaults["target_tokens"] if args.token_target is None else args.token_target
     stop_after = getattr(args, "stop_after", None)
+    permission = getattr(args, "permission", "brief") or "brief"
+    guidance = getattr(args, "guidance", "scan") or "scan"
+    goal_text = getattr(args, "goal", "") or ""
     deadline = None if not stop_after or STOP_SECONDS.get(stop_after) is None else time.time() + STOP_SECONDS[stop_after]
 
     ledger = create_ledger(args.mode)
@@ -1353,6 +1793,9 @@ def command_run(args) -> int:
                 "parallel_windows": parallel_windows,
                 "token_target": target_tokens,
                 "stop_after": stop_after or "morning",
+                "permission": permission,
+                "guidance": guidance,
+                "goal": goal_text,
             },
             indent=2,
             sort_keys=True,
@@ -1367,7 +1810,13 @@ def command_run(args) -> int:
         ledger,
         {
             "project": {"repo": str(root)},
-            "preferences": {"mode": args.mode, "stop": stop_after or "morning"},
+            "preferences": {
+                "mode": args.mode,
+                "stop": stop_after or "morning",
+                "permission": permission,
+                "guidance": guidance,
+                "goal_text": goal_text,
+            },
             "legacy": {
                 "local_url": getattr(args, "local_url", None) or os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL),
                 "local_model": getattr(args, "local_model", None) or os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL),
@@ -1378,8 +1827,12 @@ def command_run(args) -> int:
         rows,
     )
     context = repo_context_pack(root if root and root.exists() else None)
+    scan = repo_signal_scan(root)
+    write_repo_scan(ledger, scan)
+    queue = build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text)
+    (ledger / "planned-work-queue.json").write_text(json.dumps(queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
-    (ledger / "board.md").write_text(build_board(args.mode), encoding="utf-8")
+    (ledger / "board.md").write_text(build_board(args.mode, queue, permission), encoding="utf-8")
 
     if any(name == "local-models" and state == "YELLOW" for name, state, _ in rows):
         max_local = 0
@@ -1395,12 +1848,16 @@ def command_run(args) -> int:
         return 0
 
     tasks = []
+    if not queue:
+        queue = [{"slug": slug, "kind": "scan", "prompt": text, "reason": "fallback board item", "files": []} for slug, text in BOARD_ITEMS]
     for i in range(max_local):
-        slug, text = BOARD_ITEMS[i % len(BOARD_ITEMS)]
-        tasks.append(("local", f"{slug}-{i+1:03d}", local_prompt(slug, text, context)))
+        item = queue[i % len(queue)]
+        slug, text = item["slug"], item["prompt"]
+        tasks.append(("local", f"{slug}-{i+1:03d}", local_prompt(slug, text, context, item, permission)))
     for i in range(max_windows):
-        slug, text = BOARD_ITEMS[i % len(BOARD_ITEMS)]
-        tasks.append(("windows", f"{slug}-{i+1:03d}", windows_prompt(slug, text, context)))
+        item = queue[i % len(queue)]
+        slug, text = item["slug"], item["prompt"]
+        tasks.append(("windows", f"{slug}-{i+1:03d}", windows_prompt(slug, text, context, item, permission)))
 
     results: list[dict] = []
     stop_file = ledger / "STOP"
@@ -1468,6 +1925,7 @@ def command_run(args) -> int:
             submit_ready(executor, pending, remaining)
 
     write_harvest(ledger, results)
+    write_work_queue(ledger, results)
     token_report = write_token_report(ledger, results)
     write_morning(ledger, args.mode, results, target_tokens, overall)
     total_tokens = sum(r["tokens"] for r in results)
@@ -1676,6 +2134,9 @@ def command_start(args) -> int:
     run_args = argparse.Namespace(
         repo=repo_text,
         mode=mode,
+        permission=permission,
+        guidance=guidance,
+        goal=goal_text,
         max_local=None,
         max_windows=None,
         parallel_local=None,
@@ -1825,6 +2286,19 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--parallel-local", type=int, default=None, help="local workers at once")
     run.add_argument("--parallel-windows", type=int, default=None, help="Windows workers at once")
     run.add_argument("--token-target", type=int, default=None, help="estimated local+Windows token target")
+    run.add_argument(
+        "--permission",
+        choices=["brief", "draft-local", "draft-prs"],
+        default="brief",
+        help="how much autonomous preparation is allowed; run still never pushes or merges",
+    )
+    run.add_argument(
+        "--guidance",
+        choices=["scan", "goal", "issues"],
+        default="scan",
+        help="how Night Shift should choose repo work",
+    )
+    run.add_argument("--goal", default="", help="one-sentence mission when --guidance goal is used")
     run.add_argument("--local-url", required=False, help="override MAESTRO_LOCAL_BASE_URL")
     run.add_argument("--local-model", required=False, help="override MAESTRO_LOCAL_MODEL")
     run.add_argument("--windows-url", required=False, help="override WINDOWS_WORKER_BASE_URL")

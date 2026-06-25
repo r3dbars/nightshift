@@ -7,6 +7,7 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Add repo scans, repo-specific planned queues, deduped work queues, and autonomy levels for more useful overnight runs.
 - Expand the setup wizard into a beginner-friendly setup lab.
 - Add wake-up goal, privacy route, project sensitivity, guidance, and stop-timer setup questions.
 - Add setup lab artifacts for readiness, providers, and routing.

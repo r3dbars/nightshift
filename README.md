@@ -10,7 +10,8 @@
 
 Night Shift is a local-first overnight workbench for AI coding agents.
 Give it a repo, connect the compute you already have, pick a mode, and wake up
-to a ranked morning brief instead of a pile of loose chat.
+to a repo scan, a deduped work queue, and a ranked morning brief instead of a
+pile of loose chat.
 
 Package status: private source-available package, pre-1.0. The repository is
 not public and the license is intentionally not an open-source license yet.
@@ -25,9 +26,10 @@ It is built for developers with repo chores and unused nighttime compute:
 - **Codex or a human still verifies the work** before anything becomes a PR,
   merge, release, or deploy.
 
-Night Shift is not an autonomous release bot. The `run` command does not edit
-the target repo. It produces artifacts, rankings, token totals, and safe next
-actions. Codex or a human still reviews, edits, tests, and opens any PRs.
+Night Shift is not an autonomous release bot. The `run` command does not push
+or merge. It produces a repo-specific queue, worker artifacts, rankings, token
+totals, and safe next actions. Codex or a human still reviews, edits, tests,
+and opens any PRs.
 Merges, releases, and public launches require explicit manual approval after
 review.
 
@@ -58,6 +60,7 @@ Status: YELLOW
 Local loops: 40
 Windows loops: 20
 Artifacts: KEEP=3, MAYBE=7, REJECT=50
+Unique work queue items: 4
 Draft PRs opened: 0
 Manual proof: UNKNOWN
 Next action: verify KEEP item 1 and open one narrow draft PR if the gap is real.
@@ -78,6 +81,9 @@ Night Shift is optimized for the hours when you are not.
 
 It turns idle compute into bounded, reviewable repo work:
 
+- repo scans that understand the current branch, recent files, TODOs, docs, and
+  test commands
+- deduped work queues so repeated worker ideas become one stronger candidate
 - test-gap maps
 - stale PR reviews
 - TODO and risk clustering
@@ -186,11 +192,13 @@ Tonight it WILL:
 - Aim for: Ranked repo chores and test ideas
 - Run in Normal mode
 - Read only and make a morning brief
+- Autonomy: Read-only. Make a brief and a ranked queue.
 - Stop after 6 hours
-- Save a morning brief and artifacts
+- Save a repo scan, deduped work queue, morning brief, and artifacts
 
 Tonight it WILL NOT:
 - Push commits
+- Open PRs without a separate Codex or human review step
 - Merge PRs
 - Release, deploy, publish, tag, or notarize
 - Delete or reorganize user files
@@ -208,6 +216,21 @@ Advanced users can still choose a mode directly:
 - `quiet`: low heat, low noise, small useful scans.
 - `night-shift`: normal overnight run.
 - `afterburner`: tokenmaxx mode. Use the hardware hard until morning.
+
+You can also choose how much help it is allowed to prepare:
+
+```bash
+night-shift run --repo /path/to/project \
+  --mode night-shift \
+  --permission draft-prs
+```
+
+Autonomy levels:
+
+- `brief`: read-only repo scan, artifacts, and a ranked queue.
+- `draft-local`: exact patch plans, issue candidates, files, and tests.
+- `draft-prs`: review-ready draft PR candidates. The run still does not push,
+  merge, release, or deploy.
 
 ```mermaid
 flowchart LR
@@ -240,11 +263,16 @@ The run writes everything under:
 Useful files:
 
 - `startup-gate.md`: what compute was reachable.
+- `repo-scan.md` / `repo-scan.json`: branch, recent files, TODO sample, docs,
+  test files, and detected test commands.
 - `board.md`: the work queue.
+- `planned-work-queue.json`: the repo-specific queue chosen before workers run.
 - `context-pack.txt`: repo context used for prompts.
 - `artifacts/`: local and Windows worker outputs.
 - `processes.tsv`: process IDs for graceful stop.
 - `harvest.md`: ranked worker outputs.
+- `work-queue.md` / `work-queue.json`: deduped action choices after worker
+  scoring.
 - `token-report.txt`: estimated tokens by lane.
 - `morning.md`: the morning brief.
 
@@ -459,6 +487,7 @@ Good overnight work:
 - Compare user stories to tests and analytics.
 - Mine PostHog/Sentry gaps.
 - Draft small patch plans.
+- Prepare draft PR candidates for Codex or a human to review.
 - Produce morning-ready issues.
 
 What it will not do by itself:

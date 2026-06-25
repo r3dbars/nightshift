@@ -24,10 +24,11 @@ mark that worker result `REJECTED` and tighten the prompt. Do not let cheap
 workers choose their own scope.
 
 Tokenmaxx philosophy: spend local/Windows compute on attention-expensive,
-execution-safe work. Make maps, rankings, audits, briefs, issue candidates,
-test ideas, and patch plans. Let Codex turn only the best few into real draft
-PRs after verification. Unlimited artifacts are good; unlimited GitHub changes
-are not.
+execution-safe work. Start with a repo scan, build a small work queue, then
+dedupe repeated worker ideas into a few repo-specific choices. Make maps,
+rankings, audits, briefs, issue candidates, test ideas, patch plans, and draft
+PR candidates. Let Codex turn only the best few into real draft PRs after
+verification. Useful work queues are good; giant artifact piles are not.
 
 ## Product Shape
 
@@ -49,8 +50,9 @@ Core UX:
 3. Night Shift detects available AI tools and saves preferences.
 4. Night Shift shows a "will / will not" preview before launching.
 5. User goes to sleep.
-6. User wakes up to a morning brief, artifacts, and at most a few high-signal draft PRs
-   that Codex or a human opened after review.
+6. User wakes up to a repo scan, deduped work queue, morning brief, artifacts,
+   and at most a few high-signal draft PR candidates that Codex or a human can
+   open after review.
 
 This should meet users where they are:
 
@@ -123,9 +125,9 @@ Then ask forcing questions, in plain language:
    - This Mac plus my other AI computer on my network.
    - Cloud coding subscriptions are okay for hard questions.
 5. What is Night Shift allowed to prepare?
-   - Read-only: make a morning brief.
-   - Draft plans and artifacts locally, but do not push.
-   - Prepare draft PR candidates for me to review.
+   - Read-only: make a repo scan, morning brief, and ranked queue.
+   - Draft local patch plans, issue candidates, files, and tests, but do not push.
+   - Prepare review-ready draft PR candidates, but do not push or merge.
 6. How much energy should it use?
    - Quiet: light work, low heat.
    - Normal: good overnight run.
@@ -142,8 +144,9 @@ Before launching, always show a preview with:
 - AI tools detected or configured.
 - Mode.
 - Safety setting.
+- Autonomy setting.
 - Stop setting.
-- Output.
+- Output: repo scan, planned queue, deduped work queue, morning brief, artifacts.
 - A clear "Will not" line: no push, merge, release, deploy, delete files,
   billing changes, or credential changes.
 
@@ -201,8 +204,9 @@ For normal users, prefer the productized startup path:
 night-shift start
 ```
 
-The CLI writes the startup gate, board, artifacts, token report, and morning
-brief under `~/.codex/maestro/overnight/`.
+The CLI writes the startup gate, repo scan, planned queue, board, artifacts,
+deduped work queue, token report, and morning brief under
+`~/.codex/maestro/overnight/`.
 
 ## Startup Gate
 
@@ -327,6 +331,10 @@ as a task source without Codex rewriting it.
 
 For `Local Heavy`, use loop prompts that produce artifacts instead of vague
 advice. Each loop must have an artifact file under the run ledger.
+The queue should be repo-specific: prefer recent files, detected test commands,
+open issues/PRs, TODOs, docs drift, and the user's stated mission over generic
+categories. Repeated worker findings should strengthen one deduped work item,
+not flood the morning brief.
 
 Use this Mac local loop template:
 
@@ -338,8 +346,11 @@ FORBIDDEN: private user data, raw transcripts, secrets, destructive edits, relea
 OUTPUT:
 1. FINDINGS: exactly 5 bullets max
 2. BEST_NEXT_ACTION: one concrete task
-3. SAFE_FOR_DRAFT_PR: yes/no
-4. CONFIDENCE: low/medium/high
+3. FILES_TO_TOUCH: up to 5 exact paths, or none
+4. TESTS_TO_RUN: exact commands, or none
+5. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
+6. SAFE_FOR_DRAFT_PR: yes/no
+7. CONFIDENCE: low/medium/high
 STOP: no extra text.
 ```
 
@@ -358,8 +369,9 @@ OUTPUT:
 3. PROPOSED_CHANGE: concise patch plan or review findings
 4. TESTS_TO_RUN: exact commands
 5. RISK: low/medium/high
-6. SAFE_FOR_CODEX_TO_ATTEMPT: yes/no
-7. lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
+6. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
+7. SAFE_FOR_CODEX_TO_ATTEMPT: yes/no
+8. lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
 STOP: no extra text.
 ```
 
@@ -369,7 +381,7 @@ Codex must score every artifact:
 - `MAYBE`: useful idea but needs human/Codex rewrite.
 - `REJECT`: unsafe, broad, duplicate, stale, private, release-touching, or low signal.
 
-Only `KEEP` items may become draft PRs.
+Only deduped `KEEP` items may become draft PR candidates.
 
 ## Safe Work Menu
 

@@ -68,10 +68,13 @@ Night Shift writes run ledgers under:
 Typical files include:
 
 - `startup-gate.md`
+- `repo-scan.md` / `repo-scan.json`
 - `board.md`
+- `planned-work-queue.json`
 - `context-pack.txt`
 - `artifacts/`
 - `harvest.md`
+- `work-queue.md` / `work-queue.json`
 - `morning.md`
 - `token-report.txt`
 

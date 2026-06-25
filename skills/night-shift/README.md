@@ -8,8 +8,8 @@ Put your idle AI compute to work while you sleep.
 
 Night Shift is a local-first overnight workbench for AI coding agents.
 Point it at a repo, point it at the compute you already have, pick a mode, and
-wake up to a morning brief with artifacts, safe draft ideas, token totals, and
-the next action.
+wake up to a repo scan, a deduped work queue, artifacts, token totals, and the
+next action.
 
 It does the useful night work: read, sort, map, draft, and report. It does not
 merge, release, deploy, or pretend a worker draft is proof.
@@ -38,6 +38,9 @@ Night Shift is optimized for the hours when you are not.
 
 It turns idle compute into bounded, reviewable repo work:
 
+- repo scans that understand the current branch, recent files, TODOs, docs, and
+  test commands
+- deduped work queues so repeated worker ideas become one stronger candidate
 - test-gap maps
 - stale PR reviews
 - TODO and risk clustering
@@ -133,11 +136,13 @@ Tonight it WILL:
 - Aim for: Ranked repo chores and test ideas
 - Run in Normal mode
 - Read only and make a morning brief
+- Autonomy: Read-only. Make a brief and a ranked queue.
 - Stop after 6 hours
-- Save a morning brief and artifacts
+- Save a repo scan, deduped work queue, morning brief, and artifacts
 
 Tonight it WILL NOT:
 - Push commits
+- Open PRs without a separate Codex or human review step
 - Merge PRs
 - Release, deploy, publish, tag, or notarize
 - Delete or reorganize user files
@@ -155,6 +160,21 @@ Advanced users can still choose a mode directly:
 - `quiet`: low heat, low noise, small useful scans.
 - `night-shift`: normal overnight run.
 - `afterburner`: tokenmaxx mode. Use the hardware hard until morning.
+
+You can also choose how much help it is allowed to prepare:
+
+```bash
+night-shift run --repo /path/to/project \
+  --mode night-shift \
+  --permission draft-prs
+```
+
+Autonomy levels:
+
+- `brief`: read-only repo scan, artifacts, and a ranked queue.
+- `draft-local`: exact patch plans, issue candidates, files, and tests.
+- `draft-prs`: review-ready draft PR candidates. The run still does not push,
+  merge, release, or deploy.
 
 ```mermaid
 flowchart LR

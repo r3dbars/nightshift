@@ -13,6 +13,21 @@ Artifact root: shared Night Shift result root `20260623T170159` (local paths int
 - Test results: PASS=68, FAIL=10, YELLOW=16, PENDING=6
 - No merge or release was performed.
 
+## Current Autonomy Addendum
+
+Newer runs should also verify:
+
+- `repo-scan.md` and `repo-scan.json` are created for `plan` and `run`.
+- `planned-work-queue.json` contains repo-specific tasks before worker calls.
+- `work-queue.md` and `work-queue.json` dedupe repeated worker ideas after
+  scoring.
+- `morning.md` shows top unique choices with action type, support count, and
+  lane evidence.
+- `--permission brief`, `--permission draft-local`, and `--permission draft-prs`
+  change worker prompt autonomy without allowing push, merge, release, or deploy.
+- Tiny repos with fewer than 10 commits still get a recent-file scan through the
+  `git log --name-only` fallback.
+
 ## Evidence Inspection
 
 - Initial polls at 17:03:24, 17:03:44, and 17:04:05 CDT found no files.
