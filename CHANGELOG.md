@@ -7,6 +7,10 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Rewrite the README as a short, scannable front page: what you wake up to,
+  a 60-second quick start, how it works, autonomy and mode tables, and hard
+  boundaries. Deep material moved to `docs/guide.md` and `docs/use-cases.md`.
+- Fix a stale "private/proprietary" license line that survived the MIT switch.
 - Move the public home to `github.com/r3dbars/nightshift` and update install
   URLs; add a jump-to navigation line to the README.
 - Go open source: replace the private license placeholder with the MIT
