@@ -385,6 +385,47 @@ Stop a run at any time:
 night-shift stop --latest
 ```
 
+## Run It Every Night
+
+Arm the standing shift once and stop thinking about it:
+
+```bash
+night-shift schedule --nightly 23:30
+```
+
+This installs a launchd agent (macOS) or cron entry (Linux) that runs
+`night-shift nightly` at your chosen time. `nightly` reads your saved setup at
+fire time — change your config and the next night picks it up automatically.
+
+Unattended nights protect themselves, in this order:
+
+1. **Snoozed?** `night-shift snooze --days 7` (or `--until 2026-07-14`) skips
+   nights until the date passes; `snooze --off` resumes early.
+2. **Being ignored?** If 3 overnight briefs are sitting unread, the run pauses
+   itself and says so. Reading a brief (`night-shift report`) marks it
+   reviewed and re-arms the next night.
+3. **On battery?** The run drops to `quiet` mode automatically.
+
+Inspect or stop it any time:
+
+```bash
+night-shift schedule --status   # armed? last run? unreviewed briefs? snooze?
+night-shift schedule --off      # remove the standing shift
+```
+
+Optional morning delivery — post the brief where you already look:
+
+```bash
+night-shift deliver --latest --github-issue
+```
+
+This keeps exactly one open issue titled "🌙 Night Shift morning brief" per
+repo, updated in place each morning via the `gh` CLI. It is the only thing
+Night Shift ever writes to a repo — never code, never a second issue. Set
+`"deliver": "github-issue"` in `~/.codex/night-shift/config.json` preferences
+to have `nightly` do it automatically after each run. The rationale for all
+of this lives in [autopilot.md](autopilot.md).
+
 ## Naming
 
 Product name: `Night Shift`. Command: `night-shift`. Repository: `nightshift`.

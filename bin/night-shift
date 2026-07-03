@@ -18,7 +18,7 @@ import urllib.parse
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -1817,6 +1817,8 @@ def command_run(args) -> int:
     deadline = None if not stop_after or STOP_SECONDS.get(stop_after) is None else time.time() + STOP_SECONDS[stop_after]
 
     ledger = create_ledger(args.mode)
+    if getattr(args, "unattended", False):
+        (ledger / "UNATTENDED").write_text("scheduled nightly run\n", encoding="utf-8")
     root = require_git_repo(args.repo)
     if not root:
         write_morning(ledger, args.mode, [], defaults["target_tokens"] if args.token_target is None else args.token_target, "RED")
@@ -2195,6 +2197,322 @@ def command_start(args) -> int:
     return command_run(run_args)
 
 
+SNOOZE_PATH = CONFIG_DIR / "snooze-until"
+LAST_NIGHTLY_PATH = CONFIG_DIR / "last-nightly.json"
+LAUNCHD_LABEL = "com.night-shift.nightly"
+LAUNCHD_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
+CRON_MARKER = "# night-shift-nightly"
+UNREVIEWED_CAP = 3
+
+
+def snooze_until() -> str | None:
+    try:
+        raw = SNOOZE_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    today = datetime.now(timezone.utc).date().isoformat()
+    return raw if raw > today else None
+
+
+def unattended_ledgers() -> list[Path]:
+    if not OVERNIGHT_ROOT.exists():
+        return []
+    return sorted(
+        p for p in OVERNIGHT_ROOT.iterdir()
+        if p.is_dir() and p.name.startswith("night-shift-") and (p / "UNATTENDED").exists()
+    )
+
+
+def unreviewed_briefs() -> list[Path]:
+    return [
+        p for p in unattended_ledgers()
+        if (p / "morning.md").exists() and not (p / "REVIEWED").exists()
+    ]
+
+
+def parse_nightly_time(raw: str) -> tuple[int, int] | None:
+    match = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", raw.strip())
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def nightly_command_line() -> str:
+    return f"{BIN / 'night-shift'} nightly"
+
+
+def launchd_plist_body(hour: int, minute: int) -> str:
+    log_path = CONFIG_DIR / "nightly.log"
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>{LAUNCHD_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{BIN / 'night-shift'}</string>
+        <string>nightly</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>{hour}</integer>
+        <key>Minute</key><integer>{minute}</integer>
+    </dict>
+    <key>StandardOutPath</key><string>{log_path}</string>
+    <key>StandardErrorPath</key><string>{log_path}</string>
+</dict>
+</plist>
+"""
+
+
+def install_schedule(hour: int, minute: int) -> tuple[str, str]:
+    system = platform.system()
+    if system == "Darwin":
+        LAUNCHD_PLIST.parent.mkdir(parents=True, exist_ok=True)
+        LAUNCHD_PLIST.write_text(launchd_plist_body(hour, minute), encoding="utf-8")
+        run_cmd(["launchctl", "unload", str(LAUNCHD_PLIST)], timeout=15)
+        result = run_cmd(["launchctl", "load", "-w", str(LAUNCHD_PLIST)], timeout=15)
+        if result.rc != 0:
+            return "YELLOW", f"wrote {LAUNCHD_PLIST} but launchctl load failed: {(result.stderr or result.stdout).strip()}"
+        return "GREEN", f"launchd agent installed: {LAUNCHD_PLIST}"
+    if system == "Linux":
+        line = f"{minute} {hour} * * * {nightly_command_line()} {CRON_MARKER}"
+        if not shutil.which("crontab"):
+            return "YELLOW", f"crontab not found; add this line to your scheduler yourself:\n  {line}"
+        current = run_cmd(["crontab", "-l"], timeout=15)
+        lines = [l for l in (current.stdout.splitlines() if current.rc == 0 else []) if CRON_MARKER not in l]
+        lines.append(line)
+        write = subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True, capture_output=True, timeout=15)
+        if write.returncode != 0:
+            return "YELLOW", f"could not write crontab: {write.stderr.strip()}"
+        return "GREEN", "cron entry installed"
+    return "YELLOW", f"automatic scheduling is not supported on {system} yet; run `{nightly_command_line()}` from your own scheduler"
+
+
+def remove_schedule() -> tuple[str, str]:
+    system = platform.system()
+    removed = []
+    if system == "Darwin" and LAUNCHD_PLIST.exists():
+        run_cmd(["launchctl", "unload", "-w", str(LAUNCHD_PLIST)], timeout=15)
+        LAUNCHD_PLIST.unlink(missing_ok=True)
+        removed.append("launchd agent")
+    if system == "Linux" and shutil.which("crontab"):
+        current = run_cmd(["crontab", "-l"], timeout=15)
+        if current.rc == 0 and CRON_MARKER in current.stdout:
+            lines = [l for l in current.stdout.splitlines() if CRON_MARKER not in l]
+            subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True, capture_output=True, timeout=15)
+            removed.append("cron entry")
+    return ("GREEN", f"removed: {', '.join(removed)}") if removed else ("GREEN", "no schedule was installed")
+
+
+def schedule_installed() -> str | None:
+    if platform.system() == "Darwin" and LAUNCHD_PLIST.exists():
+        return f"launchd ({LAUNCHD_PLIST})"
+    if platform.system() == "Linux" and shutil.which("crontab"):
+        current = run_cmd(["crontab", "-l"], timeout=15)
+        if current.rc == 0 and CRON_MARKER in current.stdout:
+            return "cron"
+    return None
+
+
+def command_schedule(args) -> int:
+    config = load_config()
+    if args.off:
+        state, message = remove_schedule()
+        config.pop("schedule", None)
+        save_config(config)
+        print(f"NIGHTSHIFT_SCHEDULE: {state} | {message}")
+        return 0
+    if args.nightly:
+        parsed = parse_nightly_time(args.nightly)
+        if not parsed:
+            print("NIGHTSHIFT_SCHEDULE: RED | use --nightly HH:MM, for example --nightly 23:30")
+            return 2
+        if not config:
+            print("NIGHTSHIFT_SCHEDULE: RED | run `night-shift start` once first so the nightly run has saved answers")
+            return 2
+        hour, minute = parsed
+        state, message = install_schedule(hour, minute)
+        config["schedule"] = {"time": f"{hour:02d}:{minute:02d}", "method": schedule_installed() or "manual"}
+        save_config(config)
+        print(f"NIGHTSHIFT_SCHEDULE: {state} | nightly at {hour:02d}:{minute:02d} | {message}")
+        print(f"It runs: {nightly_command_line()}")
+        print("Check anytime: night-shift schedule --status")
+        print("Turn off anytime: night-shift schedule --off")
+        return 0 if state == "GREEN" else 1
+    # --status (default)
+    saved = config.get("schedule") or {}
+    installed = schedule_installed()
+    print("Night Shift schedule status")
+    print(f"- Armed: {'yes, nightly at ' + saved.get('time', '?') + ' via ' + installed if installed else 'no'}")
+    print(f"- Command it runs: {nightly_command_line()}")
+    snoozed = snooze_until()
+    print(f"- Snooze: {'until ' + snoozed if snoozed else 'off'}")
+    if LAST_NIGHTLY_PATH.exists():
+        try:
+            last = json.loads(LAST_NIGHTLY_PATH.read_text(encoding="utf-8"))
+            print(f"- Last nightly: {last.get('when', '?')} | {last.get('status', '?')} | {last.get('detail', '')}")
+        except Exception:
+            pass
+    pending = unreviewed_briefs()
+    print(f"- Unreviewed overnight briefs: {len(pending)} (auto-pauses at {UNREVIEWED_CAP})")
+    if pending:
+        print(f"  Read the newest with: night-shift report --latest")
+    return 0
+
+
+def command_snooze(args) -> int:
+    if args.off:
+        SNOOZE_PATH.unlink(missing_ok=True)
+        print("NIGHTSHIFT_SNOOZE: GREEN | snooze off; nightly runs resume on their schedule")
+        return 0
+    until = None
+    if args.until:
+        try:
+            until = datetime.strptime(args.until, "%Y-%m-%d").date()
+        except ValueError:
+            print("NIGHTSHIFT_SNOOZE: RED | use --until YYYY-MM-DD, --days N, or --off")
+            return 2
+    elif args.days:
+        until = datetime.now(timezone.utc).date() + timedelta(days=args.days)
+    if not until:
+        current = snooze_until()
+        print(f"NIGHTSHIFT_SNOOZE: GREEN | {'snoozed until ' + current if current else 'not snoozed'}")
+        return 0
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    SNOOZE_PATH.write_text(until.isoformat() + "\n", encoding="utf-8")
+    print(f"NIGHTSHIFT_SNOOZE: GREEN | nightly runs paused until {until.isoformat()}")
+    print("Wake it early with: night-shift snooze --off")
+    return 0
+
+
+def write_last_nightly(status: str, detail: str, ledger: Path | None = None) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    LAST_NIGHTLY_PATH.write_text(
+        json.dumps(
+            {
+                "when": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "status": status,
+                "detail": detail,
+                "ledger": str(ledger) if ledger else "",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def command_nightly(args) -> int:
+    config = load_config()
+    repo = config_value(config, "repo")
+    if not repo:
+        write_last_nightly("RED", "no saved setup; run night-shift start")
+        print("NIGHTSHIFT_NIGHTLY: RED | no saved setup | run `night-shift start` once")
+        return 2
+    snoozed = snooze_until()
+    if snoozed:
+        write_last_nightly("SKIPPED", f"snoozed until {snoozed}")
+        print(f"NIGHTSHIFT_NIGHTLY: GREEN | skipped | snoozed until {snoozed}")
+        return 0
+    pending = unreviewed_briefs()
+    if len(pending) >= UNREVIEWED_CAP:
+        write_last_nightly("PAUSED", f"{len(pending)} unreviewed briefs")
+        print(f"NIGHTSHIFT_NIGHTLY: YELLOW | paused | {len(pending)} overnight briefs are waiting unread")
+        print("Night Shift stops making new briefs nobody reads. Catch up with:")
+        print("  night-shift report --latest")
+        return 0
+    mode = config_value(config, "mode", "night-shift")
+    power_state, _ = check_power()
+    if power_state == "YELLOW" and mode != "quiet":
+        mode = "quiet"
+    run_args = argparse.Namespace(
+        repo=repo,
+        mode=mode,
+        permission=config_value(config, "permission", "brief"),
+        guidance=config_value(config, "guidance", "scan"),
+        goal=config_value(config, "goal_text", ""),
+        max_local=None,
+        max_windows=None,
+        parallel_local=None,
+        parallel_windows=None,
+        token_target=None,
+        local_url=config_value(config, "local_url"),
+        local_model=config_value(config, "local_model"),
+        windows_url=config_value(config, "windows_url") if config_value(config, "privacy_route") == "mac-and-lan" else None,
+        windows_model=config_value(config, "windows_model"),
+        timeout=900,
+        skip_smoke=False,
+        stop_after=config_value(config, "stop", "8h") if config_value(config, "stop") != "morning" else "8h",
+        unattended=True,
+    )
+    rc = command_run(run_args)
+    ledgers = unattended_ledgers()
+    newest = ledgers[-1] if ledgers else None
+    write_last_nightly("GREEN" if rc == 0 else "YELLOW", f"run exit {rc}", newest)
+    if rc == 0 and config_value(config, "deliver") == "github-issue" and newest:
+        deliver_args = argparse.Namespace(latest=False, ledger=str(newest), github_issue=True)
+        command_deliver(deliver_args)
+    return rc
+
+
+def command_deliver(args) -> int:
+    ledger = select_ledger(args)
+    if not ledger or not (ledger / "morning.md").exists():
+        print("NIGHTSHIFT_DELIVER: RED | no morning brief found; run night-shift report --latest first")
+        return 1
+    if not args.github_issue:
+        print("NIGHTSHIFT_DELIVER: RED | choose a delivery target: --github-issue")
+        return 2
+    if not shutil.which("gh"):
+        print("NIGHTSHIFT_DELIVER: YELLOW | GitHub CLI (gh) not installed; brief stays local")
+        return 1
+    try:
+        mode_info = json.loads((ledger / "mode.json").read_text(encoding="utf-8"))
+        repo = mode_info.get("repo", "")
+    except Exception:
+        repo = ""
+    if not repo or not Path(repo).exists():
+        print("NIGHTSHIFT_DELIVER: RED | could not resolve the repo this brief belongs to")
+        return 1
+    auth = run_cmd(["gh", "auth", "status"], timeout=30)
+    if auth.rc != 0:
+        print("NIGHTSHIFT_DELIVER: YELLOW | gh is not signed in; brief stays local")
+        return 1
+    title = "🌙 Night Shift morning brief"
+    body = (ledger / "morning.md").read_text(encoding="utf-8", errors="replace")
+    body += f"\n\n---\n_Updated {datetime.now(timezone.utc).isoformat(timespec='seconds')} from ledger `{ledger.name}`. This digest issue is the only thing Night Shift writes to this repo; it never pushes code._\n"
+    body_file = ledger / "deliver-github-issue.md"
+    body_file.write_text(body, encoding="utf-8")
+    listing = run_cmd(
+        ["gh", "issue", "list", "--state", "open", "--search", f'in:title "{title}"', "--json", "number,title", "--limit", "10"],
+        timeout=60,
+        cwd=repo,
+    )
+    issue_number = None
+    if listing.rc == 0:
+        try:
+            for item in json.loads(listing.stdout or "[]"):
+                if item.get("title") == title:
+                    issue_number = item.get("number")
+                    break
+        except Exception:
+            issue_number = None
+    if issue_number:
+        result = run_cmd(["gh", "issue", "edit", str(issue_number), "--body-file", str(body_file)], timeout=60, cwd=repo)
+        action = f"updated issue #{issue_number}"
+    else:
+        result = run_cmd(["gh", "issue", "create", "--title", title, "--body-file", str(body_file)], timeout=60, cwd=repo)
+        action = "created digest issue"
+    if result.rc != 0:
+        print(f"NIGHTSHIFT_DELIVER: YELLOW | gh failed: {(result.stderr or result.stdout).strip()[:200]}")
+        return 1
+    print(f"NIGHTSHIFT_DELIVER: GREEN | {action} | one digest issue, no code written")
+    return 0
+
+
 def command_report(args) -> int:
     if args.ledger and args.latest:
         print("NIGHTSHIFT_REPORT: RED | use either --latest or --ledger <path>, not both")
@@ -2215,6 +2533,10 @@ def command_report(args) -> int:
     if morning.exists():
         print("")
         print(morning.read_text(encoding="utf-8", errors="replace").strip())
+        try:
+            (ledger / "REVIEWED").write_text(datetime.now(timezone.utc).isoformat(timespec="seconds") + "\n", encoding="utf-8")
+        except OSError:
+            pass
     else:
         print("")
         print("No morning brief yet.")
@@ -2371,6 +2693,46 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--ledger", required=False, help="specific ledger path; cannot be combined with --latest")
     report.set_defaults(func=command_report)
 
+    schedule = sub.add_parser(
+        "schedule",
+        help="run Night Shift automatically every night",
+        description="Install, inspect, or remove the standing nightly run. With no flags, shows status.",
+        epilog="Example: night-shift schedule --nightly 23:30",
+    )
+    schedule.add_argument("--nightly", metavar="HH:MM", help="arm the standing shift at this local time every night")
+    schedule.add_argument("--off", action="store_true", help="remove the standing shift")
+    schedule.add_argument("--status", action="store_true", help="show schedule, snooze, and unreviewed-brief status (default)")
+    schedule.set_defaults(func=command_schedule)
+
+    snooze = sub.add_parser(
+        "snooze",
+        help="pause nightly runs (vacation switch)",
+        description="Pause the standing nightly run without removing it. With no flags, shows snooze state.",
+        epilog="Example: night-shift snooze --days 7",
+    )
+    snooze.add_argument("--days", type=int, help="pause for this many days")
+    snooze.add_argument("--until", metavar="YYYY-MM-DD", help="pause until this date")
+    snooze.add_argument("--off", action="store_true", help="resume nightly runs now")
+    snooze.set_defaults(func=command_snooze)
+
+    nightly = sub.add_parser(
+        "nightly",
+        help="the unattended entry point the schedule runs",
+        description="Run one unattended night using saved setup. Honors snooze, pauses after unreviewed briefs pile up, and drops to quiet mode on battery.",
+    )
+    nightly.set_defaults(func=command_nightly)
+
+    deliver = sub.add_parser(
+        "deliver",
+        help="post the morning brief where you already look",
+        description="Deliver a finished morning brief. --github-issue keeps exactly one digest issue per repo up to date via the gh CLI; it never writes code.",
+        epilog="Example: night-shift deliver --latest --github-issue",
+    )
+    deliver.add_argument("--latest", action="store_true", help="use the newest Night Shift ledger")
+    deliver.add_argument("--ledger", required=False, help="specific ledger path")
+    deliver.add_argument("--github-issue", action="store_true", help="create or update the single digest issue in the repo")
+    deliver.set_defaults(func=command_deliver)
+
     stop = sub.add_parser(
         "stop",
         help="request graceful stop for latest or selected ledger",
@@ -2385,6 +2747,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    if hasattr(signal, "SIGPIPE"):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     parser = build_parser()
     args = parser.parse_args()
     return args.func(args)
