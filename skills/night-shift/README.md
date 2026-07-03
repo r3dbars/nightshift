@@ -63,8 +63,8 @@ ranked, source-backed brief, proof paths, token totals, and a clear first move."
 ## Quick Start
 
 ```bash
-git clone https://github.com/r3dbars/night-shift.git
-cd night-shift
+git clone https://github.com/r3dbars/nightshift.git
+cd nightshift
 ./install.sh
 night-shift start
 night-shift report --latest

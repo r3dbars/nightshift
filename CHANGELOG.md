@@ -7,6 +7,8 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Move the public home to `github.com/r3dbars/nightshift` and update install
+  URLs; add a jump-to navigation line to the README.
 - Go open source: replace the private license placeholder with the MIT
   license, update package docs and checks, and rework the README opening so a
   first-time visitor immediately sees what Night Shift does, what they wake up
