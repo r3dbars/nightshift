@@ -1,655 +1,384 @@
 ---
 name: night-shift
-description: Launch and supervise Night Shift, a bounded overnight local-compute work mode. Use when the user asks for Night Shift, goodnight / going to sleep / run overnight / tokenmaxx / use local models / use a Windows GPU worker, wants an on-button for bounded repo work, or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
+description: Launch and supervise Night Shift, a bounded overnight local-compute workbench that scans a repo, runs local AI workers on a deduped queue, and writes a ranked morning brief. Use when the user asks for Night Shift or first-time Night Shift setup, says goodnight / going to sleep / run overnight / tokenmaxx, wants to put local AI hardware to work (Apple Silicon, a gaming GPU, LM Studio, Ollama, a Windows worker), asks to scan for local models or what their hardware can run, wants an on-button for bounded repo work, or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
 ---
 
 # Night Shift
 
-Tagline: put your idle AI hardware to work while you sleep.
+Put your idle AI hardware to work while you sleep.
 
-The simplest user promise:
+The promise: the user goes to bed, their machines keep thinking, and they wake
+up to a repo scan, a small deduped work queue, and a ranked morning brief with
+the few best next actions. Not merged code. Not homework. Useful, reviewed
+options.
+
+Core rule, never bend it: local and Windows lanes may draft; Codex or a human
+reviews and verifies; `night-shift run` does not edit the target repo; nothing
+pushes branches, merges, releases, publishes, tags, notarizes, deploys, changes
+repository visibility, changes credentials, or edits billing without the user
+explicitly saying so after the morning review.
+
+Zero-config floor: with no local models and no subscriptions at all, Night
+Shift still works tonight — it reads the repo and produces a planning brief.
+Everything else is unlocked, not required.
+
+## Which Moment Is This?
+
+Check silently — do not narrate these checks, and never announce "setup is
+already complete" to a configured user:
 
 ```bash
-night-shift start
+command -v night-shift || ls ~/.codex/bin/night-shift 2>/dev/null
+cat ~/.codex/night-shift/config.json 2>/dev/null
+```
+
+Route by what you find and what the user said:
+
+| Signal | Moment |
+| --- | --- |
+| No config file, CLI missing, or the user asks to set up | **First Night** |
+| Config exists and the user wants to run tonight | **Bedtime** |
+| "Good morning", "Complete", "what happened overnight" | **Morning** |
+| "Stop", "stop the night", "kill it" | **Stop Now** |
+| New hardware, "change settings", "use my other computer" | **Tune-Up** |
+| "Test Night Shift", "rehearse" | **Rehearsal** — read `references/operations.md` |
+
+If the user's invocation already contains a repo, a mission, or a mode, keep
+it. Setup runs first; their request runs immediately after. Never discard what
+they actually asked for, and never re-ask a question their message already
+answered.
+
+## Onboarding Contracts (do not regress)
+
+These are product commitments, not suggestions:
+
+1. **Hardware before subscriptions, always.** Local AI hardware is the star of
+   this product. Ask about it first, scan for it with consent, celebrate what
+   is found. Cloud subscriptions are optional garnish, asked about after.
+2. **Detect, then confirm.** Never ask the user something a read-only command
+   can answer. Scan, present findings in plain language, confirm the plan.
+3. **One question at a time for decisions that depend on each other.** Each
+   question carries a recommended default so the user can just say yes.
+   Independent facts (energy level, stop time) may share one prompt.
+4. **You are the conversational driver.** The CLI does mechanical work only.
+   Consent happens in chat: ask, wait for the answer, then run the command.
+   Running setup silently and reporting the result afterward is the
+   silent-onboarding failure this section exists to prevent.
+5. **Every question has a skip, and skipping never nags.** "Skip for now"
+   still saves setup (`night-shift start --repo <repo> --yes --setup-only`)
+   so the wizard never fires again uninvited.
+6. **Never overwrite an existing config without `--reset`.** A configured user
+   who says "start" gets the Bedtime fast path, not the wizard.
+7. **First Night ends with the thing running**, not with reading material.
+   Preview, launch, and tell the user what to say tomorrow morning.
+
+If the host supports an option-picker tool (such as `AskUserQuestion`), use it
+for every choice below, with the recommended option first. Otherwise ask the
+same questions in plain prose, one message at a time. In a headless or
+scheduled session, skip all onboarding and run with `--yes` and saved config.
+
+## First Night (one-time guided setup)
+
+### Step 1 — Welcome
+
+Open with a short, warm welcome in roughly this shape. Keep it under ten
+lines; the guided questions are the feature, not a wall of text:
+
+```text
+Hey — welcome to Night Shift.
+
+Here's the idea: you have AI hardware and repos. At night, both just sit
+there. Night Shift puts them together — you turn it on before bed, your
+machines spend the night reading your repo, finding safe useful work, and
+drafting. You wake up to a short ranked brief with the few things worth
+looking at first.
+
+It will never push, merge, release, or touch credentials. Drafts, not deploys.
+
+Setup takes about a minute. First question is the fun one.
+```
+
+### Step 2 — The hardware question (always first)
+
+Ask before anything else — before the repo, before goals:
+
+> **Do you have local AI hardware you'd like to put on the night shift?**
+> Think: this Mac (Apple Silicon unified memory counts for a lot), a gaming
+> PC with a real GPU, a spare desktop on your network.
+
+Options:
+
+1. **Scan this machine (recommended)** — read-only, takes ~10 seconds.
+2. **I have other machines too** — scan here, then set up the network worker.
+3. **I'll type in my setup myself** — for users who know their endpoints.
+4. **No local AI hardware** — totally fine; subscriptions or read-only briefs.
+
+### Step 3 — Scan and celebrate
+
+With consent, run the quick scan. Every command is read-only and local; none
+installs anything:
+
+```bash
+# What is this machine? (macOS)
+sysctl -n machdep.cpu.brand_string
+echo "$(( $(sysctl -n hw.memsize) / 1073741824 )) GB unified memory"
+
+# (Linux / WSL)
+free -g | awk '/^Mem:/ {print $2 " GB RAM"}'
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
+
+# Who is already serving models?
+curl -s --max-time 2 http://localhost:1234/v1/models    # LM Studio
+curl -s --max-time 2 http://localhost:11434/api/tags    # Ollama
+
+# Installed but not running?
+command -v ollama >/dev/null 2>&1 && ollama list
+ls /Applications 2>/dev/null | grep -i "lm studio"
+```
+
+Report findings like a friend who knows hardware, not like a diagnostic dump.
+Lead with what the machine can do:
+
+```text
+Here's what I found:
+
+  This Mac    Apple M3 Max, 64 GB unified memory
+              → that comfortably runs 30B-class models. Real overnight horsepower.
+  Ollama      running, 3 models: qwen2.5-coder:14b, llama3.2:3b, nomic-embed-text
+  LM Studio   installed, server not running
+
+  Best pick tonight: qwen2.5-coder:14b via Ollama — the biggest coder model
+  you already have. With 64 GB you could also run qwen3-coder:30b; grabbing
+  it is one command if you want it.
+```
+
+Honest capability tiers for the plain-language read (quantized models):
+
+| Memory (unified or VRAM) | Comfortable overnight models |
+| --- | --- |
+| under 8 GB | 1–3B: light triage only |
+| 8–16 GB | 3–8B: classification, TODO mining, summaries |
+| 16–32 GB | 7–14B: solid repo analysts and review notes |
+| 32–64 GB unified / 24 GB VRAM | 14B–32B: real drafting, patch plans (a 3090/4090 lives here) |
+| 96 GB+ | 70B-class quantized |
+
+Picking a model: prefer the largest coder or instruct chat model already
+downloaded (`qwen*-coder`, `*-instruct`, `llama3*`, `phi-4`, `gemma*`). Never
+pick an embedding model. Full probe details, install offers, and
+troubleshooting: `references/hardware-scan.md`.
+
+If a server is installed but not running, offer the one-line fix now
+("open LM Studio and start the server" / "run `ollama serve`") rather than
+deferring it to a doctor command later.
+
+If nothing is found, reassure — this is not a failure state:
+
+```text
+No local models yet — no problem. Two easy paths if you want one later:
+- Ollama: one install, then `ollama pull qwen2.5-coder:14b`
+- LM Studio: a friendly app with a built-in model browser
+
+Tonight still works without them: I can scan the repo and build a planning
+brief, and we can add hardware any night. Want me to set up Ollama now, or
+keep going?
+```
+
+### Step 4 — Other machines on the network
+
+If the user mentioned another computer (a Windows gaming PC is the classic),
+help them wire it up as the second lane:
+
+- If it is already serving: verify with
+  `curl -s --max-time 3 http://<host>:11434/api/tags` and confirm the model.
+- If not set up yet: give the short version — on the Windows box, set
+  `OLLAMA_HOST=0.0.0.0`, restart Ollama, allow port 11434 on the private
+  network — and point to `references/hardware-scan.md` for the exact steps.
+- If it cannot be reached right now, do not stall onboarding. Save it as
+  "add later", continue with what works tonight, and mention `Tune-Up` can
+  wire it in any evening.
+
+A 24 GB gaming GPU runs 30B-class coder models (`qwen3-coder:30b` is the
+default) — worth saying out loud; it is why that box exists on the night
+shift.
+
+### Step 5 — Subscriptions (after local, never before)
+
+Now, and only now, detect the cloud lanes — silently, then confirm:
+
+```bash
+command -v claude >/dev/null 2>&1 && claude --version 2>/dev/null
+command -v codex >/dev/null 2>&1 && codex --version 2>/dev/null
+gh auth status 2>&1 | head -3
+```
+
+Frame them honestly: local lanes do the bulk thinking; Claude is for at most
+one or two hard reasoning questions a night; the GitHub CLI adds open-PR
+context to the repo scan; Codex (or this assistant) reviews the results in the
+morning. Then ask the one real question:
+
+> **Is repo context allowed to leave this machine tonight?**
+> 1. Only this machine — safest and private *(recommended first night)*
+> 2. This machine plus my other computer on my network
+> 3. Cloud subscriptions are okay for hard questions
+
+The answer maps to `--privacy mac-only | mac-and-lan | cloud-ok`. If steps
+2–4 found no second machine and no subscriptions, skip the question and use
+`mac-only`.
+
+### Step 6 — Tonight's plan
+
+Detect the repo first: if the conversation is already inside a git checkout,
+propose it (`git rev-parse --show-toplevel`) instead of asking cold. Then walk
+the remaining choices one at a time, each with a recommendation:
+
+1. **Which project should Night Shift look at?** (confirm the detected repo)
+2. **What would make tomorrow morning a win?**
+   - A calm morning brief *(recommended first night)* → `--wake-goal brief`
+   - A ranked hit list of bugs, tests, docs, chores → `--wake-goal chores`
+   - Draft PR candidates, still nothing pushed → `--wake-goal draft-prs`
+3. **What should it aim at?** Sharpest safe work (`--guidance scan`,
+   recommended) / one mission tonight (`--goal "<sentence>"`) / open issues
+   and PRs as the map (`--guidance issues`).
+4. **How much is it allowed to prepare?** Read-only brief
+   (`--permission brief`, recommended first night) / draft local patch plans
+   (`draft-local`) / review-ready draft PR candidates (`draft-prs`). Say the
+   ladder out loud: it can climb tomorrow after they see how tonight goes.
+5. **How much energy, and when to stop?** (independent facts — one prompt is
+   fine) Quiet / Normal *(recommended)* / Afterburner → `--mode`; stop after
+   2h / 6h / 8h *(recommended first night)* / when I come back →
+   `--stop-after`. If the machine is on battery, recommend Quiet and say why.
+
+### Step 7 — Preview, save, launch
+
+Assemble one command from every answer. The CLI prints the will / will-not
+preview itself:
+
+```bash
+night-shift start --repo <repo> \
+  --mode <quiet|night-shift|afterburner> \
+  --wake-goal <brief|chores|draft-prs> \
+  --permission <brief|draft-local|draft-prs> \
+  --privacy <mac-only|mac-and-lan|cloud-ok> \
+  --stop-after <2h|6h|8h|morning> \
+  --local-url <detected, e.g. http://localhost:11434/v1> \
+  --local-model <detected best model> \
+  [--windows-url http://<host>:11434/v1 --windows-model <model>] \
+  [--goal "<tonight's mission>"] \
+  --yes
+```
+
+Ollama serves an OpenAI-compatible API at `/v1`, so
+`--local-url http://localhost:11434/v1` wires it in directly; LM Studio is
+`http://localhost:1234/v1`.
+
+Show the preview, get one final yes, launch, and close the loop:
+
+```text
+Night Shift is on. Sleep well.
+
+Tomorrow, just say "good morning" (or run `night-shift report --latest`) and
+I'll have the brief ready: what it found, what's worth your attention first,
+and what stayed draft-only.
+```
+
+If the user chose "Skip for now" at any point: save what was gathered with
+`night-shift start --repo <repo> --yes --setup-only`, tell them setup is saved
+and they can say "start night shift" any evening, and stop. No nagging.
+
+## Bedtime (returning user)
+
+Config exists. Do not re-onboard, do not explain the product, do not announce
+that setup was found. Read the config, recap in one line, offer the fast path:
+
+```text
+Same as last night? <repo> · Normal · read-only brief · stop after 8h · local: qwen2.5-coder:14b
+```
+
+- Yes → `night-shift start --yes` (add `--repo <repo>` if the conversation is
+  elsewhere). Confirm launch in two lines, wish them goodnight, done.
+- One thing changed ("focus on tests tonight", "go harder") → override just
+  that flag (`--goal "..."`, `--mode afterburner`) and keep the rest saved.
+- Before launching heavy modes as the coordinator, follow the startup gate in
+  `references/operations.md`; worker prompt templates live in
+  `references/worker-prompts.md`. If a lane is down, degrade honestly (the CLI
+  does this) — never pretend a lane ran.
+
+## Morning
+
+When the user returns ("good morning", "Complete", "what happened"):
+
+```bash
+night-shift stop --latest    # only if a run is still active
 night-shift report --latest
 ```
 
-Use this skill as the coordinator cockpit for a bounded overnight run. The goal is useful draft work, not autonomous shipping.
+Then summarize like a helpful best friend, not a log file. Lead with the one
+or two things worth their attention, in plain words, with the evidence path.
+Then the honest accounting: status (GREEN/YELLOW/RED), loops run, estimated
+tokens by lane, KEEP/MAYBE/REJECT counts, and what stayed unknown or
+draft-only. `YELLOW` is a feature, not an apology — it means the machines did
+useful work and a human still verifies the best item.
 
-Core rule: local and Windows lanes may draft; Codex reviews and verifies; Claude is rare; `night-shift run` does not edit the target repo; nothing pushes branches, merges, releases, publishes, tags, notarizes, changes repository visibility, changes credentials, or edits billing without the user explicitly saying so after the morning review.
+End with a choice, not homework — usually:
 
-Hard default: boring-safe beats ambitious. If a cheap worker suggests broad,
-destructive, private-data, hardware-proof, release, or file-reorganization work,
-mark that worker result `REJECTED` and tighten the prompt. Do not let cheap
-workers choose their own scope.
+1. Turn KEEP item 1 into a narrow draft PR after verification (Codex or this
+   assistant reviews, edits in an isolated worktree, runs checks first).
+2. Rerun tonight with a narrower mission.
+3. Do nothing; the brief was the value.
 
-Tokenmaxx philosophy: spend local/Windows compute on attention-expensive,
-execution-safe work. Start with a repo scan, build a small work queue, then
-dedupe repeated worker ideas into a few repo-specific choices. Make maps,
-rankings, audits, briefs, issue candidates, test ideas, patch plans, and draft
-PR candidates. Let Codex turn only the best few into real draft PRs after
-verification. Useful work queues are good; giant artifact piles are not.
+Never present a worker draft as verified truth, and never claim manual or
+hardware proof a human did not check.
 
-## Product Shape
-
-User-facing name: `Night Shift`.
-
-Short name: `Night Shift`.
-
-Power modes:
-
-- `Quiet Shift`: low heat, small safe work. Maps to `Conservative`.
-- `Night Shift`: normal overnight compute. Maps to `Local Heavy`.
-- `Afterburner`: tokenmaxx / full-send local compute. Maps to `Tokenmaxx`.
-- `Morning Brief`: stop, harvest, summarize, and tell the user what to review.
-
-Core UX:
-
-1. User runs `night-shift start`.
-2. Night Shift asks a few plain-English setup questions.
-3. Night Shift detects available AI tools and saves preferences.
-4. Night Shift shows a "will / will not" preview before launching.
-5. User goes to sleep.
-6. User wakes up to a repo scan, deduped work queue, morning brief, artifacts,
-   and at most a few high-signal draft PR candidates that Codex or a human can
-   open after review.
-
-This should meet users where they are:
-
-- Mac only: use LM Studio/local models.
-- Windows only: use Windows worker if exposed on the LAN.
-- Mac + Windows: use both.
-- Claude Code plan: use Claude sparingly for hard reasoning.
-- Codex plan: use Codex for orchestration, isolated worktree edits, draft PRs,
-  and verification.
-- No local models yet: run `doctor`, show exact setup blockers, and fall back to a planning brief.
-
-Public launch blocker: do not make the repository public from a normal Night
-Shift workflow. Old closed PR refs, branch refs, review comments, fork refs, and
-cached GitHub objects can expose old history even after the visible branch looks
-clean. The safest public path is a fresh clean repository from an audited export.
-The alternate path is a GitHub-supported purge of old refs, PR refs, cached
-objects, and forks before changing visibility.
-
-See `README.md` in this skill folder for the user-facing quickstart and 20 common scenarios.
-
-Preferred launcher:
+## Stop Now
 
 ```bash
-night-shift start
+night-shift stop --latest
 night-shift report --latest
 ```
 
-Use `night-shift start` whenever the user wants a simple setup, a repeatable
-run, token accounting, or a portable "night shift" experience. Use direct Codex
-threads only when the task requires real repo edits, PRs, manual review, merges,
-release work, or this exact chat as the cockpit.
-
-## Setup Wizard
-
-For first-time users, launch with:
-
-```bash
-night-shift start
-```
-
-The wizard should start like a tiny decision brief:
-
-```text
-Welcome to Night Shift.
-
-First time here, so I will set up the basics with you.
-We are choosing four things:
-- the repo to read
-- what would make tomorrow morning useful
-- where your code is allowed to go
-- how hard and how long Night Shift should work
-
-Safe default: local, read-only, no pushes, no merges, no releases.
-You can change this later.
-```
-
-Then ask forcing questions, in plain language:
-
-1. Which project should Night Shift look at?
-2. What would make tomorrow morning a win?
-   - A calm morning brief: what happened, what matters, what to do first.
-   - A ranked hit list: bugs, tests, docs, and small safe chores.
-   - Draft PR candidates: still no pushing or merging from Night Shift.
-3. What should Night Shift aim at first?
-   - Find the sharpest safe work for me.
-   - I have one mission for tonight.
-   - Use open issues and PRs as the map.
-4. Where is repo context allowed to go tonight?
-   - Only this Mac: safest and private.
-   - This Mac plus my other AI computer on my network.
-   - Cloud coding subscriptions are okay for hard questions.
-5. What is Night Shift allowed to prepare?
-   - Read-only: make a repo scan, morning brief, and ranked queue.
-   - Draft local patch plans, issue candidates, files, and tests, but do not push.
-   - Prepare review-ready draft PR candidates, but do not push or merge.
-6. How much energy should it use?
-   - Quiet: light work, low heat.
-   - Normal: good overnight run.
-   - Afterburner: use more compute and make more artifacts.
-7. When should Night Shift stop?
-   - When I come back and say stop.
-   - After 2 hours.
-   - After 6 hours.
-   - After 8 hours.
-
-Before launching, always show a preview with:
-
-- Project.
-- AI tools detected or configured.
-- Mode.
-- Safety setting.
-- Autonomy setting.
-- Stop setting.
-- Output: repo scan, planned queue, deduped work queue, morning brief, artifacts.
-- A clear "Will not" line: no push, merge, release, deploy, delete files,
-  billing changes, or credential changes.
-
-The wizard saves preferences at `~/.codex/night-shift/config.json`.
-It also writes a setup lab under `~/.codex/maestro/overnight/<setup-ledger>/lab`
-with readiness, provider, and routing JSON files.
-Advanced users can still use `doctor`, `plan`, `run`, `report`, and `stop`
-directly.
-
-## Modes
-
-Choose one mode unless the user specifies another.
-
-- `Conservative`: default. 1-3 tasks, max 1 draft PR per repo, local/Windows first, low heat.
-- `Local Heavy`: burn local Mac + Windows compute on useful repo work for hours.
-  40-80 Mac local loops plus 20-40 Windows loops by default, max 2 draft PRs
-  per repo, Codex filters results.
-- `Tokenmaxx`: run Mac local + Windows workers hard until the user returns in
-  the morning or says `Complete`. Keep filling the queue, harvest often, and
-  maximize useful local/Windows token throughput. Max draft PRs still bounded;
-  no branch push/merge/release/publish actions from `run`.
-- `Fun`: 3-6 tasks, more experiments, still no merge/release.
-- `Research`: read-heavy, produces briefs/issues/plans, code changes only if tiny and obvious.
-- `Morning Review`: stop active work, collect results, verify claims, and report the next action.
-
-If the user wants the machines to "use tokens", "burn local compute", "work
-overnight", "use Windows", "use local models", or says the prior run was too
-cautious, use `Local Heavy`. If the user says "tokenmaxx", "maximize hardware",
-"run until morning", or "I'll turn it off in the morning", use `Tokenmaxx`. If
-the requested mode is unclear, use `Conservative`.
-
-## Launch Checklist
-
-Before launching overnight work:
-
-1. State the selected mode and safety limits in one short update.
-2. Run the lane smoke check if available:
-   ```bash
-   ~/.codex/bin/maestro-smoke.sh
-   ```
-3. Confirm these as facts or mark them `UNKNOWN`:
-   - Mac local model server reachable, usually LM Studio at `localhost:1234`.
-   - Windows worker reachable if `WINDOWS_WORKER_BASE_URL` or `--windows-url` is configured.
-   - Target repo paths exist.
-   - Target worktrees are clean enough or can use fresh isolated worktrees.
-   - Power, sleep, and thermal posture are acceptable.
-4. Pick tasks from live repo truth, open issues/PRs, recent failures, TODOs, or the user's prompt. Avoid stale memory as repo truth.
-5. Create a run ledger path under `~/.codex/maestro/overnight/` when writing artifacts is useful.
-
-If a critical readiness check fails, do not improvise a long night. Fall back to a short research or planning run and report the blocker.
-
-For normal users, prefer the productized startup path:
-
-```bash
-night-shift start
-```
-
-The CLI writes the startup gate, repo scan, planned queue, board, artifacts,
-deduped work queue, token report, and morning brief under
-`~/.codex/maestro/overnight/`.
-
-## Startup Gate
-
-Before `Local Heavy` or `Tokenmaxx` starts real loops, Codex must prove the
-system is good enough to run:
-
-1. Run `~/.codex/bin/maestro-smoke.sh`.
-2. Confirm LM Studio is reachable and has at least one local chat model loaded.
-3. Confirm the Windows worker endpoint is reachable and lists the expected model.
-4. Confirm `~/.codex/bin/maestro-delegate` and `~/.codex/bin/maestro-token-report`
-   are executable.
-5. Confirm the target repo can be fetched.
-6. Confirm dirty worktrees are not used for edits.
-7. Create a fresh isolated worktree or clone before any code changes.
-8. Write all startup facts into the run ledger before dispatching workers.
-
-If one lane is down:
-
-- If Mac local is down, try one quick restart/remediation only if the fix is
-  obvious; otherwise mark `LOCAL_DOWN` and do not call the run Tokenmaxx.
-- If Windows is down, mark `WINDOWS_DOWN`; continue only with Mac local if
-  the user explicitly allowed degraded mode or the run is useful as read-only
-  planning.
-- If both cheap lanes are down, do not run. Report `RED` and the exact next
-  thing the user should start or fix.
-- If the repo is dirty, use it read-only only. Never edit it.
-
-Only after the startup gate is `GREEN` should Tokenmaxx begin high-volume loops.
-
-`night-shift run` performs this gate before dispatching model loops. If
-Mac local or Windows is down, it degrades honestly or stops instead of pretending
-the lane ran.
-
-## Lane Routing
-
-Prefer the cheapest capable lane.
-
-- `Local`: private triage, summarization, task selection, logs, issue clustering, small planning.
-- `Windows`: cheap long-running code drafts and review drafts. Treat output as a draft, not truth.
-- `Codex`: final coordination, repo edits when needed, GitHub state, verification, PR creation, morning review.
-- `Claude`: hard reasoning or risky architecture only when the budget allows and the prompt justifies it.
-
-In `Local Heavy`, the goal is to keep local compute busy on bounded work:
-
-- Mac local models: use for repeated classification, clustering, review notes,
-  TODO mining, log triage, issue drafting, analytics/Sentry summarization, test
-  gap discovery, and duplicate/stale PR analysis.
-- Windows worker: use for longer draft reviews, test ideas, patch plans, and
-  low-risk draft implementation sketches.
-- Codex: every 30-60 minutes, harvest artifacts, reject junk, select the best
-  items, run real repo commands, and optionally open draft PRs.
-- Claude: only for one or two high-leverage architecture/risk questions.
-
-Mode mapping for the CLI:
-
-- `quiet`: low heat and low parallelism.
-- `night-shift`: normal overnight Mac local + Windows work.
-- `afterburner`: tokenmaxx mode with larger loop targets.
-
-For non-Codex lanes, prefer:
-
-```bash
-~/.codex/bin/maestro-delegate <local|windows|claude> --label <label> -- "<self-contained prompt>"
-```
-
-A lane counts as used only if there is a proof path, `MAESTRO_PROOF=...`, command output, or a saved transcript. Require every worker closeout to include:
-
-```text
-lanes used: Codex=...; Claude=...; Local=...; Windows=...
-```
-
-## Worker Prompt Contract
-
-Cheap workers must get small, closed-form prompts. Prefer classification,
-clustering, issue drafting, and bounded review over open-ended "go improve this"
-requests.
-
-Every non-Codex worker prompt should include:
-
-- `ROLE`: local triage / Windows draft worker / Claude risk reviewer.
-- `TASK`: one narrow task.
-- `ALLOWED`: exact files, commands, or read-only scope.
-- `FORBIDDEN`: push branches, merge, release, publish, tag, notarize, deploy,
-  appcast/cask, repository visibility, credentials, billing, private user data,
-  destructive cleanup, broad rewrites, real hardware/audio claims, and
-  unapproved file reorganization.
-- `OUTPUT`: an exact schema.
-- `STOP`: stop after the requested output; do not continue inventing work.
-
-Use this local classification template:
-
-```text
-ROLE: local triage classifier.
-TASK: classify the overnight task.
-ALLOWED_LABELS: SAFE_OVERNIGHT, HOLD_RELEASE, HOLD_PRIVATE, HOLD_BROAD, HOLD_DESTRUCTIVE
-RULES:
-- Return exactly one line.
-- Format: LABEL | one short reason.
-- No extra paragraphs.
-TASK_TO_CLASSIFY: <task>
-```
-
-Use this Windows draft template:
-
-```text
-ROLE: Windows draft worker.
-TASK: propose safe overnight work only.
-ALLOWED: tests, docs, fixtures, read-only audits, narrow issue lists, small draft PR ideas.
-FORBIDDEN: branch push/merge/release/publish/tag/notarize/deploy/appcast/cask, repository visibility, credentials, billing,
-private user data, destructive cleanup, file reorganization, audio mutation, broad rewrites,
-real hardware/audio proof claims.
-OUTPUT:
-- exactly 3 bullets
-- each bullet must be safe, narrow, and reviewable in the morning
-- end with: lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
-STOP: no extra text.
-```
-
-If the output violates the schema, rambles, invents categories, suggests unsafe
-work, or ignores `STOP`, record it as `YELLOW` or `RED`. Do not use that result
-as a task source without Codex rewriting it.
-
-For `Local Heavy`, use loop prompts that produce artifacts instead of vague
-advice. Each loop must have an artifact file under the run ledger.
-The queue should be repo-specific: prefer recent files, detected test commands,
-open issues/PRs, TODOs, docs drift, and the user's stated mission over generic
-categories. Repeated worker findings should strengthen one deduped work item,
-not flood the morning brief.
-
-Use this Mac local loop template:
-
-```text
-ROLE: Mac local repo analyst.
-TASK: <one narrow scan: TODOs/tests/analytics/events/docs/errors/PR dedupe>
-INPUTS: <repo paths, command outputs, or pasted snippets only>
-FORBIDDEN: private user data, raw transcripts, secrets, destructive edits, release actions.
-OUTPUT:
-1. FINDINGS: exactly 5 bullets max
-2. BEST_NEXT_ACTION: one concrete task
-3. FILES_TO_TOUCH: up to 5 exact paths, or none
-4. TESTS_TO_RUN: exact commands, or none
-5. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
-6. SAFE_FOR_DRAFT_PR: yes/no
-7. CONFIDENCE: low/medium/high
-STOP: no extra text.
-```
-
-Use this Windows long-worker template:
-
-```text
-ROLE: Windows long-running draft worker.
-TASK: <one narrow implementation/review/test-planning task>
-ALLOWED: draft patches, pseudodiffs, test plans, file/path suggestions, review notes.
-FORBIDDEN: branch push/merge/release/publish/tag/notarize/deploy/appcast/cask, repository visibility, credentials, billing,
-private user data, destructive cleanup, file reorganization, audio mutation, broad rewrites,
-real hardware/audio proof claims.
-OUTPUT:
-1. SUMMARY: 2 sentences max
-2. FILES_TO_TOUCH: up to 6 paths
-3. PROPOSED_CHANGE: concise patch plan or review findings
-4. TESTS_TO_RUN: exact commands
-5. RISK: low/medium/high
-6. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
-7. SAFE_FOR_CODEX_TO_ATTEMPT: yes/no
-8. lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
-STOP: no extra text.
-```
-
-Codex must score every artifact:
-
-- `KEEP`: useful and safe enough to become a task, issue, or draft PR.
-- `MAYBE`: useful idea but needs human/Codex rewrite.
-- `REJECT`: unsafe, broad, duplicate, stale, private, release-touching, or low signal.
-
-Only deduped `KEEP` items may become draft PR candidates.
-
-## Safe Work Menu
-
-Good overnight tasks:
-
-- Add or repair focused tests.
-- Fix small obvious bugs with clear repro or failing checks.
-- Improve docs, comments, scripts, fixtures, or telemetry guardrails.
-- Run narrow security/privacy sweeps with deterministic checks.
-- Triage issues and open polished GitHub issues.
-- Produce draft PRs for low-risk cleanup.
-- Create morning briefs from verified evidence.
-- Build or update tiny deterministic fixtures.
-- Draft small issues from existing failures or TODOs.
-- Create no-code, read-only product/analytics/Sentry/PostHog briefs.
-- Mine TODOs/FIXMEs and classify them by risk and payoff.
-- Compare open PRs against current main and identify duplicates/superseded work.
-- Search for missing tests around recently changed files and draft focused test plans.
-- Audit analytics taxonomy and dashboards for product-decision blind spots.
-- Audit Sentry issue families and produce fix candidates without touching release.
-- Run static searches for dead code, oversized files, and risky seams, then rank them.
-- Generate morning-ready issue drafts with exact files, repro hints, and checks.
-
-Avoid or hold:
-
-- Merge, release, publish, tag, notarize, deploy, or update appcast/cask.
-- Push commits or branches from `night-shift run`.
-- Make repositories public or change repository visibility.
-- Broad "improve the app" prompts.
-- Secrets, credentials, billing, private user data, or destructive migrations.
-- Hardware/audio/manual-proof claims without real proof.
-- Duplicate PRs when an open nightly PR already owns the gap.
-- File reorganization, renaming user artifacts, deleting data, moving captures,
-  or mutating audio unless the user explicitly asked for that exact action.
-- Any task where success requires this Mac's microphone, Bluetooth, AirPods,
-  camera, screen permissions, or a real meeting app while the user is away.
-
-## Limits
-
-Set explicit caps before launching workers. Defaults:
-
-- `max_runtime`: 8 hours.
-- `max_tasks`: 3 in Conservative, 6 in Fun.
-- `max_draft_prs`: 1 per repo unless the user asks for more.
-- `max_cloud_calls`: 0-1 Claude calls, Codex only for coordination and final verification.
-- `max_failures`: stop a lane after 2 repeated failures on the same task.
-- `thermal`: stop or pause if fans/temperature become concerning.
-- `sleep`: do not prevent sleep unless the user explicitly wants the machines held awake.
-
-`Local Heavy` defaults:
-
-- `max_runtime`: 8 hours.
-- `target_local_loops`: 40-80.
-- `target_windows_loops`: 20-40.
-- `min_total_estimated_tokens`: 500,000.
-- `stretch_total_estimated_tokens`: 2,000,000.
-- `max_parallel_local`: 3.
-- `max_parallel_windows`: 2.
-- `max_draft_prs`: 2 per repo.
-- `max_cloud_calls`: 0-1 Claude calls.
-- `harvest_interval`: 30-60 minutes.
-- `stop_if`: two repeated failures on the same lane, laptop heat/fans are
-  concerning, repo truth says release work should pause, or outputs are mostly
-  `REJECT`.
-- `morning_review_required`: always.
-- `token_accounting`: record per-call estimated input/output/total tokens from
-  `~/.codex/maestro-sidecar/events.jsonl` and summarize local, Windows, Claude,
-  and Codex totals in the morning brief.
-
-`Tokenmaxx` defaults:
-
-- `max_runtime`: until the user says `Complete`, `Good morning`, or `stop the night`;
-  otherwise cap at 12 hours.
-- `target_local_loops`: keep queue full; start with 120.
-- `target_windows_loops`: keep queue full; start with 80.
-- `min_total_estimated_tokens`: 2,000,000.
-- `stretch_total_estimated_tokens`: 10,000,000+.
-- `max_parallel_local`: 4.
-- `max_parallel_windows`: 2.
-- `max_draft_prs`: 3 per repo.
-- `max_cloud_calls`: 0-1 Claude calls.
-- `harvest_interval`: 20-30 minutes.
-- `stop_if`: thermal/fan concern, repeated lane failure, network/model down,
-  repo safety risk, release blocker, outputs become mostly junk, or the user
-  says stop.
-- `must_report_underuse`: if total estimated local/Windows tokens are below
-  2M by morning without a blocker, mark the run `YELLOW`.
-
-Use shell `timeout`, worker-level caps, or process supervision when available. If a tool like `gnhf` is used, add its own `--max-iterations`, `--max-tokens`, and `--stop-when` limits.
-
-## Execution Pattern
-
-1. Build a tiny task board:
-   - `task`
-   - `repo`
-   - `lane`
-   - `allowed files`
-   - `stop condition`
-   - `verification`
-   - `artifact path`
-2. Dispatch independent tasks in parallel when safe.
-3. Use fresh worktrees or dedicated branches for repo changes.
-4. Keep each task narrow enough to review in the morning.
-5. Commit and push only the files changed for that task when the repo's global instructions require it.
-6. Open draft PRs only for clean, useful, low-risk work after Codex or a human
-   reviews the artifact, edits in an isolated worktree, and runs checks.
-7. Save proof: command outputs, test names, PR links, branch names, and blockers.
-8. Stop lanes that drift, touch unrelated files, repeat failed fixes, or claim success without evidence.
-
-## Local Heavy / Tokenmaxx Pattern
-
-When running `Local Heavy` or `Tokenmaxx`, do this instead of a single small worker:
-
-1. Build a compute board with enough narrow loops to keep hardware busy. Start
-   with at least 12 tasks, then rotate/retry until the token or time budget is
-   reached. Good first board:
-   - release blockers and open PR state
-   - TODO/FIXME/code smell mining
-   - missing tests around recent files
-   - analytics/PostHog blind spots
-   - Sentry issue family triage
-   - docs/release wording drift
-   - oversized files/refactor candidates
-   - stale branch/PR dedupe
-   - deterministic replay/fixture ideas for meeting, dictation, import, and agent flows
-   - PR description/test proof audits
-   - code-map summarization by subsystem
-   - failing/slow/flaky test risk mining
-   - user-story to test/analytics coverage gaps
-2. Create a ledger:
-   - `board.md`
-   - `artifacts/<task>-local.md`
-   - `artifacts/<task>-windows.md`
-   - `harvest.md`
-   - `morning.md`
-3. Dispatch Mac local loops and Windows loops with strict templates. Use bigger
-   pasted context packs when safe so the local hardware is actually doing work:
-   2k-8k tokens per Mac local prompt and 4k-16k tokens per Windows prompt.
-4. Do not trust workers. Codex harvests and scores each artifact as `KEEP`,
-   `MAYBE`, or `REJECT`.
-5. Codex may turn only the best `KEEP` item into a draft PR, using a fresh
-   worktree and real tests.
-6. If a worker finds something release-impacting, hold it for morning review.
-   Do not patch release flow overnight without the user's explicit approval.
-7. The final morning brief must include:
-   - local loops run
-   - Windows loops run
-   - estimated local input/output/total tokens
-   - estimated Windows input/output/total tokens
-   - whether the minimum token budget was reached
-   - artifacts kept/rejected
-   - compact `KEEP`, `MAYBE`, and `REJECT` summaries
-   - top 5 ranked actionable items
-   - draft PRs opened
-   - tests run
-   - what the user should do first
-   - what the user should review first
-   - what stayed unknown/manual
-
-If no draft PR is safe, still consider the night successful if it produced a
-useful ranked morning brief from real artifacts and hit the local/Windows work
-budget. If it stops below the minimum estimated token budget without a hard
-blocker, mark the run `YELLOW` for underuse.
-
-For `Tokenmaxx`, after each harvest:
-
-1. Run `~/.codex/bin/maestro-token-report` over the current run directories.
-2. If useful artifacts are scarce, tighten prompts and continue rather than
-   stopping early.
-3. If a board item is exhausted, generate the next board item from live repo
-   truth, not imagination.
-4. Prefer many read-only/code-grounded scans over risky draft edits.
-5. Keep Codex awake as the queue manager; local/Windows do the bulk thinking.
-
-Best Tokenmaxx workloads:
-
-- Codebase map: summarize every subsystem, what it does, main risks, missing
-  tests, and weird files.
-- Test gap mining: compare changed/risky files to test coverage and propose
-  exact test files or fixtures.
-- PostHog/Sentry thinking: mine events/issues into product and reliability
-  hypotheses without changing code unless Codex verifies.
-- PR cleanup intelligence: compare open/stale PRs to main and classify merge,
-  superseded, cherry-pick, close, or hold.
-- User story coverage: list app behaviors, expected behavior, tests covering
-  them, analytics covering them, and unknowns.
-- Refactor candidates: find oversized files, duplicated patterns, unclear
-  boundaries, and rank by payoff/risk.
-- Release readiness briefs: summarize what changed, what blocks release, what
-  manual QA remains, and what proof is deterministic vs manual.
-- Tiny PR idea generation: propose many small fixes; Codex opens only the best
-  few after live repo verification.
-
-Do not use Tokenmaxx for:
-
-- branch pushes from `run`, release cuts, merges, tags, notarization,
-  appcast/cask updates, repository visibility changes, or deploys
-- real hardware/audio/manual-proof claims
-- broad refactors without human approval
-- destructive file cleanup or moving user artifacts
-- private user data, raw transcripts, audio refs, titles, names, emails,
-  tokens, raw URLs, raw paths, raw devices, or source-app identifiers
-
-## Rehearsal Test
-
-When the user asks to test Night Shift, run a tiny no-edit rehearsal:
-
-1. Create a ledger under `~/.codex/maestro/overnight/test-<timestamp>/`.
-2. Run `~/.codex/bin/maestro-smoke.sh`.
-3. Run one local classification using the local classification template.
-4. Run one Windows draft using the Windows draft template.
-5. Validate both outputs against their schemas.
-6. Kill or confirm there are no leftover rehearsal processes.
-7. Report:
-
-```text
-MAESTRO_OVERNIGHT_TEST: GREEN/YELLOW/RED | smoke | local output verdict | Windows output verdict | no repo edits | no PRs | ledger | next adjustment
-```
-
-Only call the rehearsal `GREEN` if lane smoke passes and both cheap-worker
-outputs obey the schema and stay inside the safe work menu.
-
-## Morning Stop
-
-When the user says `Complete`, `Good morning`, `stop the night`, or similar:
-
-1. Stop or gracefully drain active `maestro`, `gnhf`, `codex`, `claude`, `opencode`, and worker processes that belong to the overnight run.
-2. Do not start new work.
-3. Reconstruct state from live proof, not memory:
-   ```bash
-   pgrep -fl 'maestro|gnhf|codex|claude|opencode|rovodev' || true
-   git status --short
-   git log --oneline --decorate --max-count=20
-   ```
-4. Inspect branches, PRs, notes, logs, and changed files.
-5. Run independent verification for any branch that looks promising.
-6. Report a short morning brief.
-
-## Closeout Format
-
-For launch:
-
-```text
-MAESTRO_OVERNIGHT_STARTED: GREEN/YELLOW/RED | mode | runtime cap | tasks launched | lanes | cloud budget | stop command | ledger
-```
-
-For morning:
-
-```text
-MAESTRO_OVERNIGHT_COMPLETE: GREEN/YELLOW/RED | what got done | PRs/branches | proof | blocked | needs user review | next action | lanes used: Codex=...; Claude=...; Local=...; Windows=...
-```
-
-Keep the coordinator answer short. The first screen should tell the user what happened, what is blocked, and what they should do first.
-
-For `Local Heavy` launch, include local/Windows loop counts:
-
-```text
-MAESTRO_OVERNIGHT_STARTED: GREEN/YELLOW/RED | Local Heavy | runtime cap | local loop target | Windows loop target | token target | draft PR cap | cloud budget | ledger
-```
-
-For `Tokenmaxx` launch:
-
-```text
-MAESTRO_OVERNIGHT_STARTED: GREEN/YELLOW/RED | Tokenmaxx | run until morning/stop phrase | local queue target | Windows queue target | min/stretch token target | draft PR cap | ledger
-```
-
-For `Local Heavy` morning:
-
-```text
-MAESTRO_OVERNIGHT_COMPLETE: GREEN/YELLOW/RED | local loops run | Windows loops run | estimated local tokens | estimated Windows tokens | kept/rejected artifacts | PRs/branches | tests/proof | needs user review | next action | lanes used: Codex=...; Claude=...; Local=...; Windows=...
-```
+Report what was stopped and what partial results exist. Full drain-and-verify
+steps: `references/operations.md`.
+
+## Tune-Up
+
+For "I got a new GPU", "use my other computer now", "change how hard it
+runs": re-run only the relevant step (the Step 3 scan for new hardware, Step
+4 for a new network worker), then persist with targeted flags —
+`night-shift start --yes --setup-only --windows-url ... --windows-model ...`.
+Use `--reset` only when the user explicitly wants to redo setup from scratch.
+
+## Safety Core
+
+The boundaries that make Night Shift trustable. The deep version lives in
+`SAFETY.md` next to this file; these never bend:
+
+- `night-shift run` never pushes, merges, releases, publishes, tags,
+  notarizes, deploys, or updates appcasts/casks.
+- Never change repository visibility, credentials, billing, or user files.
+- Boring-safe beats ambitious: if a cheap worker proposes broad, destructive,
+  private-data, release-touching, or file-reorganization work, mark it
+  `REJECTED` and tighten the prompt. Cheap workers do not choose their scope.
+- Workers draft; nothing a worker says is truth until Codex or a human
+  verifies it against the live repo.
+- Draft PRs happen only after review, in an isolated worktree, with checks
+  run — and only from deduped `KEEP` items.
+- No secrets, customer data, transcripts, or private user data in prompts.
+  Local lanes see prompts on this machine; the Windows lane sees prompts on
+  that worker; plan accordingly with the user's privacy answer.
+- Do not make a repository public from any Night Shift workflow; old refs and
+  cached objects outlive a clean-looking branch.
+
+## Going Deeper
+
+Read these only when the moment needs them (they are one level deep, next to
+this file):
+
+- `references/hardware-scan.md` — full probe reference, model picking,
+  install offers, Windows/LAN worker setup, scan troubleshooting.
+- `references/operations.md` — modes and their loop/token budgets, launch
+  checklist, startup gate, lane routing, limits, execution pattern, the Local
+  Heavy / Tokenmaxx playbook, rehearsal test, closeout formats.
+- `references/worker-prompts.md` — the worker prompt contract, all lane
+  templates, and KEEP/MAYBE/REJECT scoring.
+- `README.md` — user-facing quickstart and 20 common scenarios.
+- `SAFETY.md` — the full safety and privacy boundary.
