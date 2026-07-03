@@ -3,710 +3,124 @@
 ![Night Shift hero image: local AI workers running overnight and producing a morning brief](assets/night-shift-hero.png)
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![local-first](https://img.shields.io/badge/local--first-by_default-2ea44f)](#safety-and-privacy)
-[![drafts-not-deploys](https://img.shields.io/badge/drafts-not_deploys-6f42c1)](#what-it-will-do)
-[![morning-brief](https://img.shields.io/badge/output-morning_brief-0969da)](#morning-workflow)
+[![local-first](https://img.shields.io/badge/local--first-by_default-2ea44f)](SAFETY.md)
+[![drafts-not-deploys](https://img.shields.io/badge/drafts-not_deploys-6f42c1)](#what-it-will-never-do)
+[![morning-brief](https://img.shields.io/badge/output-morning_brief-0969da)](#what-you-wake-up-to)
 
 **Put your idle AI hardware to work while you sleep.**
 
-Night Shift is a local-first overnight workbench for AI coding agents.
-Point it at a repo before bed. Overnight, the hardware you already own — a
-MacBook's unified memory, a gaming GPU on your network, any local model
-server — reads your repo, finds small safe work, and drafts. You wake up to a
+Turn Night Shift on before bed. Overnight it reads your repo, finds small safe
+work, and drafts — using the hardware you already own: a MacBook's unified
+memory, a gaming GPU on your network, any local model server. You wake up to a
 short ranked brief with the few things worth looking at first.
 
-**What you wake up to:**
+It never pushes, merges, releases, or touches credentials. Drafts, not
+deploys. Free and open source under the [MIT License](LICENSE).
 
-- a repo scan and a small deduped work queue built from real signals: recent
-  files, TODOs, missing tests, docs drift, open PRs, and your mission
-- a morning brief: 3-5 ranked, source-backed next actions with proof paths
-  and token totals
-- if you allowed it: draft patch plans, issue candidates, or review-ready
-  draft PR candidates
-- zero pushes, zero merges, zero releases, zero surprises
-
-**What it never does:** push commits, merge PRs, release, deploy, publish,
-touch credentials or billing, change repo visibility, or pretend an unverified
-draft is the truth. Drafts, not deploys.
-
-Night Shift is free and open source under the [MIT License](LICENSE).
-
-It is built for developers with repo chores and unused nighttime compute:
-
-- **Mac local models** can triage, classify, and summarize privately.
-- **Windows GPU workers** can draft deeper reviews, patch plans, and test ideas.
-- **Claude CLI** can be used sparingly for hard reasoning.
-- **Codex or a human still verifies the work** before anything becomes a PR,
-  merge, release, or deploy.
-
-Night Shift is not an autonomous release bot. The `run` command does not push
-or merge. It produces a repo-specific queue, worker artifacts, rankings, token
-totals, and safe next actions. Codex or a human still reviews, edits, tests,
-and opens any PRs.
-Merges, releases, and public launches require explicit manual approval after
-review.
-
-For the safety and privacy boundary, including what worker lanes can see and
-what gets written to disk, read [SAFETY.md](SAFETY.md).
-
-**Jump to:** [Quick start](#30-second-version) ·
-[Why this exists](#why-this-exists) · [How it works](#the-mental-model) ·
-[Setup](#setup) · [Modes](#modes) · [What it will and will not do](#what-it-will-do) ·
-[20 use cases](#common-use-cases) · [Morning workflow](#morning-workflow) ·
-[Safety](SAFETY.md)
-
-## 30-Second Version
-
-```bash
-git clone https://github.com/r3dbars/nightshift.git
-cd nightshift
-./install.sh
-night-shift start
-night-shift report --latest
-```
-
-Works with: LM Studio, Ollama (auto-detected), or any OpenAI-compatible local
-model server; a second GPU box on your LAN as a heavy draft lane; optionally
-the Claude CLI for one or two hard questions a night and the GitHub CLI for
-open-PR context. No local models yet? `night-shift start` still runs, makes a
-read-only planning brief, and tells you exactly what to set up.
-
-For active development on the skill or CLI, install in linked mode so edits in
-this checkout are immediately what Codex loads:
-
-```bash
-./install.sh --link
-```
-
-Expected morning shape:
+## What You Wake Up To
 
 ```text
-Status: YELLOW
-Local loops: 40
-Windows loops: 20
-Artifacts: KEEP=3, MAYBE=7, REJECT=50
-Unique work queue items: 4
+Morning brief — status: YELLOW
+
+1. Missing tests around config fallback loading   → patch plan ready to review
+2. Setup docs still reference an old command      → small docs fix drafted
+3. One manual QA claim needs a human check        → flagged, not trusted
+
+Local loops: 40 · Windows loops: 20 · Artifacts: KEEP=3 MAYBE=7 REJECT=50
 Draft PRs opened: 0
-Manual proof: UNKNOWN
-Next action: verify KEEP item 1 and open one narrow draft PR if the gap is real.
+Next action: verify item 1 and open one narrow draft PR if the gap is real.
 ```
 
-`YELLOW` is a feature, not a failure: the machines did useful work, and a human
-or Codex still needs to verify the best item.
-
-## Why This Exists
-
-Most AI coding tools are optimized for the moment you are sitting there.
-Night Shift is optimized for the hours when you are not.
-
-It turns idle compute into bounded, reviewable repo work:
-
-- repo scans that understand the current branch, recent files, TODOs, docs, and
-  test commands
-- deduped work queues so repeated worker ideas become one stronger candidate
-- test-gap maps
-- stale PR reviews
-- TODO and risk clustering
-- release-readiness notes
-- issue drafts
-- small patch plans
-- morning briefs that say what is real, what is draft, and what still needs a human
-
-The joke version: it lets your machines have a productive little night shift,
-without letting them become management.
-
-## Mascot
-
-<img src="assets/night-shift-mascot.png" alt="Night Shift mascot: a tiny robot helper with coffee and a clipboard" width="220">
-
-This is the Night Shift helper: tiny, caffeinated, and only allowed to make
-drafts until a human checks the work.
-
-## Launch Story
-
-The simplest version:
-
-1. Run `night-shift start`.
-2. Answer a few plain-English setup questions.
-3. Review the "will / will not" summary.
-4. Let Night Shift run.
-5. Run `night-shift report --latest` in the morning.
-
-The promise is not "wake up to merged code." The promise is "wake up to a
-ranked, source-backed brief, proof paths, token totals, and a clear first move."
+Every item is a ranked, source-backed suggestion with proof paths — not merged
+code. That `YELLOW` is intentional: the machines did useful work overnight,
+and you (or your coding agent) still make the call in the morning.
 
 ## Quick Start
 
-Install it:
-
 ```bash
 git clone https://github.com/r3dbars/nightshift.git
 cd nightshift
 ./install.sh
-night-shift start
+night-shift start        # friendly guided setup, then the overnight run
+```
+
+Next morning:
+
+```bash
 night-shift report --latest
 ```
 
-If `night-shift` is not on your `PATH`, run it directly:
+**Works with:** LM Studio, Ollama (auto-detected), or any OpenAI-compatible
+local model server · a second GPU box on your LAN as a heavy draft lane ·
+optionally the Claude CLI for one or two hard questions a night and the
+GitHub CLI for open-PR context.
 
-```bash
-~/.codex/bin/night-shift start
-```
+**No local models yet?** `night-shift start` still works: it makes a read-only
+planning brief and tells you exactly what to set up.
 
-`night-shift start` is the setup wizard. It checks what AI tools are available,
-asks what the user wants to allow, saves the answers, shows a clear preview, and
-then starts a safe run.
-
-Need copy-paste recipes? See
-[`skills/night-shift/examples`](skills/night-shift/examples).
-Want to see what you wake up to first? Start with the fake
-[`sample-morning-brief.md`](skills/night-shift/examples/sample-morning-brief.md)
-and
-[`sample-ledger-output.md`](skills/night-shift/examples/sample-ledger-output.md).
-
-Need shareable launch copy, repo-description options, and visual ideas? See
-[MARKETING.md](MARKETING.md).
-
-Stop a run at any time:
-
-```bash
-night-shift stop --latest
-```
-
-## The Mental Model
-
-The wizard starts like a tiny decision brief:
-
-```text
-Welcome to Night Shift.
-
-First time here, so I will set up the basics with you.
-We are choosing four things:
-- the repo to read
-- what would make tomorrow morning useful
-- where your code is allowed to go
-- how hard and how long Night Shift should work
-
-Safe default: local, read-only, no pushes, no merges, no releases.
-```
-
-Then it asks beginner questions in this order:
-
-1. Which project should Night Shift look at?
-2. What would make tomorrow morning a win?
-3. What should Night Shift aim at first?
-4. Where is repo context allowed to go tonight?
-5. What is Night Shift allowed to prepare?
-6. How much energy should it use?
-7. When should it stop?
-
-Then it shows a summary before launching:
-
-```text
-Night Shift preview
-
-Project: /path/to/project
-Tonight it WILL:
-- Read the repo
-- Use: local Mac AI
-- Aim for: Ranked repo chores and test ideas
-- Run in Normal mode
-- Read only and make a morning brief
-- Autonomy: Read-only. Make a brief and a ranked queue.
-- Stop after 6 hours
-- Save a repo scan, deduped work queue, morning brief, and artifacts
-
-Tonight it WILL NOT:
-- Push commits
-- Open PRs without a separate Codex or human review step
-- Merge PRs
-- Release, deploy, publish, tag, or notarize
-- Delete or reorganize user files
-- Change credentials, billing, or repo visibility
-- Edit this checkout directly
-```
-
-The wizard also writes a setup lab under `~/.codex/maestro/overnight/`.
-Look for `lab/readiness.json`, `lab/providers.json`, and `lab/routing.json`.
-
-If something feels off, see [docs/troubleshooting.md](docs/troubleshooting.md).
-
-Advanced users can still choose a mode directly:
-
-- `quiet`: low heat, low noise, small useful scans.
-- `night-shift`: normal overnight run.
-- `afterburner`: tokenmaxx mode. Use the hardware hard until morning.
-
-You can also choose how much help it is allowed to prepare:
-
-```bash
-night-shift run --repo /path/to/project \
-  --mode night-shift \
-  --permission draft-prs
-```
-
-Autonomy levels:
-
-- `brief`: read-only repo scan, artifacts, and a ranked queue.
-- `draft-local`: exact patch plans, issue candidates, files, and tests.
-- `draft-prs`: review-ready draft PR candidates. The run still does not push,
-  merge, release, or deploy.
-
-```mermaid
-flowchart LR
-    A["Repo"] --> B["Night Shift"]
-    C["Local model"] --> B
-    D["Optional Windows worker"] --> B
-    E["Optional Claude CLI"] --> B
-    B --> F["Artifacts"]
-    B --> G["Token report"]
-    B --> H["Morning brief"]
-    H --> I["Codex or human review"]
-    I --> J["PR, issue, or no-op"]
-```
-
-Visual placeholder for a future README hero:
+## How It Works
 
 ```text
 +--------------+     +----------------------+     +---------------+
 | Your repo    | --> | Night Shift          | --> | Morning brief |
-| Your compute | --> | local / Windows / AI | --> | KEEP / MAYBE  |
+| Your compute | --> | local / GPU / cloud  | --> | KEEP / MAYBE  |
 +--------------+     +----------------------+     +---------------+
 ```
 
-The run writes everything under:
-
-```text
-~/.codex/maestro/overnight/night-shift-<timestamp>/
-```
-
-Useful files:
-
-- `startup-gate.md`: what compute was reachable.
-- `repo-scan.md` / `repo-scan.json`: branch, recent files, TODO sample, docs,
-  test files, and detected test commands.
-- `board.md`: the work queue.
-- `planned-work-queue.json`: the repo-specific queue chosen before workers run.
-- `context-pack.txt`: repo context used for prompts.
-- `artifacts/`: local and Windows worker outputs.
-- `processes.tsv`: process IDs for graceful stop.
-- `harvest.md`: ranked worker outputs.
-- `work-queue.md` / `work-queue.json`: deduped action choices after worker
-  scoring.
-- `token-report.txt`: estimated tokens by lane.
-- `morning.md`: the morning brief.
-
-## Setup
-
-One-command install:
-
-```bash
-./install.sh
-night-shift start
-```
-
-Install into a different Codex home:
-
-```bash
-./install.sh --codex-home /path/to/codex-home
-```
-
-Install for development from this checkout:
-
-```bash
-./install.sh --link
-```
-
-Linked mode points `~/.codex/bin/maestro-*` and
-`~/.codex/skills/night-shift` at this Git checkout, so changes under
-`bin/` or `skills/night-shift/` can be committed and pushed normally.
-
-Advanced: install and immediately run doctor:
-
-```bash
-./install.sh --doctor /path/to/project
-```
-
-Required for install:
-
-- macOS or Linux shell.
-- `git`, `python3`, `curl`, and `rsync`.
-
-Required for a real run:
-
-- Git repo on this machine.
-- `~/.codex/bin/maestro-delegate`
-- `~/.codex/bin/maestro-token-report`
-
-If you install somewhere else, set `CODEX_HOME` before running `./install.sh`.
-Night Shift will use `$CODEX_HOME/bin`, `$CODEX_HOME/skills`, and
-`$CODEX_HOME/maestro/overnight`.
-
-Recommended:
-
-- A local model server: LM Studio at `http://localhost:1234` or Ollama at
-  `http://localhost:11434`. If LM Studio is not reachable, Night Shift
-  auto-detects a running Ollama and picks your best downloaded coder or
-  instruct model.
-- A loaded chat model, for example `phi-4-mini-instruct` or `qwen2.5-coder`.
-- Optional Windows worker endpoint on your LAN or private network.
-- Claude CLI installed if you want the reasoning lane.
-- GitHub CLI signed in if you want PR state included in the context pack.
-
-Start the wizard:
-
-```bash
-night-shift start
-```
-
-If your shell cannot find `night-shift`, use either of these:
-
-```bash
-export PATH="$HOME/.codex/bin:$PATH"
-~/.codex/bin/night-shift start
-```
-
-Advanced: point it at different compute:
-
-```bash
-night-shift doctor --repo /path/to/project \
-  --local-url http://localhost:1234/v1 \
-  --local-model phi-4-mini-instruct \
-  --windows-url http://windows-host.local:11434/v1 \
-  --windows-model qwen3-coder:30b
-```
-
-Use `--latest` or `--ledger <path>` when reporting or stopping:
-
-```bash
-night-shift report --latest
-night-shift stop --latest
-night-shift report --ledger ~/.codex/maestro/overnight/night-shift-...
-```
-
-If something is missing, the wizard and doctor output should tell you exactly what to start.
-The `run` command writes ledgers and artifacts only; it reads repo state but does
-not fetch, commit, branch, merge, publish, or edit the target repo.
-
-### Advanced Recipes
-
-Mac-only:
-
-```bash
-open -a "LM Studio"
-night-shift doctor --repo /path/to/project
-night-shift run --repo /path/to/project --mode quiet --max-windows 0
-```
-
-Windows worker only:
-
-```bash
-export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1
-export WINDOWS_WORKER_MODEL=qwen3-coder:30b
-night-shift doctor --repo /path/to/project --windows-url "$WINDOWS_WORKER_BASE_URL"
-night-shift run --repo /path/to/project --mode quiet --max-local 0
-```
-
-Mac plus Windows:
-
-```bash
-open -a "LM Studio"
-export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1
-export WINDOWS_WORKER_MODEL=qwen3-coder:30b
-night-shift doctor --repo /path/to/project --windows-url "$WINDOWS_WORKER_BASE_URL"
-night-shift run --repo /path/to/project --mode night-shift
-```
-
-No local model yet:
-
-```bash
-night-shift doctor --repo /path/to/project
-night-shift plan --repo /path/to/project --mode quiet
-```
-
-Optional lanes:
-
-- Claude: install and sign in to the `claude` CLI for rare hard reasoning tasks.
-- GitHub: install `gh` and run `gh auth login` to include open PR context.
-- Windows: use any OpenAI-compatible server and point `WINDOWS_WORKER_BASE_URL` at it. If you do not have one, leave it unset and run Mac-only with `--max-windows 0`.
-
-## Who It Is For
-
-- Solo developers with a Mac and a backlog of small repo chores.
-- Teams with a spare local GPU box that can draft reviews, tests, and issue
-  ideas overnight.
-- Codex users who want a clean morning handoff instead of a giant pile of chat.
-- Claude Code users who want the expensive reasoning lane saved for the few
-  decisions that deserve it.
-- Anyone who wants AI help without pretending green automation equals proof.
-
-It is probably not for you if you want a bot to merge, deploy, or publish while
-you are away.
-
-## Example Morning
-
-After a useful run, the morning brief should sound boring in the best way:
-
-```text
-Status: YELLOW
-Local loops: 40
-Windows loops: 20
-Artifacts: KEEP=3, MAYBE=7, REJECT=50
-Draft PRs opened: 0
-Manual proof: UNKNOWN
-Next action: verify KEEP item 1 and open one narrow draft PR if the gap is real.
-```
-
-That `YELLOW` is intentional. It means the machines did useful work, but Codex
-or a human still needs to verify the best item before it becomes a real change.
-
-## Modes
-
-### Quiet
-
-Use this for a laptop on battery, a small repo, or a short evening pass.
-
-Defaults:
-
-- Mac local loops: 6
-- Windows loops: 2
-- Parallel local: 1
-- Parallel Windows: 1
-- Token target: 50k estimated local/Windows tokens
-
-### Night Shift
-
-Use this as the normal overnight setting.
-
-Defaults:
-
-- Mac local loops: 40
-- Windows loops: 20
-- Parallel local: 3
-- Parallel Windows: 2
-- Token target: 500k estimated local/Windows tokens
-
-### Afterburner
-
-Use this when you want to maximize idle hardware.
-
-Defaults:
-
-- Mac local loops: 120
-- Windows loops: 80
-- Parallel local: 4
-- Parallel Windows: 2
-- Token target: 2M estimated local/Windows tokens
-
-## What It Will Do
-
-Good overnight work:
-
-- Find missing tests.
-- Map risky files.
-- Cluster TODOs and bug smells.
-- Review stale PRs.
-- Create release-readiness briefs.
-- Compare user stories to tests and analytics.
-- Mine PostHog/Sentry gaps.
-- Draft small patch plans.
-- Prepare draft PR candidates for Codex or a human to review.
-- Produce morning-ready issues.
-
-What it will not do by itself:
-
-- Merge PRs.
-- Push commits or branches from the `run` command.
-- Cut releases.
-- Publish, tag, notarize, deploy, update appcasts, or update casks.
-- Touch credentials or billing.
-- Move or delete user files.
-- Claim hardware, audio, Bluetooth, camera, or manual QA proof.
-
-Code changes are PR-only: Night Shift artifacts can become a branch only after
-Codex or a human chooses one reviewed item, makes the change in an isolated
-worktree, runs checks, and opens a draft PR. Nothing from an overnight run is
-merged or shipped without a separate approval.
-
-Do not paste secrets, customer data, raw transcripts, audio, meeting titles,
-speaker names, private URLs, raw file paths, billing details, or personal
-contact details into prompts. Local lanes see prompts on this machine; Windows
-lanes see prompts on the configured Windows worker.
-
-## Taking Your Own Repos Public
-
-Night Shift never changes repository visibility, and neither should any
-overnight workflow. If you decide to take one of your own repos public, do it
-manually and carefully: old closed PRs, branch refs, review comments, fork
-refs, and cached GitHub objects can expose history even after the visible
-branch looks clean. The safe paths are a fresh clean repository from an
-audited export, or a GitHub-supported purge of old refs before the flip.
-
-## Common Use Cases
-
-Use these as starting points. Each one should end in a morning brief, artifacts,
-and a clear next action, not surprise merges or releases.
-
-1. **Solo Mac developer with LM Studio**
-   - Start: `quiet` for a short pass, `night-shift` for overnight.
-   - Ask for: TODO mining, test-gap maps, docs drift, small patch plans.
-   - Morning output: ranked artifacts and one or two safe follow-up tasks.
-
-2. **Mac plus a Windows GPU box**
-   - Start: `night-shift`; use `afterburner` only when heat and time are fine.
-   - Ask for: Mac local triage plus deeper Windows review and test planning.
-   - Morning output: separate local and Windows artifacts with token totals.
-
-3. **Windows worker only**
-   - Start: `quiet --max-local 0`.
-   - Ask for: draft implementation plans, review notes, fixture ideas.
-   - Morning output: Windows drafts that Codex or a human must verify.
-
-4. **No local model installed yet**
-   - Start: `doctor`, then `plan`.
-   - Ask for: setup blockers and a repo plan.
-   - Morning output: no worker claims, just exact next setup steps.
-
-5. **Privacy-sensitive repo**
-   - Start: `quiet` with local lanes only.
-   - Ask for: coarse code maps, test gaps, and docs checks.
-   - Morning output: local-only artifacts; no private text pasted to cloud lanes.
-
-6. **Maintainer with a stale issue backlog**
-   - Start: `night-shift`.
-   - Ask for: issue dedupe, labels, suspected owners, and close/keep candidates.
-   - Morning output: a triage list and polished issue-comment drafts.
-
-7. **Maintainer with a messy PR queue**
-   - Start: `night-shift`.
-   - Ask for: classify PRs as merge, hold, superseded, close, or cherry-pick.
-   - Morning output: PR-by-PR notes with proof links and risks.
-
-8. **Open-source docs cleanup**
-   - Start: `quiet`.
-   - Ask for: stale commands, missing setup steps, broken examples, drift.
-   - Morning output: a small docs patch plan or one narrow draft PR candidate.
-
-9. **Test generation push**
-   - Start: `night-shift`.
-   - Ask for: changed-file coverage gaps, fixture ideas, and exact test commands.
-   - Morning output: proposed tests, expected assertions, and files to touch.
-
-10. **Release-readiness check**
-    - Start: `quiet`.
-    - Ask for: release notes, blockers, risky changes, and manual QA still needed.
-    - Morning output: a readiness brief. Night Shift does not publish anything.
-
-11. **Bug triage before work starts**
-    - Start: `quiet`.
-    - Ask for: cluster logs or issue text by suspected subsystem.
-    - Morning output: top bug families, repro hints, and owner suggestions.
-
-12. **Sentry or error-family audit**
-    - Start: `quiet`.
-    - Ask for: issue families, likely files, missing tests, and repro paths.
-    - Morning output: fix candidates without claiming production proof.
-
-13. **Analytics or product-instrumentation audit**
-    - Start: `night-shift`.
-    - Ask for: event gaps, property drift, funnel blind spots, dashboard questions.
-    - Morning output: measurement gaps and safe follow-up issues.
-
-14. **Refactor exploration**
-    - Start: `night-shift`; optionally allow one Claude reasoning pass.
-    - Ask for: oversized files, duplicated patterns, unclear boundaries.
-    - Morning output: ranked candidates. Do not rewrite the architecture overnight.
-
-15. **Claude budget control**
-    - Start: `night-shift` with Claude reserved for one hard question.
-    - Ask for: cheap local/Windows scans first, Claude only for the risk call.
-    - Morning output: one Claude-backed decision note plus cheaper lane artifacts.
-
-16. **Codex budget control**
-    - Start: local and Windows lanes for draft work.
-    - Ask for: maps, reviews, plans, and tests that Codex can verify later.
-    - Morning output: fewer Codex turns spent on exploration, more on proof.
-
-17. **Morning triage ritual**
-    - Start: `report --latest`.
-    - Ask for: top action, kept artifacts, rejected artifacts, and unknowns.
-    - Morning output: one first move instead of a pile of raw worker output.
-
-18. **Multi-repo operator**
-    - Start: one Night Shift run per repo.
-    - Ask for: separate ledgers, separate boards, separate morning briefs.
-    - Morning output: clean repo-by-repo decisions instead of mixed context.
-
-19. **Low-heat laptop night**
-    - Start: `quiet --max-parallel-local 1 --max-windows 0`.
-    - Ask for: read-only scans and compact summaries.
-    - Morning output: useful notes without trying to keep the machine busy.
-
-20. **Afterburner / tokenmaxx run**
-    - Start: `afterburner` only when you want to spend idle local compute hard.
-    - Ask for: many maps, audits, rankings, and patch plans.
-    - Morning output: high-volume artifacts, strict KEEP/MAYBE/REJECT scoring, and
-      still no autonomous merge or release.
-
-## Morning Workflow
-
-In the morning:
-
-```bash
-night-shift report --latest
-```
-
-Then review:
-
-1. `morning.md`
-2. `harvest.md`
-3. `token-report.txt`
-4. high-signal files in `artifacts/`
-
-The first screen of `morning.md` is intentionally ranked. It should answer:
-
-- What should I do first?
-- What are the top 5 actionable items?
-- How many local and Windows loops ran?
-- How many estimated input/output/total tokens were spent by lane?
-- Which artifacts were `KEEP`, `MAYBE`, or `REJECT`?
-- What stayed draft-only or manual/unknown?
-
-The right next action is usually one of these:
-
-- Ask Codex to turn one `KEEP` artifact into a PR.
-- Ask Codex to launch a focused review/merge thread.
-- Rerun in `quiet` mode with a narrower target.
-- Stop because the project is ready for manual QA or release.
-
-## Naming And Package
-
-Product name: `Night Shift`
-
-Short name: `Night Shift`
-
-Short command: `night-shift`
-
-Repository/package name: `night-shift`
-
-Friendly phrases:
-
-- "Start Night Shift on this repo."
-- "Run Afterburner tonight."
-- "Morning brief."
-- "Stop Night Shift."
-
-Avoid:
-
-- "Autonomous release bot"
-- "Hands-free deploys"
-- "Self-merging agent"
-- "Production proof"
-
-## Project Notes
-
-License is currently private/proprietary; see `LICENSE`.
-
-Contribution notes live in `CONTRIBUTING.md`.
-
-Package and release notes live in `PACKAGE.md` and `CHANGELOG.md`.
+1. **Scan** the repo: recent files, TODOs, missing tests, docs drift, open PRs.
+2. **Queue** a small, repo-specific list of safe work from those real signals.
+3. **Work** it with bounded local and network worker loops, all night.
+4. **Dedupe and rank**: repeated findings merge into fewer, stronger candidates.
+5. **Brief** you in the morning with the 3-5 best next actions, with evidence.
+
+You choose how much it may prepare:
+
+| Autonomy | What you get |
+| --- | --- |
+| `brief` (default) | read-only repo scan, ranked work queue, morning brief |
+| `draft-local` | + exact patch plans, issue candidates, and test ideas |
+| `draft-prs` | + review-ready draft PR candidates — still no push, no merge |
+
+And how hard it runs:
+
+| Mode | Use it for | Rough shape |
+| --- | --- | --- |
+| `quiet` | battery, small repos, short evenings | ~8 worker loops, low heat |
+| `night-shift` | the normal overnight run | ~60 loops, ~500k local tokens |
+| `afterburner` | maximizing idle hardware | ~200 loops, 2M+ local tokens |
+
+## What It Will Never Do
+
+- Push commits or merge PRs from an overnight run.
+- Release, deploy, publish, tag, or notarize.
+- Touch credentials, billing, or repository visibility.
+- Move or delete your files.
+- Pretend an unverified draft is the truth.
+
+Code changes are PR-only: after the run, you (or your coding agent) review one
+item, make the change in an isolated worktree, run the checks, and open a
+draft PR yourself. The full boundary lives in [SAFETY.md](SAFETY.md).
+
+## Learn More
+
+- **[User guide](docs/guide.md)** — the setup wizard walkthrough, every file a
+  run produces, advanced recipes, and full mode details.
+- **[20 use cases](docs/use-cases.md)** — from "solo Mac with LM Studio" to
+  "messy PR queue" to full tokenmaxx nights.
+- **[Copy-paste examples](skills/night-shift/examples)** — including a fake
+  [sample morning brief](skills/night-shift/examples/sample-morning-brief.md).
+- **[Safety and privacy](SAFETY.md)** — what each worker lane can see and why
+  the boundaries exist.
+- **[Troubleshooting](docs/troubleshooting.md)** ·
+  **[Contributing](CONTRIBUTING.md)** · **[Changelog](CHANGELOG.md)**
+
+## Mascot
+
+<img src="assets/night-shift-mascot.png" alt="Night Shift mascot: a tiny robot helper with coffee and a clipboard" width="180">
+
+The Night Shift helper: tiny, caffeinated, and only allowed to make drafts
+until a human checks the work.
+
+---
+
+MIT © r3dbars · [LICENSE](LICENSE)
