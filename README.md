@@ -49,11 +49,17 @@ review.
 For the safety and privacy boundary, including what worker lanes can see and
 what gets written to disk, read [SAFETY.md](SAFETY.md).
 
+**Jump to:** [Quick start](#30-second-version) ·
+[Why this exists](#why-this-exists) · [How it works](#the-mental-model) ·
+[Setup](#setup) · [Modes](#modes) · [What it will and will not do](#what-it-will-do) ·
+[20 use cases](#common-use-cases) · [Morning workflow](#morning-workflow) ·
+[Safety](SAFETY.md)
+
 ## 30-Second Version
 
 ```bash
-git clone https://github.com/r3dbars/night-shift.git
-cd night-shift
+git clone https://github.com/r3dbars/nightshift.git
+cd nightshift
 ./install.sh
 night-shift start
 night-shift report --latest
@@ -134,8 +140,8 @@ ranked, source-backed brief, proof paths, token totals, and a clear first move."
 Install it:
 
 ```bash
-git clone https://github.com/r3dbars/night-shift.git
-cd night-shift
+git clone https://github.com/r3dbars/nightshift.git
+cd nightshift
 ./install.sh
 night-shift start
 night-shift report --latest
