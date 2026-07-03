@@ -111,6 +111,21 @@ Do not paste:
 
 For sensitive work, use only local lanes and keep prompts coarse.
 
+## Automated Nights And Delivery
+
+The standing schedule (`night-shift schedule --nightly`) runs the same
+`run` command with the same boundaries — an unattended night has less
+authority than an attended one, never more:
+
+- On battery the run drops to quiet mode; stop timers and failure limits
+  still apply.
+- After 3 unread morning briefs the nightly run pauses itself until a brief
+  is read. Snoozed nights are logged as skipped, never hidden.
+- The only thing Night Shift may ever write to a repository is the single
+  opt-in digest issue maintained by `deliver --github-issue`: one issue per
+  repo, edited in place, never code, never a branch, never a PR, and never
+  without the user enabling it.
+
 ## Taking Repositories Public
 
 Night Shift never changes repository visibility, and no overnight workflow

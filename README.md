@@ -9,10 +9,12 @@
 
 **Put your idle AI hardware to work while you sleep.**
 
-Turn Night Shift on before bed. Overnight it reads your repo, finds small safe
-work, and drafts — using the hardware you already own: a MacBook's unified
-memory, a gaming GPU on your network, any local model server. You wake up to a
-short ranked brief with the few things worth looking at first.
+Here's the problem Night Shift solves: you already own AI hardware — a
+MacBook with unified memory, a gaming GPU, a spare desktop — and every night
+it sits idle. Those are free tokens. The hardware is paid for; the
+electricity costs cents. Night Shift collects them: overnight, your machines
+read your repo, find small safe work, and draft. You wake up to a short
+ranked brief with the few things worth looking at first.
 
 It never pushes, merges, releases, or touches credentials. Drafts, not
 deploys. Free and open source under the [MIT License](LICENSE).
@@ -57,6 +59,25 @@ GitHub CLI for open-PR context.
 
 **No local models yet?** `night-shift start` still works: it makes a read-only
 planning brief and tells you exactly what to set up.
+
+## Make It Automatic
+
+You shouldn't have to remember Night Shift exists. Arm it once and your
+hardware clocks in every night by itself:
+
+```bash
+night-shift schedule --nightly 23:30   # runs every night with your saved setup
+night-shift schedule --status          # when it runs, what happened, how to stop
+night-shift snooze --days 7            # vacation switch
+```
+
+The standing shift looks after itself: it **pauses when three morning briefs
+pile up unread** (no zombie automation making reports nobody reads — reading
+one resumes it), drops to quiet mode on battery, and turns off with one
+command. Optionally, `night-shift deliver --latest --github-issue` keeps a
+single digest issue in your repo updated with each morning's brief — the only
+thing Night Shift ever writes to a repo, and never code. The full design:
+[docs/autopilot.md](docs/autopilot.md).
 
 ## How It Works
 
@@ -103,6 +124,9 @@ draft PR yourself. The full boundary lives in [SAFETY.md](SAFETY.md).
 
 ## Learn More
 
+- **[Autopilot design](docs/autopilot.md)** — how the standing nightly run
+  stays trustworthy: attention-aware pausing, battery awareness, snooze, and
+  opt-in morning delivery.
 - **[User guide](docs/guide.md)** — the setup wizard walkthrough, every file a
   run produces, advanced recipes, and full mode details.
 - **[20 use cases](docs/use-cases.md)** — from "solo Mac with LM Studio" to

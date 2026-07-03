@@ -7,6 +7,22 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Add Autopilot: `night-shift schedule --nightly HH:MM` installs a standing
+  nightly run (launchd/cron) that reads saved config at fire time, pauses
+  itself after 3 unread morning briefs, drops to quiet mode on battery, and
+  is inspectable via `schedule --status`.
+- Add `night-shift snooze` (--days/--until/--off) as the vacation switch for
+  the standing shift.
+- Add `night-shift deliver --github-issue`: keep exactly one digest issue per
+  repo updated with the latest morning brief via the gh CLI — the only repo
+  write Night Shift is ever allowed, opt-in only.
+- Mark briefs as reviewed when read via `night-shift report`, powering the
+  attention-aware pause.
+- Recenter the skill and README on the founding problem: idle AI hardware is
+  free tokens; First Night now ends with the make-it-automatic offer, and the
+  skill gains Autopilot and Snooze moments plus a morning surfacing contract.
+- Document the automation design in `docs/autopilot.md`.
+- Handle SIGPIPE cleanly so piping CLI output to `head` no longer tracebacks.
 - Rewrite the README as a short, scannable front page: what you wake up to,
   a 60-second quick start, how it works, autonomy and mode tables, and hard
   boundaries. Deep material moved to `docs/guide.md` and `docs/use-cases.md`.

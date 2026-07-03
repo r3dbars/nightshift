@@ -1,16 +1,20 @@
 ---
 name: night-shift
-description: Launch and supervise Night Shift, a bounded overnight local-compute workbench that scans a repo, runs local AI workers on a deduped queue, and writes a ranked morning brief. Use when the user asks for Night Shift or first-time Night Shift setup, says goodnight / going to sleep / run overnight / tokenmaxx, wants to put local AI hardware to work (Apple Silicon, a gaming GPU, LM Studio, Ollama, a Windows worker), asks to scan for local models or what their hardware can run, wants an on-button for bounded repo work, or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
+description: Launch and supervise Night Shift, a bounded overnight local-compute workbench that turns idle AI hardware into useful repo work — scans, deduped work queues, and a ranked morning brief. Use when the user asks for Night Shift or first-time Night Shift setup, says goodnight / going to sleep / run overnight / tokenmaxx, wants their idle GPU, Apple Silicon, LM Studio, Ollama, or a Windows worker doing useful things overnight, asks to scan for local models or what their hardware can run, wants it scheduled automatically every night ("autopilot", "every night", "snooze", "vacation"), or returns in the morning with "Complete", "Good morning", "stop the night", or asks what happened overnight.
 ---
 
 # Night Shift
 
-Put your idle AI hardware to work while you sleep.
+The problem this exists to solve, in the user's own words: "I own AI hardware
+that sits idle every night. Those are free tokens — the hardware is paid for
+and electricity is cheap. How do I get it doing helpful things for me while I
+sleep?"
 
-The promise: the user goes to bed, their machines keep thinking, and they wake
-up to a repo scan, a small deduped work queue, and a ranked morning brief with
-the few best next actions. Not merged code. Not homework. Useful, reviewed
-options.
+Night Shift is the answer: point the idle hardware at a repo before bed, let
+it scan, analyze, and draft all night, and wake up to a short ranked brief
+with the few things worth looking at first. Once the user says yes to the
+standing schedule, they never have to remember it again — the hardware just
+clocks in every night.
 
 Core rule, never bend it: local and Windows lanes may draft; Codex or a human
 reviews and verifies; `night-shift run` does not edit the target repo; nothing
@@ -30,6 +34,7 @@ already complete" to a configured user:
 ```bash
 command -v night-shift || ls ~/.codex/bin/night-shift 2>/dev/null
 cat ~/.codex/night-shift/config.json 2>/dev/null
+night-shift schedule --status 2>/dev/null
 ```
 
 Route by what you find and what the user said:
@@ -39,9 +44,16 @@ Route by what you find and what the user said:
 | No config file, CLI missing, or the user asks to set up | **First Night** |
 | Config exists and the user wants to run tonight | **Bedtime** |
 | "Good morning", "Complete", "what happened overnight" | **Morning** |
+| "Every night", "automatically", "schedule this", "autopilot" | **Autopilot** |
+| "Vacation", "pause it", "skip this week", "stop for a while" | **Snooze** |
 | "Stop", "stop the night", "kill it" | **Stop Now** |
 | New hardware, "change settings", "use my other computer" | **Tune-Up** |
 | "Test Night Shift", "rehearse" | **Rehearsal** — read `references/operations.md` |
+
+Morning surfacing contract: on ANY invocation of this skill, if
+`schedule --status` shows unreviewed overnight briefs, lead with one line —
+"You have a Night Shift brief from last night — want the summary?" — then
+continue with what the user actually asked. Never bury a finished night.
 
 If the user's invocation already contains a repo, a mission, or a mode, keep
 it. Setup runs first; their request runs immediately after. Never discard what
@@ -52,9 +64,9 @@ answered.
 
 These are product commitments, not suggestions:
 
-1. **Hardware before subscriptions, always.** Local AI hardware is the star of
-   this product. Ask about it first, scan for it with consent, celebrate what
-   is found. Cloud subscriptions are optional garnish, asked about after.
+1. **Hardware before subscriptions, always.** Idle local AI hardware is the
+   entire reason this product exists. Ask about it first, scan for it with
+   consent, celebrate what is found. Cloud subscriptions are optional garnish.
 2. **Detect, then confirm.** Never ask the user something a read-only command
    can answer. Scan, present findings in plain language, confirm the plan.
 3. **One question at a time for decisions that depend on each other.** Each
@@ -69,8 +81,13 @@ These are product commitments, not suggestions:
    so the wizard never fires again uninvited.
 6. **Never overwrite an existing config without `--reset`.** A configured user
    who says "start" gets the Bedtime fast path, not the wizard.
-7. **First Night ends with the thing running**, not with reading material.
-   Preview, launch, and tell the user what to say tomorrow morning.
+7. **First Night ends with the thing running**, not with reading material —
+   and with one final offer to make it automatic forever.
+8. **Automation must always be inspectable and reversible.** Any standing
+   schedule must answer "when does it run, when did it last run, how do I
+   stop it" via `night-shift schedule --status`, `snooze`, and
+   `schedule --off`. Never arm a schedule without saying exactly what will
+   run and when.
 
 If the host supports an option-picker tool (such as `AskUserQuestion`), use it
 for every choice below, with the recommended option first. Otherwise ask the
@@ -87,22 +104,23 @@ lines; the guided questions are the feature, not a wall of text:
 ```text
 Hey — welcome to Night Shift.
 
-Here's the idea: you have AI hardware and repos. At night, both just sit
-there. Night Shift puts them together — you turn it on before bed, your
-machines spend the night reading your repo, finding safe useful work, and
-drafting. You wake up to a short ranked brief with the few things worth
-looking at first.
+Here's the idea: you already own AI hardware, and every night it sits idle.
+Those are free tokens — the hardware is paid for, electricity costs cents.
+Night Shift collects them: while you sleep, your machines read your repo,
+find small safe work, and draft. You wake up to a short ranked brief with
+the few things worth looking at first.
 
 It will never push, merge, release, or touch credentials. Drafts, not deploys.
 
-Setup takes about a minute. First question is the fun one.
+Setup takes about a minute, and at the end you can make it automatic so you
+never have to think about it again. First question is the fun one.
 ```
 
 ### Step 2 — The hardware question (always first)
 
 Ask before anything else — before the repo, before goals:
 
-> **Do you have local AI hardware you'd like to put on the night shift?**
+> **What AI hardware do you own that's sitting idle at night?**
 > Think: this Mac (Apple Silicon unified memory counts for a lot), a gaming
 > PC with a real GPU, a spare desktop on your network.
 
@@ -137,13 +155,15 @@ ls /Applications 2>/dev/null | grep -i "lm studio"
 ```
 
 Report findings like a friend who knows hardware, not like a diagnostic dump.
-Lead with what the machine can do:
+Lead with what the machine can do, and make the idle-token point concrete:
 
 ```text
 Here's what I found:
 
   This Mac    Apple M3 Max, 64 GB unified memory
-              → that comfortably runs 30B-class models. Real overnight horsepower.
+              → comfortably runs 30B-class models. Left idle 8 hours a night,
+                that's on the order of a million tokens of thinking you
+                already paid for — every single night.
   Ollama      running, 3 models: qwen2.5-coder:14b, llama3.2:3b, nomic-embed-text
   LM Studio   installed, server not running
 
@@ -178,7 +198,7 @@ No local models yet — no problem. Two easy paths if you want one later:
 - Ollama: one install, then `ollama pull qwen2.5-coder:14b`
 - LM Studio: a friendly app with a built-in model browser
 
-Tonight still works without them: I can scan the repo and build a planning
+Tonight still works without them: I can scan the repo and make a planning
 brief, and we can add hardware any night. Want me to set up Ollama now, or
 keep going?
 ```
@@ -186,7 +206,8 @@ keep going?
 ### Step 4 — Other machines on the network
 
 If the user mentioned another computer (a Windows gaming PC is the classic),
-help them wire it up as the second lane:
+help them wire it up as the second lane — that GPU is the single biggest pile
+of idle tokens most developers own:
 
 - If it is already serving: verify with
   `curl -s --max-time 3 http://<host>:11434/api/tags` and confirm the model.
@@ -198,8 +219,7 @@ help them wire it up as the second lane:
   wire it in any evening.
 
 A 24 GB gaming GPU runs 30B-class coder models (`qwen3-coder:30b` is the
-default) — worth saying out loud; it is why that box exists on the night
-shift.
+default) — worth saying out loud; it is why that box joins the night shift.
 
 ### Step 5 — Subscriptions (after local, never before)
 
@@ -271,24 +291,45 @@ Ollama serves an OpenAI-compatible API at `/v1`, so
 `--local-url http://localhost:11434/v1` wires it in directly; LM Studio is
 `http://localhost:1234/v1`.
 
-Show the preview, get one final yes, launch, and close the loop:
-
-```text
-Night Shift is on. Sleep well.
-
-Tomorrow, just say "good morning" (or run `night-shift report --latest`) and
-I'll have the brief ready: what it found, what's worth your attention first,
-and what stayed draft-only.
-```
-
 If the user chose "Skip for now" at any point: save what was gathered with
 `night-shift start --repo <repo> --yes --setup-only`, tell them setup is saved
 and they can say "start night shift" any evening, and stop. No nagging.
 
+### Step 8 — Make it automatic (the last question)
+
+After the run is launched, make the one offer that means they never have to
+remember this skill again:
+
+```text
+Night Shift is on. One last thing: want this to happen every night
+automatically? Pick a bedtime — say 23:30 — and your hardware clocks in by
+itself. It pauses itself if briefs pile up unread, drops to quiet mode on
+battery, and `night-shift snooze` covers vacations.
+```
+
+If yes:
+
+```bash
+night-shift schedule --nightly 23:30
+```
+
+Then close the loop either way:
+
+```text
+Sleep well. Tomorrow, just say "good morning" (or run
+`night-shift report --latest`) and the brief will be waiting: what it found,
+what deserves your attention first, and what stayed draft-only.
+```
+
 ## Bedtime (returning user)
 
 Config exists. Do not re-onboard, do not explain the product, do not announce
-that setup was found. Read the config, recap in one line, offer the fast path:
+that setup was found. First check `night-shift schedule --status`: if the
+standing shift is armed for tonight, say so — "Already armed for 23:30 —
+nothing to do. Sleep well." — and only launch manually if they want it to
+start now.
+
+Otherwise read the config, recap in one line, offer the fast path:
 
 ```text
 Same as last night? <repo> · Normal · read-only brief · stop after 8h · local: qwen2.5-coder:14b
@@ -298,10 +339,45 @@ Same as last night? <repo> · Normal · read-only brief · stop after 8h · loca
   elsewhere). Confirm launch in two lines, wish them goodnight, done.
 - One thing changed ("focus on tests tonight", "go harder") → override just
   that flag (`--goal "..."`, `--mode afterburner`) and keep the rest saved.
+- If they seem to be doing this manually every night, offer Autopilot once:
+  "Want me to just schedule this?"
 - Before launching heavy modes as the coordinator, follow the startup gate in
   `references/operations.md`; worker prompt templates live in
   `references/worker-prompts.md`. If a lane is down, degrade honestly (the CLI
   does this) — never pretend a lane ran.
+
+## Autopilot (make it run every night)
+
+When the user wants Night Shift automatic — "every night", "schedule it",
+"I keep forgetting":
+
+1. Confirm setup exists (`night-shift start` first if not — run First Night).
+2. Ask for a bedtime; recommend a time after they usually stop working.
+3. Arm it and show exactly what was armed:
+   ```bash
+   night-shift schedule --nightly 23:30
+   night-shift schedule --status
+   ```
+4. Say the three safety behaviors out loud — they are why this is trustable:
+   - **It pauses itself when ignored.** After 3 unread morning briefs, the
+     nightly run stops and waits; reading a brief (`report --latest`) resumes
+     it. No zombie automation making reports nobody reads.
+   - **It respects the machine.** On battery it drops to quiet mode; every
+     run still honors the stop timer and thermal limits.
+   - **It is one command to stop.** `night-shift schedule --off`, or
+     `night-shift snooze --days 7` for a vacation.
+5. Optional, only if `gh` is signed in and the user wants results on GitHub:
+   morning delivery. `night-shift deliver --latest --github-issue` keeps
+   exactly ONE digest issue per repo updated with the latest brief — it never
+   writes code, never opens more issues, never pushes. Offer it, never assume
+   it.
+
+## Snooze (vacations and pauses)
+
+- "Pause for a week" → `night-shift snooze --days 7`
+- "Back on the 14th" → `night-shift snooze --until 2026-07-14`
+- "Resume" → `night-shift snooze --off`
+- Always confirm with one line from `night-shift schedule --status`.
 
 ## Morning
 
@@ -311,6 +387,9 @@ When the user returns ("good morning", "Complete", "what happened"):
 night-shift stop --latest    # only if a run is still active
 night-shift report --latest
 ```
+
+Reading the brief via `report` also marks it reviewed, which is what keeps an
+armed Autopilot running instead of pausing.
 
 Then summarize like a helpful best friend, not a log file. Lead with the one
 or two things worth their attention, in plain words, with the evidence path.
@@ -355,6 +434,9 @@ The boundaries that make Night Shift trustable. The deep version lives in
 - `night-shift run` never pushes, merges, releases, publishes, tags,
   notarizes, deploys, or updates appcasts/casks.
 - Never change repository visibility, credentials, billing, or user files.
+- The only thing Night Shift may ever write to a repo is the single opt-in
+  digest issue from `deliver --github-issue` — never code, never more than
+  one issue, never without the user turning it on.
 - Boring-safe beats ambitious: if a cheap worker proposes broad, destructive,
   private-data, release-touching, or file-reorganization work, mark it
   `REJECTED` and tighten the prompt. Cheap workers do not choose their scope.
@@ -380,5 +462,5 @@ this file):
   Heavy / Tokenmaxx playbook, rehearsal test, closeout formats.
 - `references/worker-prompts.md` — the worker prompt contract, all lane
   templates, and KEEP/MAYBE/REJECT scoring.
-- `README.md` — user-facing quickstart and 20 common scenarios.
+- `README.md` — user-facing quickstart.
 - `SAFETY.md` — the full safety and privacy boundary.
