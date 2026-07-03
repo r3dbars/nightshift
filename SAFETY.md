@@ -111,17 +111,17 @@ Do not paste:
 
 For sensitive work, use only local lanes and keep prompts coarse.
 
-## Public Launch Blocker
+## Taking Repositories Public
 
-Do not change this repository from private to public as a routine docs or
-release step. Even if the current branch is clean, old closed PR refs, branch
+Night Shift never changes repository visibility, and no overnight workflow
+should. Taking any repo from private to public is a manual, deliberate act by
+its owner: even when the current branch is clean, old closed PR refs, branch
 refs, review comments, fork refs, and cached GitHub objects can expose old
 history.
 
 The safest public-launch path is a fresh clean repository created from an
 audited export. The alternate path is a GitHub-supported purge of old refs, PR
-refs, cached objects, and forks before changing visibility. Until one of those
-paths is complete, keep this repository private.
+refs, cached objects, and forks before changing visibility.
 
 ## Network And Auth Defaults
 

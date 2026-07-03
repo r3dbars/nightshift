@@ -1,7 +1,7 @@
 # Package Notes
 
-Night Shift is currently a small private package, not a public open-source
-project. Keep the install and release surface boring and explicit.
+Night Shift is a small open-source package under the MIT license. Keep the
+install and release surface boring and explicit.
 
 ## Installed Layout
 
@@ -47,7 +47,7 @@ command: `night-shift`.
 
 ## Release Checklist
 
-Before a private release tag:
+Before a release tag:
 
 1. Update `VERSION`.
 2. Update `VERSION` inside `bin/night-shift`.
@@ -56,7 +56,7 @@ Before a private release tag:
 5. Run `./install.sh --codex-home "$(mktemp -d)"`.
 6. From that temporary install, run `night-shift --version` and
    `night-shift --help`.
-7. Confirm `LICENSE` still matches the intended distribution status.
+7. Confirm `LICENSE` is still the MIT license and the copyright year is right.
 
 ## Skill Bundle
 

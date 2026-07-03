@@ -63,8 +63,8 @@ for required in README.md CONTRIBUTING.md SAFETY.md LICENSE CHANGELOG.md PACKAGE
   fi
 done
 
-if ! grep -q "Private license placeholder" LICENSE; then
-  echo "LICENSE must clearly state the current private placeholder status" >&2
+if ! grep -q "MIT License" LICENSE; then
+  echo "LICENSE must contain the MIT License" >&2
   exit 1
 fi
 

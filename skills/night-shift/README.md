@@ -26,11 +26,6 @@ public launches require explicit manual approval after review.
 For the safety and privacy boundary, including what worker lanes can see and
 what gets written to disk, read [SAFETY.md](SAFETY.md).
 
-Suggested GitHub description:
-
-> Local-first overnight AI workbench: spend idle Mac/Windows compute on repo
-> scans, draft plans, token reports, and a ranked morning brief.
-
 ## Why This Exists
 
 Most AI coding tools are optimized for the moment you are sitting there.
@@ -443,19 +438,14 @@ speaker names, private URLs, raw file paths, billing details, or personal
 contact details into prompts. Local lanes see prompts on this machine; Windows
 lanes see prompts on the configured Windows worker.
 
-## Public Launch Blocker
+## Taking Your Own Repos Public
 
-Do not make this repository public just because the current docs look clean.
-Old closed PRs, branch refs, review comments, fork refs, and cached GitHub
-objects can expose old history even after the visible branch is cleaned up.
-
-Safest public path:
-
-1. Create a fresh clean public repository from an audited export.
-2. Or complete a GitHub-supported purge of old refs, PR refs, cached objects,
-   and forks before changing visibility.
-
-Until one of those is done, treat this repo as private-only.
+Night Shift never changes repository visibility, and neither should any
+overnight workflow. If you decide to take one of your own repos public, do it
+manually and carefully: old closed PRs, branch refs, review comments, fork
+refs, and cached GitHub objects can expose history even after the visible
+branch looks clean. The safe paths are a fresh clean repository from an
+audited export, or a GitHub-supported purge of old refs before the flip.
 
 ## Common Use Cases
 
@@ -620,6 +610,7 @@ Avoid:
 
 ## Project Notes
 
-License is currently pending; see `LICENSE`.
+Night Shift is open source under the MIT license; see `LICENSE` at the repo
+root.
 
 Contribution notes live in `CONTRIBUTING.md`.

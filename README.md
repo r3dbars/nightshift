@@ -2,21 +2,34 @@
 
 ![Night Shift hero image: local AI workers running overnight and producing a morning brief](assets/night-shift-hero.png)
 
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![local-first](https://img.shields.io/badge/local--first-by_default-2ea44f)](#safety-and-privacy)
 [![drafts-not-deploys](https://img.shields.io/badge/drafts-not_deploys-6f42c1)](#what-it-will-do)
 [![morning-brief](https://img.shields.io/badge/output-morning_brief-0969da)](#morning-workflow)
 
-**Put your idle AI compute to work while you sleep.**
+**Put your idle AI hardware to work while you sleep.**
 
 Night Shift is a local-first overnight workbench for AI coding agents.
-Give it a repo, connect the compute you already have, pick a mode, and wake up
-to a repo scan, a deduped work queue, and a ranked morning brief instead of a
-pile of loose chat.
+Point it at a repo before bed. Overnight, the hardware you already own — a
+MacBook's unified memory, a gaming GPU on your network, any local model
+server — reads your repo, finds small safe work, and drafts. You wake up to a
+short ranked brief with the few things worth looking at first.
 
-Package status: private source-available package, pre-1.0. The repository is
-not public and the license is intentionally not an open-source license yet.
-See [PACKAGE.md](PACKAGE.md), [CHANGELOG.md](CHANGELOG.md), and
-[LICENSE](LICENSE) before redistributing it.
+**What you wake up to:**
+
+- a repo scan and a small deduped work queue built from real signals: recent
+  files, TODOs, missing tests, docs drift, open PRs, and your mission
+- a morning brief: 3-5 ranked, source-backed next actions with proof paths
+  and token totals
+- if you allowed it: draft patch plans, issue candidates, or review-ready
+  draft PR candidates
+- zero pushes, zero merges, zero releases, zero surprises
+
+**What it never does:** push commits, merge PRs, release, deploy, publish,
+touch credentials or billing, change repo visibility, or pretend an unverified
+draft is the truth. Drafts, not deploys.
+
+Night Shift is free and open source under the [MIT License](LICENSE).
 
 It is built for developers with repo chores and unused nighttime compute:
 
@@ -46,6 +59,12 @@ night-shift start
 night-shift report --latest
 ```
 
+Works with: LM Studio, Ollama (auto-detected), or any OpenAI-compatible local
+model server; a second GPU box on your LAN as a heavy draft lane; optionally
+the Claude CLI for one or two hard questions a night and the GitHub CLI for
+open-PR context. No local models yet? `night-shift start` still runs, makes a
+read-only planning brief, and tells you exactly what to set up.
+
 For active development on the skill or CLI, install in linked mode so edits in
 this checkout are immediately what Codex loads:
 
@@ -68,11 +87,6 @@ Next action: verify KEEP item 1 and open one narrow draft PR if the gap is real.
 
 `YELLOW` is a feature, not a failure: the machines did useful work, and a human
 or Codex still needs to verify the best item.
-
-Suggested GitHub description:
-
-> Local-first overnight AI workbench: spend idle Mac/Windows compute on repo
-> scans, draft plans, token reports, and a ranked morning brief.
 
 ## Why This Exists
 
@@ -513,19 +527,14 @@ speaker names, private URLs, raw file paths, billing details, or personal
 contact details into prompts. Local lanes see prompts on this machine; Windows
 lanes see prompts on the configured Windows worker.
 
-## Public Launch Blocker
+## Taking Your Own Repos Public
 
-Do not make this repository public just because the current docs look clean.
-Old closed PRs, branch refs, review comments, fork refs, and cached GitHub
-objects can expose old history even after the visible branch is cleaned up.
-
-Safest public path:
-
-1. Create a fresh clean public repository from an audited export.
-2. Or complete a GitHub-supported purge of old refs, PR refs, cached objects,
-   and forks before changing visibility.
-
-Until one of those is done, treat this repo as private-only.
+Night Shift never changes repository visibility, and neither should any
+overnight workflow. If you decide to take one of your own repos public, do it
+manually and carefully: old closed PRs, branch refs, review comments, fork
+refs, and cached GitHub objects can expose history even after the visible
+branch looks clean. The safe paths are a fresh clean repository from an
+audited export, or a GitHub-supported purge of old refs before the flip.
 
 ## Common Use Cases
 
