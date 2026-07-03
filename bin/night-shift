@@ -30,6 +30,7 @@ CONFIG_DIR = CODEX_HOME / "night-shift"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 DEFAULT_LOCAL_URL = "http://localhost:1234/v1"
 DEFAULT_LOCAL_MODEL = "phi-4-mini-instruct"
+OLLAMA_LOCAL_URL = "http://localhost:11434/v1"
 DEFAULT_WINDOWS_URL = ""
 DEFAULT_WINDOWS_MODEL = "qwen3-coder:30b"
 VERSION = "0.1.0"
@@ -665,6 +666,33 @@ def check_model_endpoint(name: str, url: str, expected_model: str | None = None,
     return state, message
 
 
+def local_server_label(base_url: str) -> str:
+    if "11434" in base_url:
+        return "Ollama"
+    if "1234" in base_url:
+        return "LM Studio"
+    return "Local model server"
+
+
+def pick_local_model(models: list[str]) -> str | None:
+    chat_models = [m for m in models if not re.search(r"embed|bge-|rerank", m, re.IGNORECASE)]
+    if not chat_models:
+        return None
+    for marker in ("coder", "instruct"):
+        marked = [m for m in chat_models if marker in m.lower()]
+        if marked:
+            return marked[0]
+    return chat_models[0]
+
+
+def autodetect_local_server() -> tuple[str, str | None] | None:
+    try:
+        data = read_url_json(f"{OLLAMA_LOCAL_URL}/models", timeout=3)
+    except Exception:
+        return None
+    return OLLAMA_LOCAL_URL, pick_local_model(model_ids(data))
+
+
 def doctor_advice(rows: list[tuple[str, str, str]]) -> list[str]:
     by_name = {name: state for name, state, _ in rows}
     advice: list[str] = []
@@ -676,8 +704,8 @@ def doctor_advice(rows: list[tuple[str, str, str]]) -> list[str]:
         advice.append("Install: from the cloned Night Shift repo, run `./install.sh`.")
     if by_name.get("local-models") == "YELLOW":
         advice.append(
-            "Mac local: open LM Studio, start the local server, and load "
-            f"`{os.environ.get('MAESTRO_LOCAL_MODEL', DEFAULT_LOCAL_MODEL)}`. "
+            "Mac local: open LM Studio and start the local server, or start Ollama "
+            "(`ollama serve`) with a chat model pulled. "
             "Then rerun doctor, or pass `--local-url` and `--local-model`."
         )
     if by_name.get("local-chat") == "YELLOW":
@@ -742,10 +770,22 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
 
     local_base = os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL)
     local_model = os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL)
-    local_status, local_msg = check_model_endpoint("LM Studio", f"{local_base.rstrip('/')}/models", expected_model=local_model)
+    local_label = local_server_label(local_base)
+    local_status, local_msg = check_model_endpoint(local_label, f"{local_base.rstrip('/')}/models", expected_model=local_model)
+    if local_status != "GREEN" and "MAESTRO_LOCAL_BASE_URL" not in os.environ:
+        fallback = autodetect_local_server()
+        if fallback:
+            local_base, detected_model = fallback
+            local_label = local_server_label(local_base)
+            if "MAESTRO_LOCAL_MODEL" not in os.environ and detected_model:
+                local_model = detected_model
+            os.environ["MAESTRO_LOCAL_BASE_URL"] = local_base
+            os.environ["MAESTRO_LOCAL_MODEL"] = local_model
+            local_status, local_msg = check_model_endpoint(local_label, f"{local_base.rstrip('/')}/models", expected_model=local_model)
+            local_msg = f"auto-detected {local_label}; {local_msg}"
     rows.append(("local-models", local_status, local_msg))
     if local_status == "GREEN":
-        rows.append(("local-chat", *chat_probe("LM Studio", local_base, local_model)))
+        rows.append(("local-chat", *chat_probe(local_label, local_base, local_model)))
 
     base = os.environ.get("WINDOWS_WORKER_BASE_URL", "").strip()
     key = os.environ.get("WINDOWS_WORKER_API_KEY", "ollama")
@@ -1980,14 +2020,16 @@ def command_start(args) -> int:
     windows_url = args.windows_url or config_value(saved, "windows_url") or os.environ.get("WINDOWS_WORKER_BASE_URL", "")
     windows_model = args.windows_model or config_value(saved, "windows_model") or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL)
 
-    wake_goal = config_value(saved, "wake_goal", "brief")
-    privacy_route = config_value(saved, "privacy_route", "mac-only")
-    project_private = config_value(saved, "project_private", "private")
-    guidance = config_value(saved, "guidance", "scan")
-    goal_text = config_value(saved, "goal_text", "")
-    permission = config_value(saved, "permission", "brief")
+    wake_goal = args.wake_goal or config_value(saved, "wake_goal", "brief")
+    privacy_route = args.privacy or config_value(saved, "privacy_route", "mac-only")
+    guidance = args.guidance or config_value(saved, "guidance", "scan")
+    goal_text = args.goal if args.goal is not None else config_value(saved, "goal_text", "")
+    if args.goal and not args.guidance:
+        guidance = "goal"
+    permission = args.permission or config_value(saved, "permission", "brief")
     mode = args.mode or config_value(saved, "mode", "night-shift")
-    stop = config_value(saved, "stop", "morning")
+    stop = args.stop_after or config_value(saved, "stop", "morning")
+    project_private = "normal" if privacy_route == "cloud-ok" else "private"
 
     if not args.yes and is_interactive():
         wake_goal = ask_choice(
@@ -2127,7 +2169,7 @@ def command_start(args) -> int:
     if not local_ready and not windows_ready:
         print("")
         print("I cannot reach worker AI yet, so I will make a simple planning brief instead of pretending to run overnight.")
-        print("Next easy fix: open LM Studio, start the local server, and rerun `night-shift start`.")
+        print("Next easy fix: open LM Studio and start the local server, or start Ollama, then rerun `night-shift start`.")
         plan_args = argparse.Namespace(repo=repo_text, mode="quiet")
         return command_plan(plan_args)
 
@@ -2237,6 +2279,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     start.add_argument("--repo", required=False, help="git repo to inspect; defaults to the current directory when possible")
     start.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default=None, help="skip the mode question")
+    start.add_argument("--wake-goal", choices=["brief", "chores", "draft-prs"], default=None, help="skip the morning-win question")
+    start.add_argument("--guidance", choices=["scan", "goal", "issues"], default=None, help="skip the aim question")
+    start.add_argument("--goal", default=None, help="one-sentence mission for tonight; implies --guidance goal unless --guidance is set")
+    start.add_argument("--privacy", choices=["mac-only", "mac-and-lan", "cloud-ok"], default=None, help="skip the privacy-route question")
+    start.add_argument(
+        "--permission",
+        choices=["brief", "draft-local", "draft-prs"],
+        default=None,
+        help="skip the autonomy question; the run still never pushes or merges",
+    )
+    start.add_argument("--stop-after", choices=sorted(STOP_SECONDS), default=None, help="skip the stop question")
     start.add_argument("--local-url", required=False, help="override MAESTRO_LOCAL_BASE_URL")
     start.add_argument("--local-model", required=False, help="override MAESTRO_LOCAL_MODEL")
     start.add_argument("--windows-url", required=False, help="override WINDOWS_WORKER_BASE_URL")

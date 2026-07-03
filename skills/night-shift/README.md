@@ -85,6 +85,14 @@ If `night-shift` is not on your `PATH`, run it directly:
 asks what the user wants to allow, saves the answers, shows a clear preview, and
 then starts a safe run.
 
+When an AI assistant drives setup from chat (using the bundled `SKILL.md`),
+the First Night flow starts with the fun question: what local AI hardware do
+you have? With consent it scans for Apple Silicon unified memory, GPUs,
+LM Studio, and Ollama, celebrates what it finds, and only afterward asks about
+cloud subscriptions. The assistant then saves everything with
+`night-shift start --yes` plus flags, so no keyboard wizard is needed. See
+`SKILL.md` and `references/hardware-scan.md` in this folder.
+
 Need copy-paste recipes? See
 [`skills/night-shift/examples`](skills/night-shift/examples).
 
@@ -247,8 +255,11 @@ Night Shift will use `$CODEX_HOME/bin`, `$CODEX_HOME/skills`, and
 
 Recommended:
 
-- LM Studio running at `http://localhost:1234`.
-- A loaded chat model, usually `phi-4-mini-instruct`.
+- A local model server: LM Studio at `http://localhost:1234` or Ollama at
+  `http://localhost:11434`. If LM Studio is not reachable, Night Shift
+  auto-detects a running Ollama and picks your best downloaded coder or
+  instruct model.
+- A loaded chat model, for example `phi-4-mini-instruct` or `qwen2.5-coder`.
 - Optional Windows worker endpoint on your LAN or private network.
 - Claude CLI installed if you want the reasoning lane.
 - GitHub CLI signed in if you want PR state included in the context pack.

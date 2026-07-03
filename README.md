@@ -324,8 +324,11 @@ Night Shift will use `$CODEX_HOME/bin`, `$CODEX_HOME/skills`, and
 
 Recommended:
 
-- LM Studio running at `http://localhost:1234`.
-- A loaded chat model, usually `phi-4-mini-instruct`.
+- A local model server: LM Studio at `http://localhost:1234` or Ollama at
+  `http://localhost:11434`. If LM Studio is not reachable, Night Shift
+  auto-detects a running Ollama and picks your best downloaded coder or
+  instruct model.
+- A loaded chat model, for example `phi-4-mini-instruct` or `qwen2.5-coder`.
 - Optional Windows worker endpoint on your LAN or private network.
 - Claude CLI installed if you want the reasoning lane.
 - GitHub CLI signed in if you want PR state included in the context pack.

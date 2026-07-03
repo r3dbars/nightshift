@@ -7,6 +7,19 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Rebuild the bundled skill around a guided first-run experience: a moments
+  router (First Night / Bedtime / Morning / Stop / Tune-Up), a hardware-first
+  setup conversation with a consent-gated local AI scan, and onboarding
+  contracts modeled on the best community skills.
+- Prioritize local AI hardware in setup: scan for Apple Silicon unified
+  memory, GPUs, LM Studio, and Ollama before asking about cloud subscriptions.
+- Auto-detect Ollama at `localhost:11434` when LM Studio is not reachable, and
+  pick the best downloaded coder/instruct model automatically.
+- Add `start` flags (`--wake-goal`, `--guidance`, `--goal`, `--privacy`,
+  `--permission`, `--stop-after`) so assistants can run the whole setup
+  conversation in chat and persist the answers without a keyboard.
+- Split the skill into a short guided SKILL.md plus reference files for
+  hardware scanning, operations, and worker prompt templates.
 - Add repo scans, repo-specific planned queues, deduped work queues, and autonomy levels for more useful overnight runs.
 - Expand the setup wizard into a beginner-friendly setup lab.
 - Add wake-up goal, privacy route, project sensitivity, guidance, and stop-timer setup questions.
