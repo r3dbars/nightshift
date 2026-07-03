@@ -7,6 +7,13 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Go open source: replace the private license placeholder with the MIT
+  license, update package docs and checks, and rework the README opening so a
+  first-time visitor immediately sees what Night Shift does, what they wake up
+  to, and how to install it.
+- Generalize the public-launch safety guidance now that the project ships from
+  a clean public repository: Night Shift still never changes any repository's
+  visibility.
 - Rebuild the bundled skill around a guided first-run experience: a moments
   router (First Night / Bedtime / Morning / Stop / Tune-Up), a hardware-first
   setup conversation with a consent-gated local AI scan, and onboarding
