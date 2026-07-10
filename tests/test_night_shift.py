@@ -509,11 +509,67 @@ CONFIDENCE: high
             repo = Path(tmp)
             tracked = ["Cargo.toml", "go.mod", "Package.swift", "tests/test_app.py", "run-tests.sh"]
             commands = night_shift.detect_test_commands(repo, tracked)
-            self.assertIn("cargo test", commands)
-            self.assertIn("go test ./...", commands)
-            self.assertIn("swift test", commands)
-            self.assertIn("python3 -m unittest discover -s tests -p 'test_*.py'", commands)
-            self.assertIn("bash run-tests.sh", commands)
+        self.assertIn("cargo test", commands)
+        self.assertIn("go test ./...", commands)
+        self.assertIn("swift test", commands)
+        self.assertIn("python3 -m unittest discover -s tests -p 'test_*.py'", commands)
+        self.assertIn("bash run-tests.sh", commands)
+
+    def test_hostile_package_script_never_becomes_a_command_suggestion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(
+                json.dumps({"scripts": {"test:unit; echo NIGHT_SHIFT_INJECTION": "echo nope"}}),
+                encoding="utf-8",
+            )
+            commands = night_shift.detect_test_commands(repo, ["package.json"])
+            self.assertFalse(any("NIGHT_SHIFT_INJECTION" in command for command in commands))
+
+    def test_repo_profile_requires_owned_sandbox_and_argv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".night-shift.json").write_text(
+                json.dumps({
+                    "version": 1,
+                    "trust": "fork",
+                    "execution": "sandbox-only",
+                    "commands": [["python3", "-m", "pytest"]],
+                }),
+                encoding="utf-8",
+            )
+            profile, detail = night_shift.load_repo_profile(repo)
+            self.assertEqual(detail, "profile loaded")
+            self.assertFalse(profile.may_execute)
+            (repo / ".night-shift.json").write_text(
+                json.dumps({"version": 1, "trust": "owned", "execution": "sandbox-only", "commands": ["python3 -m pytest"]}),
+                encoding="utf-8",
+            )
+            profile, detail = night_shift.load_repo_profile(repo)
+            self.assertIsNone(profile)
+            self.assertIn("argv", detail)
+
+    def test_rejected_task_cooldown_and_new_head_behavior(self):
+        previous = {"head": "abc", "state": "REJECTED", "epoch": 1000, "rejections": 2}
+        self.assertFalse(night_shift.may_attempt(previous, "task", "abc", now=1001)[0])
+        self.assertTrue(night_shift.may_attempt(previous, "task", "def", now=1001)[0])
+        self.assertTrue(night_shift.may_attempt(previous, "task", "abc", now=3000)[0])
+
+    def test_profile_protects_verifier_and_dependency_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            (repo / "package.json").write_text("{}\n", encoding="utf-8")
+            (repo / ".night-shift.json").write_text(
+                json.dumps({"version": 1, "trust": "owned", "execution": "sandbox-only", "commands": [["true"]]}),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
+            (repo / "package.json").write_text('{"scripts":{"test":"true"}}\n', encoding="utf-8")
+            profile, _ = night_shift.load_repo_profile(repo)
+            self.assertIn("patch touched an immutable verifier, dependency, or policy file", night_shift.DraftEngine(night_shift.run_cmd, Path(tmp) / "w", lambda: "x").guard_reasons(repo, ["package.json"], profile))
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -28,6 +28,10 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from night_shift_portfolio import PortfolioEngine, parse_json_text
 from night_shift_drafts import DraftEngine, draft_proof_status, remaining_draft_timeout
+from night_shift_policy import PROFILE_NAME, command_display, load_repo_profile
+from night_shift_sandbox import detect_sandbox
+from night_shift_state import append_attempt, exclusive_lock, latest_attempts, may_attempt
+from night_shift_redaction import redact
 
 
 HOME = Path.home()
@@ -38,6 +42,8 @@ CONFIG_DIR = CODEX_HOME / "night-shift"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 FEEDBACK_PATH = CONFIG_DIR / "feedback.jsonl"
 TASK_HISTORY_PATH = CONFIG_DIR / "task-history.jsonl"
+TASK_ATTEMPTS_PATH = CONFIG_DIR / "task-attempts.jsonl"
+AUTOPILOT_LOCK_PATH = CONFIG_DIR / "autopilot.lock"
 REPO_CACHE_ROOT = CONFIG_DIR / "repos"
 WORKTREE_ROOT = CONFIG_DIR / "worktrees"
 DEFAULT_LOCAL_URL = "http://localhost:1234/v1"
@@ -46,7 +52,7 @@ OLLAMA_LOCAL_URL = "http://localhost:11434/v1"
 DEFAULT_WINDOWS_URL = ""
 DEFAULT_WINDOWS_MODEL = "qwen3-coder:30b"
 VERSION = "0.1.0"
-CONFIG_SCHEMA_VERSION = 3
+CONFIG_SCHEMA_VERSION = 4
 STOP_SECONDS = {
     "morning": None,
     "2h": 2 * 60 * 60,
@@ -177,9 +183,20 @@ def friendly_hint(prog: str, message: str = "") -> str:
 
 def load_config() -> dict:
     try:
-        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
+    # A prior opt-in was not a sandboxed-execution consent. Fail closed and
+    # require the owner to opt in again through a repo profile.
+    if config.get("schema_version", 0) < CONFIG_SCHEMA_VERSION:
+        preferences = config.setdefault("preferences", {})
+        if preferences.get("execute_drafts"):
+            preferences["execute_drafts"] = False
+            preferences["execution_reconsent_required"] = True
+        config["schema_version"] = CONFIG_SCHEMA_VERSION
+        config["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        save_config(config)
+    return config
 
 
 def save_config(config: dict) -> None:
@@ -330,7 +347,7 @@ def permission_label(permission: str) -> str:
     return {
         "brief": "Read only and make a morning brief",
         "draft-local": "Draft local patch plans and issue candidates, but do not push",
-        "draft-prs": "Prepare draft PR candidates for review, but do not push or merge",
+        "draft-prs": "Prepare local patch candidates for review, but do not push or merge",
     }.get(permission, permission)
 
 
@@ -338,7 +355,7 @@ def autonomy_copy(permission: str) -> str:
     return {
         "brief": "Read-only. Make a brief and a ranked queue.",
         "draft-local": "More helpful. Draft exact local patch plans, tests, and issue candidates.",
-        "draft-prs": "Most autonomous. Prepare review-ready draft PR candidates, still with no push or merge from `run`.",
+        "draft-prs": "Most autonomous. Prepare local candidates only after the repo owner enables its sandbox profile.",
     }.get(permission, "Read-only. Make a brief and a ranked queue.")
 
 
@@ -1179,6 +1196,11 @@ def repo_signal_scan(repo: Path | None) -> dict:
 
 
 def detect_test_commands(repo: Path, tracked: list[str], source_ref: str = "") -> list[str]:
+    """Return display-only suggestions, never commands Night Shift may execute.
+
+    Repositories control package scripts, Makefiles, and shell files. Actual
+    execution requires `.night-shift.json` argv arrays and a rootless sandbox.
+    """
     commands: list[str] = []
     names = set(tracked)
 
@@ -1204,8 +1226,10 @@ def detect_test_commands(repo: Path, tracked: list[str], source_ref: str = "") -
                 *sorted(named_checks),
             ]))
             for script in ordered_scripts[:12]:
+                if not re.fullmatch(r"[A-Za-z0-9:_-]+", script):
+                    continue
                 if "pnpm-lock.yaml" in names:
-                    commands.append(f"pnpm {script}")
+                    commands.append(f"pnpm run {script}")
                 elif "yarn.lock" in names:
                     commands.append(f"yarn {script}")
                 else:
@@ -1267,7 +1291,7 @@ def extract_github_actions_failure_evidence(raw: str) -> str:
 
 
 def write_repo_scan(ledger: Path, scan: dict) -> None:
-    (ledger / "repo-scan.json").write_text(json.dumps(scan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (ledger / "repo-scan.json").write_text(redact(json.dumps(scan, indent=2, sort_keys=True)) + "\n", encoding="utf-8")
     lines = ["# Repo Scan", ""]
     lines.append(f"Repo: {scan.get('repo', 'unknown')}")
     lines.append(f"Branch: {scan.get('branch', '(unknown)')}")
@@ -1654,13 +1678,13 @@ def task_evidence_pack(
         candidates = [path for path in task.get("files", []) if path in tracked][:6]
     sections = ["## prior-user-feedback\n" + feedback_context(repo)]
     if task.get("signal"):
-        signal_text = str(task["signal"])
+        signal_text = redact(str(task["signal"]))
         if len(signal_text) > 14000:
             signal_text = signal_text[:1000] + "\n...[earlier log lines omitted]...\n" + signal_text[-13000:]
         sections.append("## live-signal\n" + signal_text)
     for relative, source_text in (task.get("evidence_sources") or {}).items():
         numbered = "\n".join(
-            f"{index:>5} | {line}" for index, line in enumerate(str(source_text).splitlines(), start=1)
+            f"{index:>5} | {line}" for index, line in enumerate(redact(str(source_text)).splitlines(), start=1)
         )
         sections.append(f"## live-evidence: {relative}\n{numbered[: min(18000, max_chars // 2)]}")
     if candidates:
@@ -1673,7 +1697,7 @@ def task_evidence_pack(
                 timeout=60,
             )
         if diff.stdout.strip():
-            sections.append("## candidate-diff\n" + diff.stdout[: min(12000, max_chars // 2)])
+            sections.append("## candidate-diff\n" + redact(diff.stdout[: min(12000, max_chars // 2)]))
     per_file_chars = max(1200, min(6000, max_chars // max(2, max_files + 1)))
     for relative in candidates[:max_files]:
         if source_ref:
@@ -1689,11 +1713,11 @@ def task_evidence_pack(
                 continue
         if b"\x00" in raw[:4096]:
             continue
-        text = raw.decode("utf-8", errors="replace")
+        text = redact(raw.decode("utf-8", errors="replace"))
         numbered = "\n".join(f"{index:>5} | {line}" for index, line in enumerate(text.splitlines()[:180], start=1))
         sections.append(f"## file-excerpt: {relative}\n{numbered[:per_file_chars]}")
     sections.append("## repo-summary\n" + base_context[: min(5000, max_chars // 3)])
-    return "\n\n".join(sections)[:max_chars]
+    return redact("\n\n".join(sections))[:max_chars]
 
 
 def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict | None = None, permission: str = "brief") -> str:
@@ -2229,9 +2253,9 @@ def dispatch_one(
         proof = parse_proof(result.stderr)
         meta = read_meta(proof)
         attempt_artifact = ledger / "artifacts" / f"{safe_label}-{lane}-attempt-{attempt}.md"
-        attempt_artifact.write_text(result.stdout.strip() + "\n", encoding="utf-8")
+        attempt_artifact.write_text(redact(result.stdout).strip() + "\n", encoding="utf-8")
         (ledger / "artifacts" / f"{safe_label}-{lane}-attempt-{attempt}.stderr.txt").write_text(
-            result.stderr.strip() + "\n", encoding="utf-8"
+            redact(result.stderr).strip() + "\n", encoding="utf-8"
         )
         return {
             "res": result,
@@ -2282,7 +2306,7 @@ def dispatch_one(
     res = selected["res"]
     score = selected["score"]
     artifact = ledger / "artifacts" / f"{safe_label}-{lane}.md"
-    artifact.write_text(res.stdout.strip() + "\n", encoding="utf-8")
+    artifact.write_text(redact(res.stdout).strip() + "\n", encoding="utf-8")
     proofs = [item["proof"] for item in attempts if item["proof"]]
     total_tokens = sum(int(item["meta"].get("total_tokens_estimate") or 0) for item in attempts)
     input_tokens = sum(int(item["meta"].get("prompt_tokens_estimate") or item["meta"].get("input_tokens") or 0) for item in attempts)
@@ -2415,6 +2439,22 @@ def write_harvest(ledger: Path, results: list[dict]) -> None:
             lines.append(f"- {row['label']} ({row['lane']}, priority {row['priority']}): {row['summary']}")
         lines.append("")
     (ledger / "harvest.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_outcome_metrics(ledger: Path, results: list[dict], skipped: list[dict]) -> None:
+    tokens = sum(int(row.get("tokens") or 0) for row in results)
+    accepted = sum(1 for row in results if row.get("score") in {"KEEP", "MAYBE"})
+    metrics = {
+        "attempted": len(results),
+        "accepted_candidates": accepted,
+        "rejected": sum(1 for row in results if row.get("score") == "REJECT"),
+        "cooldown_or_repeat_skips": len(skipped),
+        "estimated_tokens": tokens,
+        "accepted_per_1000_tokens": round(accepted * 1000 / tokens, 4) if tokens else 0,
+        "patches_promoted": 0,
+        "human_feedback_events": len(load_feedback()),
+    }
+    (ledger / "outcome-metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def write_work_queue(ledger: Path, results: list[dict]) -> list[dict]:
@@ -2764,9 +2804,21 @@ def command_run(args) -> int:
     grounded_queue_count = len(queue)
     repo_name = scan.get("github_slug") or str(root)
     history = load_task_history()
+    attempts = latest_attempts(TASK_ATTEMPTS_PATH)
     for item in queue:
         item["fingerprint"] = task_fingerprint(repo_name, scan.get("head", ""), item)
-    queue = [item for item in queue if item["fingerprint"] not in history]
+    skipped: list[dict] = []
+    eligible = []
+    for item in queue:
+        allowed, reason = may_attempt(attempts.get(item["fingerprint"]), item["fingerprint"], scan.get("head", ""))
+        if item["fingerprint"] in history:
+            skipped.append({"fingerprint": item["fingerprint"], "reason": "already accepted at this revision"})
+        elif allowed:
+            eligible.append(item)
+        else:
+            skipped.append({"fingerprint": item["fingerprint"], "reason": reason})
+    queue = eligible
+    (ledger / "task-skips.json").write_text(json.dumps(skipped, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     task_limit = getattr(args, "task_limit", None)
     if task_limit is not None:
         queue = queue[: max(0, task_limit)]
@@ -2964,6 +3016,26 @@ def command_run(args) -> int:
     finally:
         executor.shutdown(wait=not hard_stopped, cancel_futures=hard_stopped)
 
+    now_epoch = time.time()
+    for row in results:
+        fingerprint = row.get("fingerprint")
+        if not fingerprint:
+            continue
+        previous = attempts.get(fingerprint, {})
+        rejected = row.get("score", "REJECT") == "REJECT"
+        append_attempt(
+            TASK_ATTEMPTS_PATH,
+            {
+                "fingerprint": fingerprint,
+                "repo": row.get("repo_name", repo_name),
+                "head": scan.get("head", ""),
+                "state": "REJECTED" if rejected else "DISCOVERED",
+                "score": row.get("score", "REJECT"),
+                "reason": row.get("summary", "")[:500],
+                "epoch": now_epoch,
+                "rejections": int(previous.get("rejections", 0)) + 1 if rejected else 0,
+            },
+        )
     append_task_history(
         [
             {
@@ -2981,6 +3053,7 @@ def command_run(args) -> int:
     )
     write_harvest(ledger, results)
     write_work_queue(ledger, results)
+    write_outcome_metrics(ledger, results, skipped)
     token_report = write_token_report(ledger, results)
     write_morning(ledger, args.mode, results, target_tokens, overall)
     total_tokens = sum(r["tokens"] for r in results)
@@ -3026,6 +3099,19 @@ def run_isolated_draft(
     deadline: float | None = None,
     stop_file: Path | None = None,
 ) -> dict:
+    profile, profile_detail = load_repo_profile(repo)
+    if not profile or not profile.may_execute:
+        return {"status": "REJECT", "reason": profile_detail, "proof_level": "not executed"}
+    sandbox = detect_sandbox(run_cmd)
+    if not sandbox.available:
+        return {"status": "REJECT", "reason": sandbox.detail, "proof_level": "not executed"}
+    candidate = {**candidate, "verification_argv": list(profile.commands[0])}
+    if not candidate["verification_argv"]:
+        return {
+            "status": "REJECT",
+            "reason": f"candidate has no approved argv verification from {PROFILE_NAME}",
+            "proof_level": "not executed",
+        }
     return draft_engine().run_draft(
         repo,
         repo_name,
@@ -3036,6 +3122,7 @@ def run_isolated_draft(
         windows_model,
         deadline,
         stop_file,
+        profile=profile,
     )
 
 
@@ -3159,11 +3246,16 @@ def command_autopilot(args) -> int:
         encoding="utf-8",
     )
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # Only one unattended controller is allowed to schedule work at a time.
+    lock_context = exclusive_lock(AUTOPILOT_LOCK_PATH)
+    acquired = lock_context.__enter__()
+    if not acquired:
+        lock_context.__exit__(None, None, None)
+        print("NIGHTSHIFT_AUTOPILOT: YELLOW | another Night Shift controller is already running")
+        return 1
     AUTOPILOT_STATE_PATH.write_text(
         json.dumps({"pid": os.getpid(), "ledger": str(ledger), "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}, indent=2)
-        + "\n",
-        encoding="utf-8",
-    )
+        + "\n", encoding="utf-8")
     cycle_rows: list[dict] = []
     drafted_repos: set[str] = set()
     prepared_cache: list[tuple[dict, Path]] | None = None
@@ -3289,6 +3381,7 @@ def command_autopilot(args) -> int:
                 AUTOPILOT_STATE_PATH.unlink(missing_ok=True)
         except OSError:
             pass
+        lock_context.__exit__(None, None, None)
     print(f"NIGHTSHIFT_AUTOPILOT: {status} | cycles={cycle} | ledger={ledger}")
     print(f"Morning brief: night-shift report --ledger {ledger}")
     return 0 if status == "GREEN" else 1
@@ -3346,7 +3439,7 @@ def command_start(args) -> int:
     scope = args.scope or configured_scope(saved)
     active_days = args.active_days or config_value(saved, "active_days", 14)
     max_repos = args.max_repos or config_value(saved, "max_repos", AUTOPILOT_DEFAULTS[mode]["repo_limit"])
-    execute_drafts = bool(args.execute_drafts or config_value(saved, "execute_drafts", False))
+    execute_drafts = False
     project_private = "normal" if privacy_route == "cloud-ok" else "private"
 
     if not args.yes and is_interactive():
@@ -3407,12 +3500,7 @@ def command_start(args) -> int:
             permission if permission in {"brief", "draft-local", "draft-prs"} else "brief",
         )
         if permission == "draft-prs":
-            execute_drafts = ask_yes_no(
-                "Should Night Shift make actual draft patches in disposable worktrees when tests can prove them?",
-                default=True,
-            )
-        else:
-            execute_drafts = False
+            print(f"Patch execution starts off. Add {PROFILE_NAME} to a repo and set up the rootless sandbox after morning review.")
         mode = ask_choice(
             "How much energy should it use?",
             [
@@ -3453,7 +3541,7 @@ def command_start(args) -> int:
             "scope": scope,
             "active_days": active_days,
             "max_repos": max_repos,
-            "execute_drafts": execute_drafts,
+            "execute_drafts": False,
         },
         "legacy": {
             "local_url": local_url,
@@ -4122,7 +4210,7 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot.add_argument("--windows-url", required=False)
     autopilot.add_argument("--windows-model", required=False)
     autopilot.add_argument("--skip-smoke", action="store_true")
-    autopilot.add_argument("--execute-drafts", action="store_true")
+    autopilot.add_argument("--execute-drafts", action="store_true", help=argparse.SUPPRESS)
     autopilot.add_argument("--once", action="store_true", help="run one portfolio cycle and stop")
     autopilot.set_defaults(func=command_autopilot)
 

@@ -9,6 +9,9 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
+from night_shift_sandbox import sandbox_command
+
 
 def draft_proof_status(baseline_rc: int, after_rc: int, guards: list[str]) -> tuple[str, str]:
     if guards:
@@ -71,7 +74,9 @@ class DraftEngine:
                 return {**item, "files": files[:6], "verification": verification}
         return None
 
-    def guard_reasons(self, worktree: Path, allowed_files: list[str]) -> list[str]:
+    def guard_reasons(
+        self, worktree: Path, allowed_files: list[str], profile: RepoProfile | None = None
+    ) -> list[str]:
         changed = self.run_cmd(["git", "diff", "--name-only"], cwd=worktree, timeout=30)
         paths = [line.strip() for line in changed.stdout.splitlines() if line.strip()]
         reasons: list[str] = []
@@ -81,6 +86,10 @@ class DraftEngine:
             reasons.append("patch touched more than 6 files")
         if any(path not in set(allowed_files) for path in paths):
             reasons.append("patch touched a file outside the approved candidate set")
+        if profile and any(path_is_protected(path, profile.protected_paths) for path in paths):
+            reasons.append("patch touched an immutable verifier, dependency, or policy file")
+        if profile and any(not path_is_allowed(path, profile.allowed_paths) for path in paths):
+            reasons.append("patch touched a path outside the repo profile allowlist")
         forbidden_names = {
             ".env",
             ".env.local",
@@ -130,6 +139,7 @@ class DraftEngine:
         windows_model: str,
         deadline: float | None = None,
         stop_file: Path | None = None,
+        profile: RepoProfile | None = None,
     ) -> dict:
         safe_repo = re.sub(r"[^A-Za-z0-9._-]+", "--", repo_name)
         safe_task = re.sub(r"[^A-Za-z0-9._-]+", "-", candidate.get("key", "draft"))[:80]
@@ -141,6 +151,11 @@ class DraftEngine:
         initial_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
         if initial_timeout <= 0:
             result = {"status": "REJECT", "reason": "stop limit reached before draft execution"}
+            proof_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+            return result
+        if profile is None:
+            result = {"status": "REJECT", "reason": "missing trusted repo profile", "proof_level": "not executed"}
+            proof_path.parent.mkdir(parents=True, exist_ok=True)
             proof_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
             return result
         worktree.parent.mkdir(parents=True, exist_ok=True)
@@ -168,14 +183,17 @@ class DraftEngine:
             proof_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             return result
 
-        verification = candidate["verification"]
+        verification_argv = tuple(candidate.get("verification_argv") or ())
+        if verification_argv not in profile.commands:
+            return finish({"status": "REJECT", "reason": "verification is not approved by the repo profile"})
+        verification = " ".join(verification_argv)
         baseline_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
         if baseline_timeout <= 0:
             return finish({"status": "REJECT", "reason": "stop limit reached before baseline verification"})
         baseline = self.run_cmd(
-            ["/bin/sh", "-lc", verification],
+            sandbox_command(worktree, verification_argv, profile),
             cwd=worktree,
-            timeout=min(baseline_timeout, 900),
+            timeout=min(baseline_timeout, profile.max_seconds),
             pid_log=parent_ledger / "processes.tsv",
         )
         (proof_dir / f"{safe_task}.baseline.txt").write_text(
@@ -192,115 +210,24 @@ class DraftEngine:
                     "baseline_rc": baseline.rc,
                 }
             )
-        uvx = shutil.which("uvx")
-        if not uvx or not windows_url or not windows_model:
+        # A model worker would need its own writable container and a separate
+        # patch-output mount. Do not fall back to a host worktree while that
+        # boundary is unavailable.
+        if not windows_url or not windows_model:
             return finish(
                 {
                     "status": "REJECT",
-                    "reason": "Aider/Windows coding lane is not configured",
+                    "reason": "sandboxed coding lane is not configured",
                     "worktree": str(worktree),
                     "baseline_rc": baseline.rc,
                 }
             )
-        aider_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
-        if aider_timeout <= 0:
-            return finish(
-                {
-                    "status": "REJECT",
-                    "reason": "stop limit reached before Aider execution",
-                    "baseline_rc": baseline.rc,
-                }
-            )
-        prompt = textwrap.dedent(
-            f"""
-            Implement one narrow, reviewable draft for this verified candidate:
-            {candidate.get('summary', '')}
-
-            Evidence: {candidate.get('evidence', '')}
-            Expected proof: {candidate.get('expected_result', '')}
-            You may edit only: {', '.join(candidate['files'])}
-            The exact verification command is: {verification}
-
-            Do not commit, push, merge, add dependencies, edit lock files, release, deploy, or touch any other file.
-            Do not bypass the failure with an allowlist, ignore, skip, disabled check, or weaker security policy.
-            If the requested change is not supported by the checked-out source, make no changes.
-            """
-        ).strip()
-        env = os.environ.copy()
-        env["OLLAMA_API_BASE"] = windows_url.rstrip("/").removesuffix("/v1")
-        env["OLLAMA_API_KEY"] = "ollama"
-        aider = self.run_cmd(
-            [
-                uvx,
-                "--from",
-                "aider-chat",
-                "aider",
-                "--model",
-                f"ollama_chat/{windows_model}",
-                "--yes-always",
-                "--no-auto-commits",
-                "--no-gitignore",
-                "--message",
-                prompt,
-                *candidate["files"],
-            ],
-            cwd=worktree,
-            timeout=aider_timeout,
-            env=env,
-            pid_log=parent_ledger / "processes.tsv",
-        )
-        (proof_dir / f"{safe_task}.aider.txt").write_text(
-            (aider.stdout + "\n" + aider.stderr).strip() + "\n",
-            encoding="utf-8",
-        )
-        patch_path.write_text(
-            self.run_cmd(["git", "diff", "--binary"], cwd=worktree, timeout=60).stdout,
-            encoding="utf-8",
-        )
-        after_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
-        if after_timeout <= 0:
-            return finish(
-                {
-                    "status": "REJECT",
-                    "reason": "stop limit reached before final verification",
-                    "baseline_rc": baseline.rc,
-                    "aider_rc": aider.rc,
-                    "patch": str(patch_path),
-                }
-            )
-        after = self.run_cmd(
-            ["/bin/sh", "-lc", verification],
-            cwd=worktree,
-            timeout=min(after_timeout, 900),
-            pid_log=parent_ledger / "processes.tsv",
-        )
-        (proof_dir / f"{safe_task}.verification.txt").write_text(
-            (after.stdout + "\n" + after.stderr).strip() + "\n",
-            encoding="utf-8",
-        )
-        guards = self.guard_reasons(worktree, candidate["files"])
-        diff_check = self.run_cmd(["git", "diff", "--check"], cwd=worktree, timeout=60)
-        if aider.rc != 0:
-            guards.append("Aider did not complete successfully")
-        if after.rc != 0:
-            guards.append("verification command did not pass after the patch")
-        if diff_check.rc != 0:
-            guards.append("git diff --check failed")
-        status, proof_level = draft_proof_status(baseline.rc, after.rc, guards)
-        return finish(
-            {
-                "status": status,
-                "repo": repo_name,
-                "source_ref": source_ref,
-                "summary": candidate.get("summary", ""),
-                "worktree": str(worktree),
-                "patch": str(patch_path),
-                "verification": verification,
-                "baseline_rc": baseline.rc,
-                "after_rc": after.rc,
-                "proof_level": proof_level,
-                "aider_rc": aider.rc,
-                "guard_reasons": guards,
-                "proof": str(proof_path),
-            }
-        )
+        return finish({
+            "status": "REJECT",
+            "reason": "baseline ran in the sandbox; writable patch workers are intentionally disabled until the isolated patch protocol is installed",
+            "repo": repo_name,
+            "source_ref": source_ref,
+            "verification": verification,
+            "baseline_rc": baseline.rc,
+            "proof_level": "reproduced only" if baseline.rc != 0 else "baseline clean",
+        })

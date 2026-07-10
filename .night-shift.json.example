@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "trust": "owned",
+  "execution": "sandbox-only",
+  "commands": [
+    ["python3", "-m", "unittest", "discover", "-s", "tests"]
+  ],
+  "allowed_paths": ["src", "lib", "app", "tests", "test"],
+  "protected_paths": [".github", "package.json", "pyproject.toml", "Makefile", ".env"],
+  "limits": {"cpu": 2, "memory_mb": 2048, "pids": 128, "seconds": 900}
+}

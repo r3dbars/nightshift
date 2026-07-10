@@ -19,6 +19,18 @@ ranked brief with the few things worth looking at first.
 It never pushes, merges, releases, or touches credentials. Drafts, not
 deploys. Free and open source under the [MIT License](LICENSE).
 
+## Execution Safety
+
+The normal overnight mode is analysis and planning. It never runs a repository's
+`package.json`, Makefile, or shell script just because it discovered one.
+
+Optional sandboxed verification is deliberately a separate owner action. A repo
+must contain a reviewed [`.night-shift.json.example`](.night-shift.json.example)
+profile with an `owned` trust class, explicit argv command arrays, allowed paths,
+protected verifier files, and resource limits. Night Shift also requires Docker
+in rootless mode and uses a read-only, no-network container. Without every one
+of those checks, it stays in planning mode.
+
 ## What You Wake Up To
 
 ```text
@@ -121,7 +133,7 @@ You choose how much it may prepare:
 | --- | --- |
 | `brief` (default) | read-only repo scan, ranked work queue, morning brief |
 | `draft-local` | + exact patch plans, issue candidates, and test ideas |
-| `draft-prs` | + optional tested patches in disposable worktrees with `--execute-drafts`; still no push or merge |
+| `draft-prs` | + local patch candidates after a reviewed repo profile and sandbox are installed; still no push or merge |
 
 And how hard it runs:
 
