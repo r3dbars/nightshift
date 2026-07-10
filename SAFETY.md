@@ -8,7 +8,7 @@ The safety promise is simple: overnight lanes may produce artifacts, but they
 do not get to ship. Repository files are untrusted input, so Night Shift does
 not run discovered package scripts, Makefiles, or shell commands on the host.
 Sandboxed execution is disabled unless the repo owner supplies a reviewed
-`.night-shift.json` profile, marks the repo `owned`, lists exact argv commands,
+`.night-shift.json` profile, marks the repo `owned`, names a pinned pre-installed runner image, lists exact argv commands,
 and Docker rootless mode is available. The sandbox has no network, a read-only
 repo mount, no host credentials, and CPU/memory/PID/time limits.
 Only failing-before and passing-after is called a proven repair. A human or
@@ -56,6 +56,8 @@ The profile is an allowlist, not a request from the repository to trust itself:
 - `owned-pr`, `collaborator-pr`, `fork`, and `unknown` remain analysis-only.
 - Commands are JSON argv arrays; strings, shell operators, pipes, redirects,
   and substitutions are rejected.
+- Runner images must be pinned by OCI SHA-256 digest and are never pulled by an
+  unattended shift.
 - Dependency manifests, lockfiles, CI/workflow files, policy files, and the
   profile itself are immutable to overnight patch attempts.
 - Every rejected task is written to durable history with an exponential

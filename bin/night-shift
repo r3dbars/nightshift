@@ -32,6 +32,7 @@ from night_shift_policy import PROFILE_NAME, command_display, load_repo_profile
 from night_shift_sandbox import detect_sandbox
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, may_attempt
 from night_shift_redaction import redact
+from night_shift_patch_protocol import validate_patch
 
 
 HOME = Path.home()

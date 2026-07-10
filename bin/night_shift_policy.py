@@ -23,6 +23,7 @@ PROTECTED_PATHS = {
     "Cargo.toml", "Cargo.lock", "Gemfile", "go.mod", "go.sum",
 }
 SHELL_METACHARACTERS = re.compile(r"[;&|`$<>(){}\n\r]")
+IMAGE_DIGEST = re.compile(r"^[a-z0-9./_-]+@sha256:[a-f0-9]{64}$")
 
 
 @dataclass(frozen=True)
@@ -36,10 +37,11 @@ class RepoProfile:
     max_memory_mb: int
     max_pids: int
     max_seconds: int
+    image: str
 
     @property
     def may_execute(self) -> bool:
-        return self.trust in SAFE_TRUST and self.execution_enabled and bool(self.commands)
+        return self.trust in SAFE_TRUST and self.execution_enabled and bool(self.commands) and bool(self.image)
 
 
 def command_display(command: tuple[str, ...] | list[str]) -> str:
@@ -90,6 +92,9 @@ def load_repo_profile(repo: Path) -> tuple[RepoProfile | None, str]:
     if raw.get("commands") and not commands:
         return None, "profile commands must be safe argv arrays, never shell strings"
     limits = raw.get("limits") if isinstance(raw.get("limits"), dict) else {}
+    image = raw.get("image", "")
+    if image and (not isinstance(image, str) or not IMAGE_DIGEST.fullmatch(image)):
+        return None, "profile image must be a pinned OCI sha256 digest"
     try:
         profile = RepoProfile(
             trust=trust,
@@ -101,11 +106,14 @@ def load_repo_profile(repo: Path) -> tuple[RepoProfile | None, str]:
             max_memory_mb=min(8192, max(256, int(limits.get("memory_mb", 2048)))),
             max_pids=min(256, max(16, int(limits.get("pids", 128)))),
             max_seconds=min(1800, max(30, int(limits.get("seconds", 900)))),
+            image=image,
         )
     except (TypeError, ValueError):
         return None, "profile limits must be sensible numbers"
     if profile.execution_enabled and not profile.commands:
         return None, "sandbox-only execution needs at least one approved argv command"
+    if profile.execution_enabled and not profile.image:
+        return None, "sandbox-only execution needs a pinned local runner image"
     return profile, "profile loaded"
 
 
@@ -116,4 +124,3 @@ def path_is_protected(path: str, protected_paths: tuple[str, ...] = tuple(PROTEC
 
 def path_is_allowed(path: str, allowed_paths: tuple[str, ...]) -> bool:
     return any(path == item or path.startswith(item.rstrip("/") + "/") for item in allowed_paths)
-

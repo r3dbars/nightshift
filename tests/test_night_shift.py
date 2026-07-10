@@ -533,6 +533,7 @@ CONFIDENCE: high
                     "version": 1,
                     "trust": "fork",
                     "execution": "sandbox-only",
+                    "image": "runner@sha256:" + "0" * 64,
                     "commands": [["python3", "-m", "pytest"]],
                 }),
                 encoding="utf-8",
@@ -541,7 +542,7 @@ CONFIDENCE: high
             self.assertEqual(detail, "profile loaded")
             self.assertFalse(profile.may_execute)
             (repo / ".night-shift.json").write_text(
-                json.dumps({"version": 1, "trust": "owned", "execution": "sandbox-only", "commands": ["python3 -m pytest"]}),
+                json.dumps({"version": 1, "trust": "owned", "execution": "sandbox-only", "image": "runner@sha256:" + "0" * 64, "commands": ["python3 -m pytest"]}),
                 encoding="utf-8",
             )
             profile, detail = night_shift.load_repo_profile(repo)
@@ -562,7 +563,7 @@ CONFIDENCE: high
             subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
             (repo / "package.json").write_text("{}\n", encoding="utf-8")
             (repo / ".night-shift.json").write_text(
-                json.dumps({"version": 1, "trust": "owned", "execution": "sandbox-only", "commands": [["true"]]}),
+                json.dumps({"version": 1, "trust": "owned", "execution": "sandbox-only", "image": "runner@sha256:" + "0" * 64, "commands": [["true"]]}),
                 encoding="utf-8",
             )
             subprocess.run(["git", "add", "."], cwd=repo, check=True)
@@ -570,6 +571,122 @@ CONFIDENCE: high
             (repo / "package.json").write_text('{"scripts":{"test":"true"}}\n', encoding="utf-8")
             profile, _ = night_shift.load_repo_profile(repo)
             self.assertIn("patch touched an immutable verifier, dependency, or policy file", night_shift.DraftEngine(night_shift.run_cmd, Path(tmp) / "w", lambda: "x").guard_reasons(repo, ["package.json"], profile))
+
+    def test_patch_protocol_rejects_protected_and_unapproved_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".night-shift.json").write_text(
+                json.dumps({
+                    "version": 1, "trust": "owned", "execution": "sandbox-only",
+                    "image": "runner@sha256:" + "0" * 64,
+                    "commands": [["true"]], "allowed_paths": ["src", "tests"],
+                }), encoding="utf-8",
+            )
+            profile, _ = night_shift.load_repo_profile(repo)
+            output = """diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -1 +1 @@
+-{}
++{"scripts":{"test":"true"}}
+"""
+            check = night_shift.validate_patch(output, ["package.json"], profile)
+            self.assertFalse(check.valid)
+            self.assertTrue(any("immutable" in reason for reason in check.reasons))
+
+    def test_patch_protocol_rejects_model_prose_and_renames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".night-shift.json").write_text(
+                json.dumps({
+                    "version": 1, "trust": "owned", "execution": "sandbox-only",
+                    "image": "runner@sha256:" + "0" * 64,
+                    "commands": [["true"]], "allowed_paths": ["src"],
+                }), encoding="utf-8",
+            )
+            profile, _ = night_shift.load_repo_profile(repo)
+            prose = night_shift.validate_patch("I would change src/app.py", ["src/app.py"], profile)
+            self.assertFalse(prose.valid)
+            rename = night_shift.validate_patch(
+                "diff --git a/src/app.py b/src/other.py\n--- a/src/app.py\n+++ b/src/other.py\n@@ -1 +1 @@\n-a\n+b\n",
+                ["src/app.py"], profile,
+            )
+            self.assertFalse(rename.valid)
+
+    def test_patch_runner_is_no_network_and_never_writes_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".night-shift.json").write_text(
+                json.dumps({
+                    "version": 1, "trust": "owned", "execution": "sandbox-only",
+                    "image": "runner@sha256:" + "0" * 64, "commands": [["true"]],
+                }), encoding="utf-8",
+            )
+            profile, _ = night_shift.load_repo_profile(root)
+            command = __import__("night_shift_sandbox").sandbox_patch_command(
+                root, root / "candidate.patch", root / "artifacts", ("true",), profile
+            )
+            self.assertIn("--network", command)
+            self.assertEqual(command[command.index("--network") + 1], "none")
+            self.assertIn("--pull", command)
+            self.assertEqual(command[command.index("--pull") + 1], "never")
+            self.assertIn(f"{root.resolve()}:/source:ro", command)
+
+    def test_reproduced_failure_can_only_become_proven_after_isolated_patch_verification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            ledger = Path(tmp) / "ledger"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            (repo / "src").mkdir()
+            (repo / "src" / "app.py").write_text("value = 1\n", encoding="utf-8")
+            (repo / ".night-shift.json").write_text(
+                json.dumps({
+                    "version": 1, "trust": "owned", "execution": "sandbox-only",
+                    "image": "runner@sha256:" + "0" * 64, "commands": [["true"]],
+                    "allowed_paths": ["src"],
+                }), encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
+            profile, _ = night_shift.load_repo_profile(repo)
+            patch = "diff --git a/src/app.py b/src/app.py\n--- a/src/app.py\n+++ b/src/app.py\n@@ -1 +1 @@\n-value = 1\n+value = 2\n"
+
+            def fake_run(args, cwd=None, timeout=60, env=None, pid_log=None):
+                args = [str(part) for part in args]
+                if args[0] == "git":
+                    result = subprocess.run(args, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+                    return night_shift.CmdResult(" ".join(args), result.returncode, result.stdout, result.stderr)
+                if "maestro-delegate" in args[0]:
+                    return night_shift.CmdResult(" ".join(args), 0, patch, "")
+                if args[0] == "docker":
+                    volumes = [args[index + 1] for index, value in enumerate(args) if value == "--volume"]
+                    if any(value.endswith(":/input/candidate.patch:ro") for value in volumes):
+                        artifact_volume = next(value for value in volumes if value.endswith(":/artifacts:rw"))
+                        artifact_dir = Path(artifact_volume.removesuffix(":/artifacts:rw"))
+                        artifact_dir.mkdir(parents=True, exist_ok=True)
+                        (artifact_dir / "changed-paths.txt").write_text("src/app.py\n", encoding="utf-8")
+                        (artifact_dir / "applied.patch").write_text(patch, encoding="utf-8")
+                        (artifact_dir / "verification.rc").write_text("0\n", encoding="utf-8")
+                        (artifact_dir / "verification.txt").write_text("passed\n", encoding="utf-8")
+                        return night_shift.CmdResult("docker patch", 0, "", "")
+                    return night_shift.CmdResult("docker baseline", 1, "", "failing baseline")
+                raise AssertionError(f"unexpected command: {args}")
+
+            engine = night_shift.DraftEngine(fake_run, Path(tmp) / "worktrees", lambda: "now")
+            result = engine.run_draft(
+                repo, "owner/repo", {
+                    "key": "repair", "summary": "repair value", "evidence": "src/app.py:1",
+                    "expected_result": "true passes", "files": ["src/app.py"],
+                    "verification_argv": ["true"],
+                }, ledger, 900, "http://windows:11434/v1", "coder", profile=profile,
+            )
+            self.assertEqual(result["status"], "PROVEN_REPAIR")
+            self.assertEqual(result["baseline_rc"], 1)
+            self.assertEqual(result["after_rc"], 0)
+            self.assertTrue(Path(result["patch"]).is_file())
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Callable
 
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
-from night_shift_sandbox import sandbox_command
+from night_shift_sandbox import sandbox_command, sandbox_patch_command
+from night_shift_patch_protocol import patch_prompt, validate_patch
 
 
 def draft_proof_status(baseline_rc: int, after_rc: int, guards: list[str]) -> tuple[str, str]:
@@ -128,6 +129,39 @@ class DraftEngine:
         self.run_cmd(["git", "worktree", "prune"], cwd=repo, timeout=60)
         return removed.rc == 0
 
+    def source_excerpt(self, repo: Path, source_ref: str, files: list[str]) -> str:
+        sections: list[str] = []
+        for path in files:
+            shown = self.run_cmd(["git", "show", f"{source_ref}:{path}"], cwd=repo, timeout=30)
+            if shown.rc == 0:
+                sections.append(f"## {path}\n{shown.stdout[:6000]}")
+        return "\n\n".join(sections)
+
+    def ask_for_patch(
+        self,
+        repo: Path,
+        source_ref: str,
+        candidate: dict,
+        command: tuple[str, ...],
+        timeout: int,
+        windows_url: str,
+        windows_model: str,
+        parent_ledger: Path,
+        safe_task: str,
+    ):
+        delegate = shutil.which("maestro-delegate") or str(Path.home() / ".codex" / "bin" / "maestro-delegate")
+        prompt = patch_prompt(candidate, self.source_excerpt(repo, source_ref, candidate["files"]), command)
+        env = os.environ.copy()
+        env["WINDOWS_WORKER_BASE_URL"] = windows_url.rstrip("/")
+        env["WINDOWS_WORKER_MODEL"] = windows_model
+        return self.run_cmd(
+            [delegate, "windows", "--label", f"{safe_task}-patch", "--", prompt],
+            cwd=repo,
+            timeout=timeout,
+            env=env,
+            pid_log=parent_ledger / "processes.tsv",
+        )
+
     def run_draft(
         self,
         repo: Path,
@@ -210,9 +244,13 @@ class DraftEngine:
                     "baseline_rc": baseline.rc,
                 }
             )
-        # A model worker would need its own writable container and a separate
-        # patch-output mount. Do not fall back to a host worktree while that
-        # boundary is unavailable.
+        if baseline.rc == 0:
+            return finish({
+                "status": "REJECT",
+                "reason": "baseline verification passed; Night Shift only patches reproduced failures",
+                "baseline_rc": baseline.rc,
+                "proof_level": "baseline clean",
+            })
         if not windows_url or not windows_model:
             return finish(
                 {
@@ -222,12 +260,64 @@ class DraftEngine:
                     "baseline_rc": baseline.rc,
                 }
             )
+        patch_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
+        if patch_timeout <= 0:
+            return finish({"status": "REJECT", "reason": "stop limit reached before patch worker", "baseline_rc": baseline.rc})
+        model = self.ask_for_patch(
+            worktree, source_ref, candidate, verification_argv, patch_timeout,
+            windows_url, windows_model, parent_ledger, safe_task,
+        )
+        (proof_dir / f"{safe_task}.patch-worker.txt").write_text(
+            (model.stdout + "\n" + model.stderr).strip() + "\n", encoding="utf-8"
+        )
+        proposed = validate_patch(model.stdout, candidate["files"], profile)
+        if model.rc != 0 or not proposed.valid:
+            return finish({
+                "status": "REJECT",
+                "reason": "; ".join(proposed.reasons) if proposed.reasons else "patch worker failed",
+                "baseline_rc": baseline.rc,
+                "patch_worker_rc": model.rc,
+                "proof_level": "reproduced only",
+            })
+        patch_path.write_text(proposed.patch, encoding="utf-8")
+        sandbox_dir = proof_dir / f"{safe_task}-sandbox"
+        sandbox_dir.mkdir(parents=True, exist_ok=True)
+        verify_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
+        if verify_timeout <= 0:
+            return finish({"status": "REJECT", "reason": "stop limit reached before isolated verification", "baseline_rc": baseline.rc})
+        verified = self.run_cmd(
+            sandbox_patch_command(worktree, patch_path, sandbox_dir, verification_argv, profile),
+            cwd=worktree,
+            timeout=min(verify_timeout, profile.max_seconds),
+            pid_log=parent_ledger / "processes.tsv",
+        )
+        changed_path = sandbox_dir / "changed-paths.txt"
+        applied_path = sandbox_dir / "applied.patch"
+        verification_rc = sandbox_dir / "verification.rc"
+        paths = changed_path.read_text(encoding="utf-8").splitlines() if changed_path.exists() else []
+        applied = applied_path.read_text(encoding="utf-8") if applied_path.exists() else ""
+        applied_check = validate_patch(applied, candidate["files"], profile)
+        after_rc = int(verification_rc.read_text(encoding="utf-8").strip()) if verification_rc.exists() else -1
+        guards = list(applied_check.reasons)
+        if not paths:
+            guards.append("isolated runner did not report changed paths")
+        if set(paths) != set(proposed.paths):
+            guards.append("isolated runner changed a different file set")
+        if verified.rc != 0 or after_rc != 0:
+            guards.append("isolated verification did not pass")
+        status, proof_level = draft_proof_status(baseline.rc, after_rc, guards)
         return finish({
-            "status": "REJECT",
-            "reason": "baseline ran in the sandbox; writable patch workers are intentionally disabled until the isolated patch protocol is installed",
+            "status": status,
             "repo": repo_name,
             "source_ref": source_ref,
+            "summary": candidate.get("summary", ""),
+            "patch": str(applied_path if applied_path.exists() else patch_path),
             "verification": verification,
             "baseline_rc": baseline.rc,
-            "proof_level": "reproduced only" if baseline.rc != 0 else "baseline clean",
+            "after_rc": after_rc,
+            "proof_level": proof_level,
+            "patch_worker_rc": model.rc,
+            "sandbox_rc": verified.rc,
+            "guard_reasons": guards,
+            "proof": str(proof_path),
         })

@@ -2,6 +2,7 @@
   "version": 1,
   "trust": "owned",
   "execution": "sandbox-only",
+  "image": "night-shift-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "commands": [
     ["python3", "-m", "unittest", "discover", "-s", "tests"]
   ],

@@ -26,8 +26,8 @@ The normal overnight mode is analysis and planning. It never runs a repository's
 
 Optional sandboxed verification is deliberately a separate owner action. A repo
 must contain a reviewed [`.night-shift.json.example`](.night-shift.json.example)
-profile with an `owned` trust class, explicit argv command arrays, allowed paths,
-protected verifier files, and resource limits. Night Shift also requires Docker
+profile with an `owned` trust class, a pinned pre-installed runner image, explicit
+argv command arrays, allowed paths, protected verifier files, and resource limits. Night Shift also requires Docker
 in rootless mode and uses a read-only, no-network container. Without every one
 of those checks, it stays in planning mode.
 
