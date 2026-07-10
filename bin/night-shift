@@ -946,6 +946,18 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
                 rows.append(("repo-fetch", "SKIPPED", "run command does not mutate repo refs; use doctor for fetch check"))
         else:
             rows.append(("repo", "RED", f"repo path missing: {root}"))
+    if root and root.exists():
+        profile, detail = load_repo_profile(root)
+        if not profile:
+            rows.append(("repo-profile", "INFO", detail))
+            rows.append(("sandbox", "INFO", "analysis-only until a reviewed repo profile exists"))
+        elif not profile.may_execute:
+            rows.append(("repo-profile", "YELLOW", "profile loaded but trust, image, or execution setting prevents patch execution"))
+            rows.append(("sandbox", "INFO", "analysis-only by repo-profile policy"))
+        else:
+            rows.append(("repo-profile", "GREEN", "owned repo with explicit sandbox execution profile"))
+            sandbox = detect_sandbox(run_cmd)
+            rows.append(("sandbox", "GREEN" if sandbox.available else "YELLOW", sandbox.detail))
 
     if run_smoke:
         smoke = run_cmd([BIN / "maestro-smoke.sh"], timeout=180)
@@ -2679,6 +2691,50 @@ def command_doctor(args) -> int:
     return 0
 
 
+def directory_size(path: Path) -> int:
+    total = 0
+    try:
+        for item in path.rglob("*"):
+            if item.is_file():
+                total += item.stat().st_size
+    except OSError:
+        pass
+    return total
+
+
+def active_autopilot() -> dict:
+    try:
+        active = parse_json_text(AUTOPILOT_STATE_PATH.read_text(encoding="utf-8"), {})
+    except OSError:
+        return {}
+    try:
+        os.kill(int(active.get("pid", 0)), 0)
+        return active
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def command_health(args) -> int:
+    config = load_config()
+    repo = args.repo or config_value(config, "repo")
+    overall, rows = doctor_checks(repo, run_smoke=False, allow_fetch=False)
+    latest = latest_ledger()
+    metrics = parse_json_text((latest / "outcome-metrics.json").read_text(encoding="utf-8"), {}) if latest and (latest / "outcome-metrics.json").exists() else {}
+    attempts = latest_attempts(TASK_ATTEMPTS_PATH)
+    active = active_autopilot()
+    print(f"NIGHTSHIFT_HEALTH: {overall}")
+    print(f"- Controller: {'running pid=' + str(active.get('pid')) if active else 'not running'}")
+    print(f"- Latest ledger: {latest or 'none'}")
+    print(f"- Ledger storage: {round(directory_size(OVERNIGHT_ROOT) / 1024**2, 1)} MB")
+    print(f"- Durable task fingerprints: {len(attempts)}")
+    if metrics:
+        print(f"- Latest outcomes: attempted={metrics.get('attempted', 0)} accepted={metrics.get('accepted_candidates', 0)} rejected={metrics.get('rejected', 0)} tokens~={metrics.get('estimated_tokens', 0)}")
+    for name in ("local-chat", "windows-worker", "windows-chat", "repo-profile", "sandbox"):
+        state, message = rows_by_name(rows).get(name, ("INFO", "not checked"))
+        print(f"- {name}: {state} | {message}")
+    return 1 if overall == "RED" else 0
+
+
 def require_git_repo(repo: str) -> Path | None:
     root = repo_root(repo)
     if not root or not root.exists():
@@ -4141,6 +4197,15 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--windows-model", required=False, help="override WINDOWS_WORKER_MODEL")
     doctor.add_argument("--smoke", action="store_true", help="also run maestro-smoke.sh")
     doctor.set_defaults(func=command_doctor)
+
+    health = sub.add_parser(
+        "health",
+        help="show controller, lane, sandbox, outcome, and storage health",
+        description="Show the few signals needed to trust an overnight Night Shift run.",
+        epilog="Example: night-shift health --repo /path/to/project",
+    )
+    health.add_argument("--repo", required=False, help="repo to assess; defaults to saved setup")
+    health.set_defaults(func=command_health)
 
     plan = sub.add_parser(
         "plan",

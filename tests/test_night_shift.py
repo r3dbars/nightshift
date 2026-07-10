@@ -555,6 +555,14 @@ CONFIDENCE: high
         self.assertTrue(night_shift.may_attempt(previous, "task", "def", now=1001)[0])
         self.assertTrue(night_shift.may_attempt(previous, "task", "abc", now=3000)[0])
 
+    def test_active_autopilot_ignores_stale_pid_state(self):
+        previous = night_shift.AUTOPILOT_STATE_PATH
+        with tempfile.TemporaryDirectory() as tmp:
+            night_shift.AUTOPILOT_STATE_PATH = Path(tmp) / "active.json"
+            night_shift.AUTOPILOT_STATE_PATH.write_text('{"pid": 99999999}\n', encoding="utf-8")
+            self.assertEqual(night_shift.active_autopilot(), {})
+        night_shift.AUTOPILOT_STATE_PATH = previous
+
     def test_profile_protects_verifier_and_dependency_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

@@ -72,6 +72,17 @@ Next morning:
 night-shift report --latest
 ```
 
+At any point, get the small operational readout instead of hunting through
+ledgers:
+
+```bash
+night-shift health
+```
+
+It shows whether the controller is live, whether both AI lanes answer, whether
+the selected repo is analysis-only or sandbox-ready, the latest outcome totals,
+and how much local ledger storage Night Shift is using.
+
 **Works with:** LM Studio, Ollama (auto-detected), or any OpenAI-compatible
 local model server · a second GPU box on your LAN as a heavy draft lane ·
 optionally the Claude CLI for one or two hard questions a night and the
