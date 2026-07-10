@@ -23,7 +23,7 @@ PROTECTED_PATHS = {
     "Cargo.toml", "Cargo.lock", "Gemfile", "go.mod", "go.sum",
 }
 SHELL_METACHARACTERS = re.compile(r"[;&|`$<>(){}\n\r]")
-IMAGE_DIGEST = re.compile(r"^[a-z0-9./_-]+@sha256:[a-f0-9]{64}$")
+IMAGE_DIGEST = re.compile(r"^(?:[a-z0-9./_-]+@)?sha256:[a-f0-9]{64}$")
 
 
 @dataclass(frozen=True)

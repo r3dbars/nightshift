@@ -703,6 +703,23 @@ CONFIDENCE: high
         finally:
             night_shift.shutil.which = original_which
 
+    def test_runner_build_returns_immutable_local_image_id(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_detect = sandbox.detect_sandbox
+        try:
+            sandbox.detect_sandbox = lambda run: sandbox.SandboxStatus(True, "ready", "podman")
+
+            def fake_run(args, **kwargs):
+                if args[1:3] == ["image", "inspect"]:
+                    return night_shift.CmdResult(" ".join(map(str, args)), 0, "sha256:" + "a" * 64 + "\n", "")
+                return night_shift.CmdResult(" ".join(map(str, args)), 0, "built", "")
+
+            ok, image = sandbox.build_runner_image(fake_run)
+            self.assertTrue(ok)
+            self.assertEqual(image, "sha256:" + "a" * 64)
+        finally:
+            sandbox.detect_sandbox = original_detect
+
     def test_reproduced_failure_can_only_become_proven_after_isolated_patch_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"

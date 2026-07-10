@@ -22,6 +22,30 @@ def sandbox_runtime() -> str:
     return shutil.which("docker") or shutil.which("podman") or ""
 
 
+def runner_context() -> Path:
+    return Path(__file__).resolve().parents[1] / "containers" / "runner"
+
+
+def build_runner_image(run_cmd: Callable) -> tuple[bool, str]:
+    """Build the reviewed local runner and return its immutable content ID."""
+    status = detect_sandbox(run_cmd)
+    if not status.available:
+        return False, status.detail
+    context = runner_context()
+    runtime = status.runtime
+    built = run_cmd(
+        [runtime, "build", "--pull", "never", "--tag", "night-shift-runner:local", "--file", context / "Containerfile", context],
+        timeout=900,
+    )
+    if built.rc != 0:
+        return False, (built.stderr or built.stdout or "runner build failed").strip()[:600]
+    inspected = run_cmd([runtime, "image", "inspect", "night-shift-runner:local", "--format", "{{.Id}}"], timeout=60)
+    image = inspected.stdout.strip()
+    if inspected.rc != 0 or not image.startswith("sha256:") or len(image) != 71:
+        return False, "runner built but did not return an immutable image ID"
+    return True, image
+
+
 def detect_sandbox(run_cmd: Callable) -> SandboxStatus:
     docker = shutil.which("docker")
     if docker:

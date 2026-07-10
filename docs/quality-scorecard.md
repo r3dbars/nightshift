@@ -22,7 +22,7 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | Execute-draft safety | 92 | Fail-closed profile, pinned runner, owned trust, no-network temporary workspace, and independent verifier. | Prove the protocol on a real runner image before widening access. |
 | Prompt and secret security | 88 | Redaction, protected paths, code-first context selection, and explicit untrusted-data boundaries. | Add a prompt-injection corpus and real-run measurements. |
 | GitHub usefulness | 72 | PR, issue, failed-workflow signals feed queues. | PR/issue outcome correlation and explicit repo ownership profiles. |
-| Setup UX | 84 | Friendly wizard and legacy re-consent migration. | Explain profile setup from a single command. |
+| Setup UX | 88 | Friendly wizard, legacy re-consent migration, sandbox status, and local-runner builder. | Complete a real first-run profile on this Mac. |
 | Morning UX | 72 | Brief, queue, harvest, token report, and metrics files. | One concise outcome dashboard with feedback prompts. |
 | Reliability | 82 | Stop deadlines, process cancellation, single-controller lock, migration tests, and validated task-state transitions. | Crash-recovery and concurrent-scheduler integration tests. |
 | Observability | 90 | Ledgers, task attempts, cooldown skips, outcome metrics, health, and review-preserving retention controls. | Confirm retention behavior in a real 10-hour soak. |

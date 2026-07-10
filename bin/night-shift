@@ -29,7 +29,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from night_shift_portfolio import PortfolioEngine, parse_json_text
 from night_shift_drafts import DraftEngine, draft_proof_status, remaining_draft_timeout
 from night_shift_policy import PROFILE_NAME, command_display, load_repo_profile
-from night_shift_sandbox import detect_sandbox
+from night_shift_sandbox import build_runner_image, detect_sandbox
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
@@ -2797,6 +2797,23 @@ def command_health(args) -> int:
     return 1 if overall == "RED" else 0
 
 
+def command_sandbox(args) -> int:
+    status = detect_sandbox(run_cmd)
+    if not args.build_runner:
+        print(f"NIGHTSHIFT_SANDBOX: {'GREEN' if status.available else 'YELLOW'} | {status.detail}")
+        if not status.available:
+            print("Execution stays disabled. Install/start a rootless Docker or Podman provider, then run `night-shift sandbox --build-runner`.")
+        return 0 if status.available else 1
+    ok, detail = build_runner_image(run_cmd)
+    if not ok:
+        print(f"NIGHTSHIFT_SANDBOX: YELLOW | {detail}")
+        return 1
+    print("NIGHTSHIFT_SANDBOX: GREEN | reviewed local runner built")
+    print("Add this image value to a reviewed .night-shift.json profile:")
+    print(f'  "image": "{detail}"')
+    return 0
+
+
 def command_clean(args) -> int:
     if args.days < 1:
         print("NIGHTSHIFT_CLEAN: RED | --days must be at least 1")
@@ -4310,6 +4327,15 @@ def build_parser() -> argparse.ArgumentParser:
     clean.add_argument("--days", type=int, default=21, help="only consider reviewed ledgers older than this many days")
     clean.add_argument("--apply", action="store_true", help="remove the previewed ledgers; otherwise this is a dry run")
     clean.set_defaults(func=command_clean)
+
+    sandbox = sub.add_parser(
+        "sandbox",
+        help="inspect or build the local isolated verification runner",
+        description="Set up the reviewed local OCI runner required before Night Shift can verify a patch.",
+        epilog="Example: night-shift sandbox --build-runner",
+    )
+    sandbox.add_argument("--build-runner", action="store_true", help="build the bundled local runner and print its immutable image ID")
+    sandbox.set_defaults(func=command_sandbox)
 
     plan = sub.add_parser(
         "plan",
