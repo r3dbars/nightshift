@@ -6,10 +6,10 @@
 
 Put your idle AI compute to work while you sleep.
 
-Night Shift is a local-first overnight workbench for AI coding agents.
-Point it at a repo, point it at the compute you already have, pick a mode, and
-wake up to a repo scan, a deduped work queue, artifacts, token totals, and the
-next action.
+Night Shift is a local-first overnight workbench for AI coding agents. Point
+it at one repo or your recently active GitHub projects, point it at the compute
+you already have, and wake up to new repository knowledge, tested local drafts,
+and a short portfolio brief.
 
 It does the useful night work: read, sort, map, draft, and report. It does not
 merge, release, deploy, or pretend a worker draft is proof.
@@ -19,9 +19,9 @@ maybe Claude, and definitely a pile of repo chores. Why are all of them asleep
 at the same time?"
 
 It is not an autonomous release bot. Local and Windows models can think, sort,
-review, and draft. The `run` command does not edit the target repo. Codex or a
-human still reviews, edits, tests, and opens any PRs. Merges, releases, and
-public launches require explicit manual approval after review.
+review, and draft. Optional code drafts happen only in disposable worktrees;
+the original checkout is untouched. Codex or a human still reviews, commits,
+pushes, and opens any PRs.
 
 For the safety and privacy boundary, including what worker lanes can see and
 what gets written to disk, read [SAFETY.md](SAFETY.md).
@@ -35,7 +35,7 @@ It turns idle compute into bounded, reviewable repo work:
 
 - repo scans that understand the current branch, recent files, TODOs, docs, and
   test commands
-- deduped work queues so repeated worker ideas become one stronger candidate
+- cross-night task fingerprints so unchanged work never repeats
 - test-gap maps
 - stale PR reviews
 - TODO and risk clustering
@@ -109,7 +109,7 @@ Welcome to Night Shift.
 
 First time here, so I will set up the basics with you.
 We are choosing four things:
-- the repo to read
+- whether to watch this repo or recently active GitHub repos
 - what would make tomorrow morning useful
 - where your code is allowed to go
 - how hard and how long Night Shift should work
@@ -119,13 +119,15 @@ Safe default: local, read-only, no pushes, no merges, no releases.
 
 Then it asks beginner questions in this order:
 
-1. Which project should Night Shift look at?
-2. What would make tomorrow morning a win?
-3. What should Night Shift aim at first?
-4. Where is repo context allowed to go tonight?
-5. What is Night Shift allowed to prepare?
-6. How much energy should it use?
-7. When should it stop?
+1. Which project should Night Shift start from?
+2. Should it watch this project or recently active GitHub repos?
+3. What would make tomorrow morning a win?
+4. What should Night Shift aim at first?
+5. Where is repo context allowed to go tonight?
+6. What is Night Shift allowed to prepare?
+7. May tested drafts be created in disposable worktrees?
+8. How much energy should it use?
+9. When should it stop?
 
 Then it shows a summary before launching:
 
@@ -134,7 +136,7 @@ Night Shift preview
 
 Project: /path/to/project
 Tonight it WILL:
-- Read the repo
+- Watch recently active GitHub repos
 - Use: local Mac AI
 - Aim for: Ranked repo chores and test ideas
 - Run in Normal mode
@@ -167,17 +169,19 @@ Advanced users can still choose a mode directly:
 You can also choose how much help it is allowed to prepare:
 
 ```bash
-night-shift run --repo /path/to/project \
+night-shift autopilot --repo /path/to/project \
+  --scope github-recent \
   --mode night-shift \
-  --permission draft-prs
+  --permission draft-prs \
+  --execute-drafts
 ```
 
 Autonomy levels:
 
 - `brief`: read-only repo scan, artifacts, and a ranked queue.
 - `draft-local`: exact patch plans, issue candidates, files, and tests.
-- `draft-prs`: review-ready draft PR candidates. The run still does not push,
-  merge, release, or deploy.
+- `draft-prs`: review-ready candidates and optional test-gated patches in
+  disposable worktrees. The run still does not push, merge, release, or deploy.
 
 ```mermaid
 flowchart LR

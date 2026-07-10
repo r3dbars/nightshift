@@ -20,7 +20,7 @@ behind every mechanism. If you just want the commands, see the
 
 ## The One Principle Everything Follows From
 
-**Compute is free at night. Your attention is not.**
+**Compute is abundant at night. Repetition and morning attention are not free.**
 
 Every design decision below optimizes for morning attention, not overnight
 throughput. A run that produces 60 artifacts is worthless if the morning
@@ -33,6 +33,10 @@ run (cheap, all night) → deliver (where you already look)
       ↑                                       ↓
    adapt (next night)  ←  observe (did the human actually engage?)
 ```
+
+The worker stays on duty until morning. It uses idle time continuously while
+new, grounded work remains, but never repeats an unchanged task merely to keep
+a GPU busy.
 
 ## The Mechanisms
 
@@ -53,7 +57,27 @@ This installs a launchd agent (macOS) or cron entry (Linux) that fires
   exact command line, when it last ran, what happened, and how to stop it.
   Automation you cannot inspect is automation you eventually fear.
 
-### 2. The attention-aware pause — automation that notices it's ignored
+### 2. Portfolio discovery and the usefulness ladder
+
+Each cycle ranks recently active GitHub repositories from pushes, failed
+workflows, pull requests, review state, and issues. Work proceeds in order:
+
+```text
+Repair -> Finish -> Strengthen -> Understand -> Index
+```
+
+When immediate repair work runs out, local compute builds reusable test maps,
+source maps, and docs checks. Every task is fingerprinted with its repository
+revision and live signal. Completed fingerprints stay skipped until something
+actually changes.
+
+Normal mode defaults to a 14-day activity window and at most three
+repositories. `--active-days` and `--max-repos` change those limits. Dedicated
+checkouts live under `~/.codex/night-shift/repos/`. Configurations created
+before portfolio mode remain single-repo until the user explicitly widens the
+scope in setup.
+
+### 3. The attention-aware pause — automation that notices it's ignored
 
 The classic failure of scheduled automation is the zombie: it keeps running,
 output piles up, the human tunes it out, and six months later it's a folder
@@ -69,7 +93,7 @@ This is the single most important mechanism in the design. It converts "the
 user must remember to run it" into "the user must merely glance at results
 sometimes," which is the correct direction for the obligation to flow.
 
-### 3. Machine respect — guards for unattended hardware
+### 4. Machine respect — guards for unattended hardware
 
 An unattended run must be a considerate house guest:
 
@@ -82,7 +106,21 @@ An unattended run must be a considerate house guest:
   date, `--off` to resume early. A snoozed night logs itself as skipped so
   status never lies about what happened.
 
-### 4. Morning delivery — results where you already look
+### 5. Isolated, test-gated drafts
+
+With `draft-prs --execute-drafts`, Night Shift may use the Windows Ollama coder
+through Aider inside a disposable Git worktree. The original checkout remains
+untouched. The controller limits approved files and diff size, blocks secrets,
+lock-file changes, and release actions, and reruns an exact detected test
+command. Failed drafts remain rejected artifacts. A failing-before and
+passing-after change is a `PROVEN_REPAIR`; an otherwise clean bounded patch is
+a `VERIFIED_DRAFT`. Both remain local and uncommitted for morning review.
+
+For failed GitHub Actions runs, source, package scripts, evidence validation,
+and the disposable worktree all use the run's exact `headSha`. A PR-only file
+is never analyzed or edited as though it came from the default branch.
+
+### 6. Morning delivery — results where you already look
 
 A brief on disk requires remembering to look. Optional delivery closes the
 gap:
@@ -97,9 +135,8 @@ all deliberate:
 
 - **One issue, edited in place.** Never a second issue, never a nightly
   flood. The issue is a dashboard, not a feed.
-- **It is the only repo write Night Shift is allowed, ever.** Never code,
-  never a branch, never a PR. The safety envelope (`run` never pushes)
-  survives automation intact.
+- **It is the only remote repo write Night Shift is allowed.** Optional code
+  drafts stay local in disposable worktrees. Never a pushed branch or PR.
 - **Opt-in only.** Delivery happens when you pass the flag or set
   `"deliver": "github-issue"` in config through consented setup. Silence is
   local-only.
@@ -109,13 +146,11 @@ Night Shift skill is invoked for anything, it checks for unreviewed briefs
 and leads with one line — "you have a brief from last night" — before doing
 whatever was asked. Your assistant becomes the morning courier.
 
-### 5. The safety envelope does not bend at 3 a.m.
+### 7. The safety envelope does not bend at 3 a.m.
 
-Nothing about automation loosens the rules: no pushes, no merges, no
-releases, no credential or visibility changes, workers draft and never
-decide, and draft PRs only ever come from a reviewed morning decision. An
-unattended night has *less* authority than an attended one (battery
-downgrade, attention pause), never more.
+Nothing about automation loosens the rules: no pushes, no merges, no releases,
+no credential or visibility changes, workers propose, tests prove, and humans
+decide. An unattended night has *less* authority than an attended one.
 
 ## What This Adds Up To
 
@@ -125,7 +160,7 @@ downgrade, attention pause), never more.
 | Remember to check results | Digest issue + assistant surfacing |
 | Remember to stop it for vacation | `snooze --days 7` |
 | Worry it's running amok unattended | Attention pause + `schedule --status` |
-| Worry it will touch the repo | One opt-in digest issue, never code |
+| Worry it will touch my checkout | Disposable worktrees only; original checkout untouched |
 
 The end state: your hardware clocks in every night, your repo gets a little
 smarter every morning, and the only thing you ever *have* to do is read the
@@ -134,22 +169,18 @@ writing.
 
 ## Roadmap: Where This Design Goes Next
 
-These are specified but not yet built, in priority order:
+Useful next improvements, in priority order:
 
 1. **Taste memory.** The morning review records which brief items you acted
    on versus ignored (`~/.codex/night-shift/memory/<repo>/verdicts.jsonl`).
    The queue builder downweights categories you never touch and upweights
    what you act on. Run N+1 should always be more *yours* than run N.
-2. **Cross-night dedupe.** Fingerprints of every suggestion ever surfaced
-   (`seen.jsonl`) so a rejected idea does not reappear Tuesday, Thursday, and
-   Sunday. Within-run dedupe already exists; memory should span nights.
-3. **Continuity briefs.** The morning brief opens with "since yesterday:
+2. **Continuity briefs.** The morning brief opens with "since yesterday:
    item 1 was fixed (PR #23 merged), items 2–3 still open, here's what's
    new" — a narrative thread across nights instead of disconnected reports.
-4. **Nothing-new detection.** If the repo HEAD and signals are unchanged
-   since the last run, say "nothing new tonight" in one line instead of
-   re-running the full queue — respect for both electricity and attention.
-5. **More delivery surfaces.** A morning desktop notification when a brief
+3. **Outcome learning.** Observe whether proven drafts were committed, opened
+   as PRs, or ignored, and tune portfolio/task ranking from those outcomes.
+4. **More delivery surfaces.** A morning desktop notification when a brief
    is ready; an optional shell-greeting one-liner. Same rules as the digest
    issue: one artifact, updated in place, opt-in.
 

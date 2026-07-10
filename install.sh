@@ -78,7 +78,7 @@ done
 mkdir -p "$bin_dir" "$codex_home/skills"
 
 if [[ "$link_install" -eq 1 ]]; then
-  for source in "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift"; do
+  for source in "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift" "$repo_root"/bin/night_shift_*.py; do
     target="$bin_dir/$(basename "$source")"
     rm -f "$target"
     ln -s "$source" "$target"
@@ -88,7 +88,7 @@ if [[ "$link_install" -eq 1 ]]; then
   ln -s "$repo_root/skills/night-shift" "$skill_dir"
 else
   mkdir -p "$skill_dir"
-  cp "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift" "$bin_dir/"
+  cp "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift" "$repo_root"/bin/night_shift_*.py "$bin_dir/"
   chmod +x "$bin_dir"/maestro-* "$bin_dir/night-shift"
 
   rsync -a --delete "$repo_root/skills/night-shift/" "$skill_dir/"

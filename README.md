@@ -22,26 +22,28 @@ deploys. Free and open source under the [MIT License](LICENSE).
 ## What You Wake Up To
 
 ```text
-Morning brief — status: YELLOW
+Portfolio brief — status: GREEN
 
-1. Config fallback has no regression test
-   Evidence: src/config.py:84 and tests/test_config.py:31
-   Verify: python -m pytest tests/test_config.py
-2. Setup docs use a removed flag
-   Evidence: README.md:62 and cli/options.py:19
-   Verify: night-shift --help
-3. One manual QA claim needs a human check
-   Evidence: no deterministic proof available; held, not trusted
+BetterFeedback
+  PROVEN_REPAIR: focused route regression test
+  Verify: npm test -- route.test.ts
+  Patch: ~/.codex/night-shift/.../route-regression.patch
 
-Local loops: 40 · Windows loops: 20 · Artifacts: KEEP=3 MAYBE=7 REJECT=50
-Draft PRs opened: 0
-Next action: verify item 1 and open one narrow draft PR if the gap is real.
+Transcripted
+  CANDIDATE: recent import path needs deterministic proof
+  Evidence: Sources/Import.swift:84 | exact source line
+
+Night Shift
+  INDEXED: CLI tests mapped to their command handlers
+
+Repositories visited: 3 · New unique tasks: 18 · Repeated tasks skipped: 42
+Nothing pushed or merged.
 ```
 
-Every item must name exact repo evidence, files, a verification command, and a
-proof path. Generic model advice is rejected and retried once. That `YELLOW`
-is intentional: the machines did useful work overnight, and you (or your
-coding agent) still make the call in the morning.
+Model findings are candidates, never proof. A failing-before/passing-after fix
+becomes `PROVEN_REPAIR`; a bounded patch whose checks pass both before and after
+is a `VERIFIED_DRAFT`. Repeated tasks are remembered across nights and skipped
+until the code or GitHub signal changes.
 
 ## Quick Start
 
@@ -95,11 +97,14 @@ thing Night Shift ever writes to a repo, and never code. The full design:
 ```
 
 1. **Scan** live signals: recent diffs, tests, TODOs, issues, PRs, and failed workflows.
-2. **Ground** each task with numbered file excerpts and relevant diffs.
-3. **Work** it with bounded local and network worker loops.
-4. **Reject and retry** answers that lack exact evidence or verification.
-5. **Dedupe and rank** repeated findings by usefulness, not token volume.
-6. **Brief** you with at most three evidence-backed choices.
+2. **Rank** recently active GitHub repos and start with repair or unfinished work.
+3. **Work down the ladder:** Repair, Finish, Strengthen, Understand, then Index.
+4. **Ground** every task with numbered source, relevant diffs, and real repo commands.
+   Failed CI work pins the exact GitHub `headSha`, including its files and package scripts.
+5. **Remember** task fingerprints across nights so unchanged work never repeats.
+6. **Draft safely** in disposable worktrees when that option is enabled.
+7. **Prove** drafts with tests, diff limits, and forbidden-file checks.
+8. **Stay on duty** until morning, rescanning GitHub only after new work is exhausted.
 
 Teach it what matters after you review a choice:
 
@@ -116,15 +121,15 @@ You choose how much it may prepare:
 | --- | --- |
 | `brief` (default) | read-only repo scan, ranked work queue, morning brief |
 | `draft-local` | + exact patch plans, issue candidates, and test ideas |
-| `draft-prs` | + review-ready draft PR candidates — still no push, no merge |
+| `draft-prs` | + optional tested patches in disposable worktrees with `--execute-drafts`; still no push or merge |
 
 And how hard it runs:
 
 | Mode | Use it for | Rough shape |
 | --- | --- | --- |
-| `quiet` | battery, small repos, short evenings | ~8 worker loops, low heat |
-| `night-shift` | the normal overnight run | ~60 loops, ~500k local tokens |
-| `afterburner` | maximizing idle hardware | ~200 loops, 2M+ local tokens |
+| `quiet` | battery, small repos, short evenings | one repo, small unique batches, low heat |
+| `night-shift` | the normal overnight run | up to three active repos, finish-first work |
+| `afterburner` | maximizing idle hardware | deeper unique indexing and draft work across more repos |
 
 ## What It Will Never Do
 
@@ -134,9 +139,11 @@ And how hard it runs:
 - Move or delete your files.
 - Pretend an unverified draft is the truth.
 
-Code changes are PR-only: after the run, you (or your coding agent) review one
-item, make the change in an isolated worktree, run the checks, and open a
-draft PR yourself. The full boundary lives in [SAFETY.md](SAFETY.md).
+Night Shift may prepare an uncommitted patch only when `draft-prs` and
+`--execute-drafts` are both enabled. It uses an isolated worktree, limits the
+files and diff size, and preserves test output. A human or Codex still reviews,
+commits, pushes, and opens the PR. The full boundary lives in
+[SAFETY.md](SAFETY.md).
 
 ## Learn More
 
