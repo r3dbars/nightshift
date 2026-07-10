@@ -5,12 +5,10 @@ limits, and closeout formats. Read this before launching `Local Heavy` or
 `Tokenmaxx` loops as the coordinator. The guided setup and moment routing live
 in `SKILL.md`; worker prompt templates live in `worker-prompts.md`.
 
-Tokenmaxx philosophy: spend local/Windows compute on attention-expensive,
-execution-safe work. Start with a repo scan, build a small work queue, then
-dedupe repeated worker ideas into a few repo-specific choices. Make maps,
-rankings, audits, briefs, issue candidates, test ideas, patch plans, and draft
-PR candidates. Let Codex turn only the best few into real draft PRs after
-verification. Useful work queues are good; giant artifact piles are not.
+Tokenmaxx philosophy: keep idle local/Windows compute doing new, useful work,
+not repeating prompts. Rank live GitHub work first, then move down Repair,
+Finish, Strengthen, Understand, and Index. Fingerprint every task across nights.
+Model prose is a candidate; deterministic checks are proof.
 
 ## Power Modes
 
@@ -30,13 +28,13 @@ CLI mode mapping:
 Choose one mode unless the user specifies another.
 
 - `Conservative`: default. 1-3 tasks, max 1 draft PR per repo, local/Windows first, low heat.
-- `Local Heavy`: burn local Mac + Windows compute on useful repo work for hours.
-  40-80 Mac local loops plus 20-40 Windows loops by default, max 2 draft PRs
-  per repo, Codex filters results.
+- `Local Heavy`: burn local Mac + Windows compute on unique useful repo work for
+  hours. Finish one bounded task before widening, max one proven draft per repo,
+  and skip unchanged task fingerprints.
 - `Tokenmaxx`: run Mac local + Windows workers hard until the user returns in
-  the morning or says `Complete`. Keep filling the queue, harvest often, and
-  maximize useful local/Windows token throughput. Max draft PRs still bounded;
-  no branch push/merge/release/publish actions from `run`.
+  the morning or says `Complete`. Deepen into repository maps, test maps, docs
+  checks, and indexing only after live repair and finish work is exhausted.
+  Max drafts stay bounded; no push, merge, release, or publish.
 - `Fun`: 3-6 tasks, more experiments, still no merge/release.
 - `Research`: read-heavy, produces briefs/issues/plans, code changes only if tiny and obvious.
 - `Morning Review`: stop active work, collect results, verify claims, and report the next action.
@@ -115,15 +113,16 @@ Prefer the cheapest capable lane.
 - `Codex`: final coordination, repo edits when needed, GitHub state, verification, PR creation, morning review.
 - `Claude`: hard reasoning or risky architecture only when the budget allows and the prompt justifies it.
 
-In `Local Heavy`, the goal is to keep local compute busy on bounded work:
+In `Local Heavy`, the goal is to keep local compute busy on bounded, novel work:
 
 - Mac local models: use for repeated classification, clustering, review notes,
   TODO mining, log triage, issue drafting, analytics/Sentry summarization, test
   gap discovery, and duplicate/stale PR analysis.
-- Windows worker: use for longer draft reviews, test ideas, patch plans, and
-  low-risk draft implementation sketches.
-- Codex: every 30-60 minutes, harvest artifacts, reject junk, select the best
-  items, run real repo commands, and optionally open draft PRs.
+- Windows worker: use for longer draft reviews and narrow Aider-backed patches
+  in disposable worktrees when deterministic checks are available.
+- Deterministic controller: run real repo commands, enforce approved files and
+  diff limits, and reject any patch whose checks fail.
+- Codex: review proven patches and make PR or merge decisions after the night.
 - Claude: only for one or two high-leverage architecture/risk questions.
 
 For non-Codex lanes, prefer:

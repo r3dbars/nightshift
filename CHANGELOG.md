@@ -7,6 +7,22 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Add portfolio autopilot for recently active GitHub repositories, ranked by
+  pushes, failed workflows, pull requests, review state, and issues.
+- Replace repeated prompt loops with a generic Repair, Finish, Strengthen,
+  Understand, and Index ladder made from unique file and signal batches.
+- Persist task fingerprints across nights so unchanged work is skipped until
+  the repository revision or GitHub signal changes.
+- Treat worker prose as an unproven candidate and require an exact copied
+  source line; only deterministic execution may promote a draft as proven.
+- Add optional Aider/Ollama patch execution in disposable worktrees with
+  approved-file, diff-size, secret, release-action, test, and diff checks.
+- Pin failed GitHub Actions evidence, source files, package commands, and
+  draft worktrees to the exact run commit.
+- Add portfolio and cycle ledgers plus one morning brief across all repos.
+- Detect common JavaScript, Python, Swift, Rust, Go, Ruby, and .NET test
+  commands for repository-independent verification.
+- Add a 10-hour stop option for longer overnight runs.
 - Ground worker tasks with numbered source excerpts, recent diffs, live issues,
   pull requests, failed workflows, TODOs, and detected test commands.
 - Require exact evidence, files, verification commands, and expected results

@@ -10,11 +10,12 @@ each mode really does. For the short version, start with the
 Most AI coding tools are optimized for the moment you are sitting there.
 Night Shift is optimized for the hours when you are not.
 
-It turns idle compute into bounded, reviewable repo work:
+It turns idle compute into bounded, reviewable work across recently active
+GitHub repositories:
 
 - repo scans that understand the current branch, recent files, TODOs, docs, and
   test commands
-- deduped work queues so repeated worker ideas become one stronger candidate
+- durable task fingerprints so unchanged work is never repeated across cycles or nights
 - test-gap maps
 - stale PR reviews
 - TODO and risk clustering
@@ -36,8 +37,8 @@ The simplest launch story:
 4. Let Night Shift run.
 5. Run `night-shift report --latest` in the morning.
 
-The promise is not "wake up to merged code." The promise is "wake up to a
-ranked, source-backed brief, proof paths, token totals, and a clear first move."
+The promise is not "wake up to merged code." The promise is "keep idle local
+AI doing new useful work until morning, then show a short brief with proof."
 
 The wizard starts like a tiny decision brief:
 
@@ -46,7 +47,7 @@ Welcome to Night Shift.
 
 First time here, so I will set up the basics with you.
 We are choosing four things:
-- the repo to read
+- whether to watch this repo or recently active GitHub repos
 - what would make tomorrow morning useful
 - where your code is allowed to go
 - how hard and how long Night Shift should work
@@ -56,13 +57,15 @@ Safe default: local, read-only, no pushes, no merges, no releases.
 
 Then it asks beginner questions in this order:
 
-1. Which project should Night Shift look at?
-2. What would make tomorrow morning a win?
-3. What should Night Shift aim at first?
-4. Where is repo context allowed to go tonight?
-5. What is Night Shift allowed to prepare?
-6. How much energy should it use?
-7. When should it stop?
+1. Which project should Night Shift start from?
+2. Should it watch only this project or recently active GitHub repos?
+3. What would make tomorrow morning a win?
+4. What should Night Shift aim at first?
+5. Where is repo context allowed to go tonight?
+6. What is Night Shift allowed to prepare?
+7. If drafts are allowed, may it make tested patches in disposable worktrees?
+8. How much energy should it use?
+9. When should it stop?
 
 Then it shows a summary before launching:
 
@@ -71,7 +74,7 @@ Night Shift preview
 
 Project: /path/to/project
 Tonight it WILL:
-- Read the repo
+- Watch recently active GitHub repos
 - Use: local Mac AI
 - Aim for: Ranked repo chores and test ideas
 - Run in Normal mode
@@ -106,15 +109,37 @@ If something feels off, see [troubleshooting.md](troubleshooting.md).
 Advanced users can skip the wizard and choose directly:
 
 ```bash
-night-shift run --repo /path/to/project \
+night-shift autopilot --repo /path/to/project \
+  --scope github-recent \
+  --active-days 14 \
+  --max-repos 3 \
   --mode night-shift \
-  --permission draft-prs
+  --permission draft-prs \
+  --execute-drafts \
+  --stop-after 8h
 ```
 
 - `brief`: read-only repo scan, artifacts, and a ranked queue.
 - `draft-local`: exact patch plans, issue candidates, files, and tests.
-- `draft-prs`: review-ready draft PR candidates. The run still does not push,
-  merge, release, or deploy.
+- `draft-prs`: review-ready candidates, plus optional uncommitted patches in
+  disposable worktrees when `--execute-drafts` is enabled. Night Shift still
+  does not push, merge, release, or deploy.
+
+Autopilot works down the same usefulness ladder in every repository:
+
+```text
+Repair -> Finish -> Strengthen -> Understand -> Index
+```
+
+It stays available until the stop time. It runs new task batches immediately,
+then polls GitHub after the unique backlog is exhausted. Task fingerprints are
+stored in `~/.codex/night-shift/task-history.jsonl`; a task becomes eligible
+again only when its repository revision or live signal changes.
+
+GitHub portfolio mode keeps dedicated clean checkouts under
+`~/.codex/night-shift/repos/`. It never edits an existing user checkout. A
+configuration created before portfolio mode remains `current` scope until the
+user explicitly reruns setup and chooses recently active GitHub repos.
 
 ```mermaid
 flowchart LR
@@ -152,6 +177,13 @@ Useful files:
   scoring.
 - `token-report.txt`: estimated tokens by lane.
 - `morning.md`: the morning brief.
+
+Portfolio autopilot also writes a parent `*-autopilot/` ledger containing:
+
+- `portfolio.json` / `portfolio.md`: ranked repositories and live GitHub signals.
+- `cycles.json`: every repository batch and its child ledger.
+- `drafts/`: isolated patches, Aider transcripts, and deterministic proof JSON.
+- `morning.md`: one portfolio-level closeout.
 
 ## Setup
 

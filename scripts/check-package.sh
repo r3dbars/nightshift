@@ -14,6 +14,8 @@ bash -n \
 
 python3 -m py_compile \
   bin/night-shift \
+  bin/night_shift_portfolio.py \
+  bin/night_shift_drafts.py \
   bin/maestro-token-report
 
 python3 -m unittest discover -s tests -p 'test_*.py'

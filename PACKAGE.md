@@ -9,6 +9,8 @@ install and release surface boring and explicit.
 
 ```text
 bin/night-shift
+bin/night_shift_portfolio.py
+bin/night_shift_drafts.py
 bin/maestro-delegate
 bin/maestro-local
 bin/maestro-windows

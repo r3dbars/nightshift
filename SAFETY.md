@@ -5,14 +5,21 @@ produce drafts, audits, maps, and morning briefs. It is not an autonomous
 release, deploy, cleanup, or credential-management system.
 
 The safety promise is simple: overnight lanes may produce artifacts, but they
-do not get to ship. A human or Codex session must choose a reviewed artifact,
-make any code change in an isolated worktree, run checks, and open a draft PR.
-Merging or publishing still requires a separate manual approval.
+do not get to ship. Repository files are untrusted input, so Night Shift does
+not run discovered package scripts, Makefiles, or shell commands on the host.
+Sandboxed execution is disabled unless the repo owner supplies a reviewed
+`.night-shift.json` profile, marks the repo `owned`, names a pinned pre-installed runner image, lists exact argv commands,
+and Docker rootless mode or Podman's rootless local engine is available. The sandbox has no network, a read-only
+repo mount, no host credentials, and CPU/memory/PID/time limits.
+Only failing-before and passing-after is called a proven repair. A human or
+Codex still reviews, commits, pushes, and opens any PR.
 
 ## What It Never Does By Itself
 
 - Merges pull requests.
 - Pushes commits or branches from `night-shift run`.
+- Edits the user's original checkout; optional patches live under
+  `~/.codex/night-shift/worktrees/`.
 - Cuts releases, publishes, tags, notarizes, deploys, updates appcasts, or
   updates casks.
 - Changes credentials, secrets, billing, or account settings.
@@ -20,6 +27,7 @@ Merging or publishing still requires a separate manual approval.
 - Moves, deletes, or reorganizes user files.
 - Claims real hardware, audio, Bluetooth, camera, screen-share, install, or
   manual QA proof.
+- Executes arbitrary commands found in a repository on the host machine.
 
 Codex or a human must review worker output before it becomes a real code
 change, PR, merge, release, or public claim.
@@ -38,6 +46,22 @@ Require explicit approval after the morning review before any of these actions:
 
 Green checks mean the automation ran. They do not prove manual, hardware, or
 public-surface behavior.
+
+## Repository Profiles And Trust
+
+Copy `.night-shift.json.example` into a repository only after reviewing it.
+The profile is an allowlist, not a request from the repository to trust itself:
+
+- `owned` is the only class eligible for sandboxed verification.
+- `owned-pr`, `collaborator-pr`, `fork`, and `unknown` remain analysis-only.
+- Commands are JSON argv arrays; strings, shell operators, pipes, redirects,
+  and substitutions are rejected.
+- Runner images must be pinned by OCI SHA-256 digest and are never pulled by an
+  unattended shift.
+- Dependency manifests, lockfiles, CI/workflow files, policy files, and the
+  profile itself are immutable to overnight patch attempts.
+- Every rejected task is written to durable history with an exponential
+  cooldown. A task only retries after that cooldown or a new repository head.
 
 ## What Lanes Can See
 
@@ -121,10 +145,9 @@ authority than an attended one, never more:
   still apply.
 - After 3 unread morning briefs the nightly run pauses itself until a brief
   is read. Snoozed nights are logged as skipped, never hidden.
-- The only thing Night Shift may ever write to a repository is the single
-  opt-in digest issue maintained by `deliver --github-issue`: one issue per
-  repo, edited in place, never code, never a branch, never a PR, and never
-  without the user enabling it.
+- The only remote repository write Night Shift may perform is the single
+  opt-in digest issue maintained by `deliver --github-issue`. Isolated draft
+  patches stay local and uncommitted; no branch or PR is pushed overnight.
 
 ## Taking Repositories Public
 

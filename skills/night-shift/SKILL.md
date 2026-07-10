@@ -5,9 +5,9 @@ description: Run and supervise Night Shift, a bounded local-first overnight repo
 
 # Night Shift
 
-Turn idle AI hardware into useful repo work while the user sleeps. Scan live
-repo signals, give local and LAN models bounded tasks, reject weak output, and
-leave three evidence-backed morning choices.
+Turn idle AI hardware into useful, compounding repo work while the user sleeps.
+Watch recently active GitHub repos, work down the Repair-to-Index ladder,
+remember completed tasks, reject weak output, and leave a short portfolio brief.
 
 Keep this promise: workers draft; Codex or a human verifies. `night-shift run`
 never edits the target checkout, pushes, merges, releases, deploys, changes
@@ -52,8 +52,8 @@ Open briefly:
 Hey - welcome to Night Shift.
 
 Your AI hardware sits idle every night. Night Shift puts it to work reading
-your repo and preparing small, safe, reviewable work. Tomorrow you get three
-useful choices with evidence, exact files, and verification commands.
+your recent projects and preparing small, safe, reviewable work. Tomorrow you
+get a few useful outcomes with evidence, exact files, and verification commands.
 
 Drafts, not deploys. Setup takes about a minute.
 ```
@@ -93,15 +93,17 @@ Detect Claude, Codex, and GitHub CLI. Explain only what matters:
 Ask where repo context may go: this Mac (recommended first night), Mac plus
 private LAN, or cloud subscriptions.
 
-### 4. Choose Tonight's Outcome
+### 4. Choose Scope And Tonight's Outcome
 
-Detect the current repo and confirm it. Then ask:
+Detect the current repo and GitHub login. Recommend recently active GitHub
+repos, with current-repo-only as the simpler option. Then ask:
 
 1. What would make tomorrow useful? Recommend a ranked chores brief.
 2. Is there one mission tonight? Recommend a concrete mission over a broad
    "improve the repo" prompt.
 3. How much may Night Shift prepare? Recommend `draft-local` after a successful
-   rehearsal; use `brief` for the safest first run.
+   rehearsal. For `draft-prs`, ask separately whether tested patches may be
+   created in disposable worktrees.
 4. How hard and how long? Recommend Normal for eight hours while plugged in.
 
 A good mission names an outcome and proof:
@@ -120,13 +122,15 @@ Assemble the saved setup:
 
 ```bash
 night-shift start --repo <repo> \
+  --scope <current|github-recent> \
   --mode <quiet|night-shift|afterburner> \
   --wake-goal <brief|chores|draft-prs> \
   --guidance <scan|goal|issues> \
   [--goal "<specific mission>"] \
   --permission <brief|draft-local|draft-prs> \
   --privacy <mac-only|mac-and-lan|cloud-ok> \
-  --stop-after <2h|6h|8h|morning> \
+  --stop-after <2h|6h|8h|10h|morning> \
+  [--execute-drafts] \
   --local-url <url> --local-model <model> \
   [--windows-url <url> --windows-model <model>] \
   --yes
@@ -189,14 +193,17 @@ Never invent paths, line numbers, issues, failures, or command output.
 
 Night Shift must:
 
-1. Build tasks from live recent diffs, tests, TODOs, open issues/PRs, failed
-   workflows, or the user's mission.
+1. Rank recently active repositories from live pushes, PRs, issues, failed
+   workflows, and the user's mission.
 2. Give workers numbered excerpts and relevant diffs, not filenames alone.
-3. Reject generic answers that merely claim they are safe.
-4. Retry one schema-valid but ungrounded answer with the exact missing fields.
-5. Dedupe repeated findings and show at most three choices.
-6. Rank verified usefulness above token volume.
-7. Use local useful/not-useful feedback to avoid repeating bad suggestions.
+3. Work down Repair, Finish, Strengthen, Understand, and Index tasks in order.
+4. Require an exact copied source line; treat model findings as candidates, not proof.
+5. Retry one schema-valid but ungrounded answer with the exact missing fields.
+6. Fingerprint every task and skip it until the repository or live signal changes.
+7. Promote a draft only after isolated edits and deterministic checks pass.
+8. Pin failed CI source, commands, validation, and draft worktrees to its exact commit SHA.
+9. Rank verified usefulness above token volume.
+10. Use local useful/not-useful feedback to avoid repeating bad suggestions.
 
 Read [`references/worker-prompts.md`](references/worker-prompts.md) when
 changing or manually dispatching worker prompts.

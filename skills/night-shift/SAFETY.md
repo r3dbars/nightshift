@@ -5,14 +5,18 @@ produce drafts, audits, maps, and morning briefs. It is not an autonomous
 release, deploy, cleanup, or credential-management system.
 
 The safety promise is simple: overnight lanes may produce artifacts, but they
-do not get to ship. A human or Codex session must choose a reviewed artifact,
-make any code change in an isolated worktree, run checks, and open a draft PR.
-Merging or publishing still requires a separate manual approval.
+do not get to ship. With `draft-prs --execute-drafts`, Night Shift may make one
+uncommitted patch in a disposable worktree, but only approved files, diff
+limits, and passing repository checks can preserve it as a verified draft.
+Only failing-before and passing-after is called a proven repair. A human or
+Codex still reviews, commits, pushes, and opens any PR.
 
 ## What It Never Does By Itself
 
 - Merges pull requests.
 - Pushes commits or branches from `night-shift run`.
+- Edits the user's original checkout; optional patches live under
+  `~/.codex/night-shift/worktrees/`.
 - Cuts releases, publishes, tags, notarizes, deploys, updates appcasts, or
   updates casks.
 - Changes credentials, secrets, billing, or account settings.
