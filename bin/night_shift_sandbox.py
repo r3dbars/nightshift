@@ -14,16 +14,27 @@ from night_shift_policy import RepoProfile
 class SandboxStatus:
     available: bool
     detail: str
+    runtime: str = ""
+
+
+def sandbox_runtime() -> str:
+    """Prefer Docker rootless, otherwise use Podman when its engine is live."""
+    return shutil.which("docker") or shutil.which("podman") or ""
 
 
 def detect_sandbox(run_cmd: Callable) -> SandboxStatus:
     docker = shutil.which("docker")
-    if not docker:
-        return SandboxStatus(False, "Docker is not installed; execution is disabled")
-    info = run_cmd([docker, "info", "--format", "{{json .SecurityOptions}}"], timeout=20)
-    if info.rc != 0 or "rootless" not in (info.stdout or "").lower():
-        return SandboxStatus(False, "Docker rootless mode is required; execution is disabled")
-    return SandboxStatus(True, "Docker rootless sandbox is ready")
+    if docker:
+        info = run_cmd([docker, "info", "--format", "{{json .SecurityOptions}}"], timeout=20)
+        if info.rc == 0 and "rootless" in (info.stdout or "").lower():
+            return SandboxStatus(True, "Docker rootless sandbox is ready", "docker")
+    podman = shutil.which("podman")
+    if podman:
+        info = run_cmd([podman, "info", "--format", "{{.Host.Security.Rootless}}"], timeout=20)
+        if info.rc == 0 and "true" in (info.stdout or "").lower():
+            return SandboxStatus(True, "Podman rootless sandbox is ready", "podman")
+        return SandboxStatus(False, "Podman is installed but its rootless machine is not ready; execution is disabled", "podman")
+    return SandboxStatus(False, "No supported container runtime is installed; execution is disabled")
 
 
 def fixed_patch_script() -> str:
@@ -49,9 +60,9 @@ def sandbox_patch_command(
     Source and patch are read-only. The writable workspace lives only in the
     container tmpfs; the artifact directory receives logs and a candidate diff.
     """
-    docker = shutil.which("docker") or "docker"
+    runtime = sandbox_runtime() or "docker"
     return [
-        docker, "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
+        runtime, "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
         "--memory", f"{profile.max_memory_mb}m", "--tmpfs", "/work:rw,noexec,nosuid,size=512m,uid=65534,gid=65534,mode=700",
@@ -68,10 +79,10 @@ def sandbox_command(repo: Path, command: tuple[str, ...], profile: RepoProfile) 
     The repo mount is intentionally read-only. A future patch worker must write
     its patch to a separate, explicitly mounted artifact directory.
     """
-    docker = shutil.which("docker") or "docker"
+    runtime = sandbox_runtime() or "docker"
     home = "/tmp/night-shift-home"
     return [
-        docker, "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
+        runtime, "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
         "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"{home}:rw,noexec,nosuid,size=64m",

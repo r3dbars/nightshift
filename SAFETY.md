@@ -9,7 +9,7 @@ do not get to ship. Repository files are untrusted input, so Night Shift does
 not run discovered package scripts, Makefiles, or shell commands on the host.
 Sandboxed execution is disabled unless the repo owner supplies a reviewed
 `.night-shift.json` profile, marks the repo `owned`, names a pinned pre-installed runner image, lists exact argv commands,
-and Docker rootless mode is available. The sandbox has no network, a read-only
+and Docker rootless mode or Podman's rootless local engine is available. The sandbox has no network, a read-only
 repo mount, no host credentials, and CPU/memory/PID/time limits.
 Only failing-before and passing-after is called a proven repair. A human or
 Codex still reviews, commits, pushes, and opens any PR.

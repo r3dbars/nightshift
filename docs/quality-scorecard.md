@@ -29,7 +29,7 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | Learning loop | 72 | Local usefulness feedback and task lifecycle evidence are retained. | Tie feedback to task families and actual accepted patches. |
 | Test coverage | 82 | 44 focused tests, including hostile command/profile cases and a full simulated patch chain. | Integration tests for Docker and interrupted autopilot runs. |
 | Maintainability | 58 | Policy, sandbox, state, and redaction modules now isolate critical rules. | Split the remaining controller/work-queue monolith. |
-| Portability | 70 | Local-first defaults with Linux/macOS scheduling paths. | Document/test rootless Docker on macOS, Linux, and Windows worker hosts. |
+| Portability | 78 | Local-first defaults with Linux/macOS scheduling and Docker-rootless/Podman-rootless sandbox providers. | Prove both providers on real supported hosts. |
 | Ten-hour readiness | 78 | Fixed stop limits, lock, cooldown, and unattended pause. | A clean 10-hour soak with resource and disk evidence. |
 
 ## Non-Negotiable Promotion Rules

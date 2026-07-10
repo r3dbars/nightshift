@@ -691,6 +691,18 @@ CONFIDENCE: high
             self.assertEqual(command[command.index("--pull") + 1], "never")
             self.assertIn(f"{root.resolve()}:/source:ro", command)
 
+    def test_podman_rootless_is_an_accepted_sandbox_provider(self):
+        original_which = night_shift.shutil.which
+        try:
+            night_shift.shutil.which = lambda name: "/usr/local/bin/podman" if name == "podman" else None
+            status = __import__("night_shift_sandbox").detect_sandbox(
+                lambda args, **kwargs: night_shift.CmdResult(" ".join(args), 0, "true\n", "")
+            )
+            self.assertTrue(status.available)
+            self.assertEqual(status.runtime, "podman")
+        finally:
+            night_shift.shutil.which = original_which
+
     def test_reproduced_failure_can_only_become_proven_after_isolated_patch_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
@@ -720,7 +732,7 @@ CONFIDENCE: high
                     return night_shift.CmdResult(" ".join(args), result.returncode, result.stdout, result.stderr)
                 if "maestro-delegate" in args[0]:
                     return night_shift.CmdResult(" ".join(args), 0, patch, "")
-                if args[0] == "docker":
+                if Path(args[0]).name in {"docker", "podman"}:
                     volumes = [args[index + 1] for index, value in enumerate(args) if value == "--volume"]
                     if any(value.endswith(":/input/candidate.patch:ro") for value in volumes):
                         artifact_volume = next(value for value in volumes if value.endswith(":/artifacts:rw"))
