@@ -25,7 +25,7 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | Setup UX | 84 | Friendly wizard and legacy re-consent migration. | Explain profile setup from a single command. |
 | Morning UX | 72 | Brief, queue, harvest, token report, and metrics files. | One concise outcome dashboard with feedback prompts. |
 | Reliability | 78 | Stop deadlines, process cancellation, single-controller lock, and migration tests. | Crash-recovery and concurrent-scheduler integration tests. |
-| Observability | 89 | Ledgers, task attempts, cooldown skips, outcome metrics, and a compact health command. | Disk quota/retention with real soak evidence. |
+| Observability | 90 | Ledgers, task attempts, cooldown skips, outcome metrics, health, and review-preserving retention controls. | Confirm retention behavior in a real 10-hour soak. |
 | Learning loop | 68 | Local usefulness feedback changes rankings. | Tie feedback to task families and actual accepted patches. |
 | Test coverage | 82 | 44 focused tests, including hostile command/profile cases and a full simulated patch chain. | Integration tests for Docker and interrupted autopilot runs. |
 | Maintainability | 58 | Policy, sandbox, state, and redaction modules now isolate critical rules. | Split the remaining controller/work-queue monolith. |

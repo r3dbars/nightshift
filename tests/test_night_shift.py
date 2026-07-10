@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -562,6 +563,24 @@ CONFIDENCE: high
             night_shift.AUTOPILOT_STATE_PATH.write_text('{"pid": 99999999}\n', encoding="utf-8")
             self.assertEqual(night_shift.active_autopilot(), {})
         night_shift.AUTOPILOT_STATE_PATH = previous
+
+    def test_cleanup_only_selects_old_reviewed_completed_ledgers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = root / "night-shift-old"
+            old.mkdir()
+            (old / "morning.md").write_text("done\n", encoding="utf-8")
+            (old / "REVIEWED").write_text("yes\n", encoding="utf-8")
+            recent = root / "night-shift-recent"
+            recent.mkdir()
+            (recent / "morning.md").write_text("done\n", encoding="utf-8")
+            (recent / "REVIEWED").write_text("yes\n", encoding="utf-8")
+            unreviewed = root / "night-shift-unreviewed"
+            unreviewed.mkdir()
+            (unreviewed / "morning.md").write_text("done\n", encoding="utf-8")
+            now = time.time()
+            os.utime(old, (now - 30 * 86400, now - 30 * 86400))
+            self.assertEqual(night_shift.cleanup_candidates(root, 21, now=now), [old])
 
     def test_profile_protects_verifier_and_dependency_files(self):
         with tempfile.TemporaryDirectory() as tmp:

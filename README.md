@@ -83,6 +83,10 @@ It shows whether the controller is live, whether both AI lanes answer, whether
 the selected repo is analysis-only or sandbox-ready, the latest outcome totals,
 and how much local ledger storage Night Shift is using.
 
+Old run artifacts stay until you review them. Preview safe reclamation with
+`night-shift clean`; only `night-shift clean --apply` removes completed,
+reviewed ledgers older than 21 days.
+
 **Works with:** LM Studio, Ollama (auto-detected), or any OpenAI-compatible
 local model server · a second GPU box on your LAN as a heavy draft lane ·
 optionally the Claude CLI for one or two hard questions a night and the

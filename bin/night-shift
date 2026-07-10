@@ -2702,6 +2702,25 @@ def directory_size(path: Path) -> int:
     return total
 
 
+def cleanup_candidates(root: Path, days: int, now: float | None = None) -> list[Path]:
+    """Only completed, reviewed Night Shift ledgers may be reclaimed."""
+    if not root.exists():
+        return []
+    threshold = (time.time() if now is None else now) - days * 24 * 3600
+    candidates = []
+    for path in root.iterdir():
+        if not path.is_dir() or not path.name.startswith("night-shift-"):
+            continue
+        if not (path / "morning.md").exists() or not (path / "REVIEWED").exists():
+            continue
+        try:
+            if path.stat().st_mtime < threshold:
+                candidates.append(path)
+        except OSError:
+            continue
+    return sorted(candidates, key=lambda path: path.stat().st_mtime)
+
+
 def active_autopilot() -> dict:
     try:
         active = parse_json_text(AUTOPILOT_STATE_PATH.read_text(encoding="utf-8"), {})
@@ -2726,6 +2745,9 @@ def command_health(args) -> int:
     print(f"- Controller: {'running pid=' + str(active.get('pid')) if active else 'not running'}")
     print(f"- Latest ledger: {latest or 'none'}")
     print(f"- Ledger storage: {round(directory_size(OVERNIGHT_ROOT) / 1024**2, 1)} MB")
+    reclaimable = cleanup_candidates(OVERNIGHT_ROOT, days=21)
+    reclaimable_bytes = sum(directory_size(path) for path in reclaimable)
+    print(f"- Reclaimable reviewed ledgers: {len(reclaimable)} ({round(reclaimable_bytes / 1024**2, 1)} MB; use `night-shift clean --apply`)")
     print(f"- Durable task fingerprints: {len(attempts)}")
     if metrics:
         print(f"- Latest outcomes: attempted={metrics.get('attempted', 0)} accepted={metrics.get('accepted_candidates', 0)} rejected={metrics.get('rejected', 0)} tokens~={metrics.get('estimated_tokens', 0)}")
@@ -2733,6 +2755,26 @@ def command_health(args) -> int:
         state, message = rows_by_name(rows).get(name, ("INFO", "not checked"))
         print(f"- {name}: {state} | {message}")
     return 1 if overall == "RED" else 0
+
+
+def command_clean(args) -> int:
+    if args.days < 1:
+        print("NIGHTSHIFT_CLEAN: RED | --days must be at least 1")
+        return 2
+    candidates = cleanup_candidates(OVERNIGHT_ROOT, args.days)
+    total = sum(directory_size(path) for path in candidates)
+    if not args.apply:
+        print(f"NIGHTSHIFT_CLEAN: GREEN | would reclaim {round(total / 1024**2, 1)} MB from {len(candidates)} reviewed ledger(s) older than {args.days} days")
+        print("Nothing was removed. Run `night-shift clean --apply` when this list looks right.")
+        for path in candidates[:10]:
+            print(f"- {path}")
+        return 0
+    removed = 0
+    for path in candidates:
+        shutil.rmtree(path)
+        removed += 1
+    print(f"NIGHTSHIFT_CLEAN: GREEN | reclaimed {round(total / 1024**2, 1)} MB from {removed} reviewed ledger(s)")
+    return 0
 
 
 def require_git_repo(repo: str) -> Path | None:
@@ -4206,6 +4248,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     health.add_argument("--repo", required=False, help="repo to assess; defaults to saved setup")
     health.set_defaults(func=command_health)
+
+    clean = sub.add_parser(
+        "clean",
+        help="preview or remove old reviewed Night Shift ledgers",
+        description="Keep completed, reviewed ledgers for a while without letting overnight artifacts grow forever.",
+        epilog="Example: night-shift clean --days 21 --apply",
+    )
+    clean.add_argument("--days", type=int, default=21, help="only consider reviewed ledgers older than this many days")
+    clean.add_argument("--apply", action="store_true", help="remove the previewed ledgers; otherwise this is a dry run")
+    clean.set_defaults(func=command_clean)
 
     plan = sub.add_parser(
         "plan",
