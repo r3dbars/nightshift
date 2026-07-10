@@ -571,11 +571,18 @@ Then review:
 The first screen of `morning.md` is intentionally ranked. It should answer:
 
 - What should I do first?
-- What are the top 5 actionable items?
+- What are the top three evidence-backed choices?
 - How many local and Windows loops ran?
 - How many estimated input/output/total tokens were spent by lane?
 - Which artifacts were `KEEP`, `MAYBE`, or `REJECT`?
 - What stayed draft-only or manual/unknown?
+
+After reviewing a choice, teach later nights what mattered:
+
+```bash
+night-shift feedback --latest --item 1 --useful
+night-shift feedback --latest --item 2 --not-useful --note "too generic"
+```
 
 The right next action is usually one of these:
 

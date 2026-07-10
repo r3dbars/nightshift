@@ -1,4 +1,4 @@
 interface:
   display_name: "Night Shift"
-  short_description: "Run bounded local-first overnight work."
-  default_prompt: "Use $night-shift to walk me through first-time setup and start a safe Night Shift run."
+  short_description: "Turn idle local AI into useful repo work."
+  default_prompt: "Use $night-shift to set up my local AI, run evidence-backed repo work overnight, and give me three useful morning choices."

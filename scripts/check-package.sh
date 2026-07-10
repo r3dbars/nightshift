@@ -16,6 +16,8 @@ python3 -m py_compile \
   bin/night-shift \
   bin/maestro-token-report
 
+python3 -m unittest discover -s tests -p 'test_*.py'
+
 version_file="$(tr -d '[:space:]' < VERSION)"
 cli_version="$(python3 - <<'PY'
 import ast

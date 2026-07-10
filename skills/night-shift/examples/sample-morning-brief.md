@@ -33,21 +33,21 @@ Artifact scorecard:
 Best KEEP items:
 1. test-gap-map-local
    - Found missing deterministic tests around config fallback loading.
-   - Evidence: `src/config.py`, `tests/test_config.py`
+   - Evidence: `src/config.py:84` falls back to defaults; `tests/test_config.py:31` covers only explicit config.
    - Safe for Codex to attempt: yes
    - Suggested check: `pytest tests/test_config.py`
    - Why first: small test-only change with a clear failure mode.
 
 2. docs-drift-map-windows
    - Found setup docs that still mention an old command name.
-   - Evidence: `README.md`, `docs/setup.md`
+   - Evidence: `README.md:62` uses a flag absent from `tools/demo_cli.py:19`.
    - Safe for Codex to attempt: yes
    - Suggested check: `python3 -m py_compile tools/demo_cli.py`
    - Why second: low-risk docs fix, but less important than the test gap.
 
 3. proof-audit-local
    - Found one manual QA claim that should be marked UNKNOWN.
-   - Evidence: `docs/release-checklist.md`
+   - Evidence: `docs/release-checklist.md:44` makes a manual claim with no linked proof.
    - Safe for Codex to attempt: no, needs human review
    - Why held: worker cannot prove real install or hardware behavior.
 
@@ -72,6 +72,12 @@ Safety:
 - Manual proof stayed UNKNOWN because no human ran the app.
 
 lanes used: Codex=harvested and scored artifacts; Claude=skipped; Local=40 draft loops; Windows=18 draft loops plus 2 timeouts
+```
+
+Teach the next run after review:
+
+```bash
+night-shift feedback --latest --item 1 --useful
 ```
 
 Copy-paste next step:

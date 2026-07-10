@@ -24,18 +24,24 @@ deploys. Free and open source under the [MIT License](LICENSE).
 ```text
 Morning brief — status: YELLOW
 
-1. Missing tests around config fallback loading   → patch plan ready to review
-2. Setup docs still reference an old command      → small docs fix drafted
-3. One manual QA claim needs a human check        → flagged, not trusted
+1. Config fallback has no regression test
+   Evidence: src/config.py:84 and tests/test_config.py:31
+   Verify: python -m pytest tests/test_config.py
+2. Setup docs use a removed flag
+   Evidence: README.md:62 and cli/options.py:19
+   Verify: night-shift --help
+3. One manual QA claim needs a human check
+   Evidence: no deterministic proof available; held, not trusted
 
 Local loops: 40 · Windows loops: 20 · Artifacts: KEEP=3 MAYBE=7 REJECT=50
 Draft PRs opened: 0
 Next action: verify item 1 and open one narrow draft PR if the gap is real.
 ```
 
-Every item is a ranked, source-backed suggestion with proof paths — not merged
-code. That `YELLOW` is intentional: the machines did useful work overnight,
-and you (or your coding agent) still make the call in the morning.
+Every item must name exact repo evidence, files, a verification command, and a
+proof path. Generic model advice is rejected and retried once. That `YELLOW`
+is intentional: the machines did useful work overnight, and you (or your
+coding agent) still make the call in the morning.
 
 ## Quick Start
 
@@ -88,11 +94,21 @@ thing Night Shift ever writes to a repo, and never code. The full design:
 +--------------+     +----------------------+     +---------------+
 ```
 
-1. **Scan** the repo: recent files, TODOs, missing tests, docs drift, open PRs.
-2. **Queue** a small, repo-specific list of safe work from those real signals.
-3. **Work** it with bounded local and network worker loops, all night.
-4. **Dedupe and rank**: repeated findings merge into fewer, stronger candidates.
-5. **Brief** you in the morning with the 3-5 best next actions, with evidence.
+1. **Scan** live signals: recent diffs, tests, TODOs, issues, PRs, and failed workflows.
+2. **Ground** each task with numbered file excerpts and relevant diffs.
+3. **Work** it with bounded local and network worker loops.
+4. **Reject and retry** answers that lack exact evidence or verification.
+5. **Dedupe and rank** repeated findings by usefulness, not token volume.
+6. **Brief** you with at most three evidence-backed choices.
+
+Teach it what matters after you review a choice:
+
+```bash
+night-shift feedback --latest --item 1 --useful
+night-shift feedback --latest --item 2 --not-useful --note "too generic"
+```
+
+Feedback stays on your machine and shapes later prompts and rankings for that repo.
 
 You choose how much it may prepare:
 
