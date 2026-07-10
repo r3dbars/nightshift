@@ -1775,6 +1775,7 @@ def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict |
 
         QUALITY BAR:
         - Use only the supplied repo and live evidence. Never invent a path, line number, command result, issue, or failure.
+        - Cite only a path listed under candidate files or supplied live-evidence paths. If the needed file is absent, reject the task.
         - If the evidence does not support a useful task, set ACTION_TYPE: reject and say what evidence is missing.
         - A suggestion without an exact path plus evidence is not useful.
         - If the claim says a file is missing a check or behavior, EVIDENCE must cite that same file.
@@ -1817,6 +1818,7 @@ def windows_prompt(task_slug: str, task_text: str, context_pack: str, task: dict
 
         QUALITY BAR:
         - Use only supplied repo and live evidence; never invent files, line numbers, issue state, failures, or command results.
+        - Cite only a path listed under candidate files or supplied live-evidence paths. If the needed file is absent, reject the task.
         - If evidence is insufficient, return ACTION_TYPE: reject and name the missing evidence.
         - A review claim without an exact path plus evidence is not useful.
         - If the claim says a file is missing a check or behavior, EVIDENCE must cite that same file.
@@ -2324,7 +2326,8 @@ def dispatch_one(
         source_ref,
     )
     if (
-        first["res"].rc == 0
+        lane == "local"
+        and first["res"].rc == 0
         and first["score"] != "KEEP"
         and action_type(first["res"].stdout) != "reject"
         and not UNSAFE_APPROVAL_RE.search(first["res"].stdout)
@@ -3000,7 +3003,7 @@ def command_run(args) -> int:
         item["slug"]: task_evidence_pack(root, item, context, max_chars=7000, max_files=2) for item in queue
     }
     windows_evidence_packs = {
-        item["slug"]: task_evidence_pack(root, item, context, max_chars=34000, max_files=4) for item in queue
+        item["slug"]: task_evidence_pack(root, item, context, max_chars=12000, max_files=3) for item in queue
     }
     lane_counts = {"local": 0, "windows": 0}
     lane_caps = {"local": max_local, "windows": max_windows}

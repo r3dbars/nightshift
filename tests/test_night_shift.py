@@ -582,6 +582,12 @@ CONFIDENCE: high
         recent = next(item for item in queue if item["slug"] == "recent-change-test-gap")
         self.assertNotIn("README.md", recent["files"][:2])
 
+    def test_windows_prompt_marks_candidate_file_boundary(self):
+        prompt = night_shift.windows_prompt(
+            "task", "inspect", "context", {"slug": "task", "files": ["bin/night-shift"]}, "draft-local"
+        )
+        self.assertIn("Cite only a path listed under candidate files", prompt)
+
     def test_active_autopilot_ignores_stale_pid_state(self):
         previous = night_shift.AUTOPILOT_STATE_PATH
         with tempfile.TemporaryDirectory() as tmp:

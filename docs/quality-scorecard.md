@@ -14,7 +14,7 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | Multi-repo operation | 72 | Portfolio cycles, stop limits, and a controller lock exist. | Test real mixed-language portfolio runs. |
 | Mac compute | 72 | LM Studio detection and local lane work. | Dynamic queueing and thermal/resource feedback. |
 | Windows compute | 72 | LAN worker detection and lane routing. | Authenticated endpoint validation and reconnect tests. |
-| Efficiency | 68 | Durable reject cooldowns and dedupe prevent known loops. | Token budgets per outcome and context caching by revision. |
+| Efficiency | 76 | Durable cooldowns, code-first context selection, smaller Windows packs, and no expensive Windows retry loops. | Per-outcome budgets and context caching by revision. |
 | Evidence quality | 88 | Numbered source/CI evidence, proof artifacts, and persistent lifecycle transitions exist. | Exercise reproduction evidence across varied real repositories. |
 | Deterministic proof | 84 | Explicit argv profiles and a rootless-container baseline/after verifier are implemented. | Install and prove the sandbox on a real supported host. |
 | Patch autonomy | 76 | A model may return only a validated diff; it is applied and verified in a no-network temporary container workspace. | Prove the protocol with a real runner image and diverse repositories. |
