@@ -20,7 +20,7 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | Patch autonomy | 76 | A model may return only a validated diff; it is applied and verified in a no-network temporary container workspace. | Prove the protocol with a real runner image and diverse repositories. |
 | Brief safety | 92 | No host repo execution; restricted actions and redaction. | Continue adversarial prompt-injection testing. |
 | Execute-draft safety | 92 | Fail-closed profile, pinned runner, owned trust, no-network temporary workspace, and independent verifier. | Prove the protocol on a real runner image before widening access. |
-| Prompt and secret security | 85 | Redaction before ledgers/model evidence and protected paths. | Structured secret scanning and a prompt-injection corpus. |
+| Prompt and secret security | 88 | Redaction, protected paths, code-first context selection, and explicit untrusted-data boundaries. | Add a prompt-injection corpus and real-run measurements. |
 | GitHub usefulness | 72 | PR, issue, failed-workflow signals feed queues. | PR/issue outcome correlation and explicit repo ownership profiles. |
 | Setup UX | 84 | Friendly wizard and legacy re-consent migration. | Explain profile setup from a single command. |
 | Morning UX | 72 | Brief, queue, harvest, token report, and metrics files. | One concise outcome dashboard with feedback prompts. |

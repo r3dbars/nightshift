@@ -568,6 +568,20 @@ CONFIDENCE: high
             night_shift.record_state(path, "task", "VERIFIED", after_rc=0)
             self.assertEqual(night_shift.latest_states(path)["task"]["state"], "VERIFIED")
 
+    def test_task_queue_prioritizes_code_and_tests_over_docs_for_model_context(self):
+        scan = {
+            "recent_files": ["README.md", ".night-shift.json.example", "bin/night-shift", "tests/test_night_shift.py"],
+            "source_files": ["bin/night-shift", "tests/test_night_shift.py"],
+            "test_files": ["tests/test_night_shift.py"],
+            "doc_files": ["README.md"],
+            "test_commands": ["python3 -m unittest discover -s tests"],
+        }
+        queue = night_shift.build_repo_work_queue(None, scan, "quiet", "draft-local", "goal", "Find a missing test")
+        mission = next(item for item in queue if item["slug"] == "mission-brief")
+        self.assertEqual(mission["files"][:2], ["tests/test_night_shift.py", "bin/night-shift"])
+        recent = next(item for item in queue if item["slug"] == "recent-change-test-gap")
+        self.assertNotIn("README.md", recent["files"][:2])
+
     def test_active_autopilot_ignores_stale_pid_state(self):
         previous = night_shift.AUTOPILOT_STATE_PATH
         with tempfile.TemporaryDirectory() as tmp:
