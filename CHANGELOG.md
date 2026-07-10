@@ -7,6 +7,18 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Ground worker tasks with numbered source excerpts, recent diffs, live issues,
+  pull requests, failed workflows, TODOs, and detected test commands.
+- Require exact evidence, files, verification commands, and expected results
+  before a worker artifact can score KEEP; retry one weak response once.
+- Replace generic artifact piles with at most three evidence-backed morning
+  choices and judge normal runs by useful KEEP output rather than token volume.
+- Add local `night-shift feedback` so useful and not-useful choices influence
+  future prompts and ranking for the same repo.
+- Add deterministic unit coverage for grounding, scoring, queue selection,
+  evidence packs, and feedback ranking.
+- Shorten the bundled skill and move detailed behavior into its existing
+  references so setup and bedtime conversations stay focused.
 - Add Autopilot: `night-shift schedule --nightly HH:MM` installs a standing
   nightly run (launchd/cron) that reads saved config at fire time, pauses
   itself after 3 unread morning briefs, drops to quiet mode on battery, and

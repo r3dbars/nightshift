@@ -21,9 +21,22 @@ Every non-Codex worker prompt should include:
 - `OUTPUT`: an exact schema.
 - `STOP`: stop after the requested output; do not continue inventing work.
 
+Every finding must also include:
+
+- `CLAIM`: one narrow conclusion.
+- `EVIDENCE`: exactly one `path:line - observed fact` entry from supplied context.
+- `WHY_NOW`: the recent change, issue, failure, TODO, or mission that makes it timely.
+- `TESTS_TO_RUN`: an exact detected verification command.
+- `EXPECTED_RESULT`: what passing proof looks like.
+
+Never accept invented paths, line numbers, issue state, failures, or command
+results. A self-reported `SAFE_FOR_DRAFT_PR: yes` is not enough for KEEP.
+When a negative claim names a file, its evidence must cite that same file.
+
 If the output violates the schema, rambles, invents categories, suggests
 unsafe work, or ignores `STOP`, record it as `YELLOW` or `RED`. Do not use
-that result as a task source without Codex rewriting it.
+that result as a task source. Retry once with the exact missing fields, then
+reject it if it is still ungrounded.
 
 For `Local Heavy`, use loop prompts that produce artifacts instead of vague
 advice. Each loop must have an artifact file under the run ledger. The queue
@@ -69,13 +82,16 @@ TASK: <one narrow scan: TODOs/tests/analytics/events/docs/errors/PR dedupe>
 INPUTS: <repo paths, command outputs, or pasted snippets only>
 FORBIDDEN: private user data, raw transcripts, secrets, destructive edits, release actions.
 OUTPUT:
-1. FINDINGS: exactly 5 bullets max
-2. BEST_NEXT_ACTION: one concrete task
-3. FILES_TO_TOUCH: up to 5 exact paths, or none
-4. TESTS_TO_RUN: exact commands, or none
-5. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
-6. SAFE_FOR_DRAFT_PR: yes/no
-7. CONFIDENCE: low/medium/high
+1. CLAIM: one specific repo-grounded finding
+2. EVIDENCE: exactly one path:line and observed fact, or none
+3. WHY_NOW: connect it to a supplied live signal
+4. BEST_NEXT_ACTION: one concrete task
+5. FILES_TO_TOUCH: up to 5 exact paths, or none
+6. TESTS_TO_RUN: exact detected command, or none
+7. EXPECTED_RESULT: what would prove the task worked
+8. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
+9. SAFE_FOR_DRAFT_PR: yes/no
+10. CONFIDENCE: low/medium/high
 STOP: no extra text.
 ```
 
@@ -89,14 +105,17 @@ FORBIDDEN: branch push/merge/release/publish/tag/notarize/deploy/appcast/cask, r
 private user data, destructive cleanup, file reorganization, audio mutation, broad rewrites,
 real hardware/audio proof claims.
 OUTPUT:
-1. SUMMARY: 2 sentences max
-2. FILES_TO_TOUCH: up to 6 paths
-3. PROPOSED_CHANGE: concise patch plan or review findings
-4. TESTS_TO_RUN: exact commands
-5. RISK: low/medium/high
-6. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
-7. SAFE_FOR_CODEX_TO_ATTEMPT: yes/no
-8. lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
+1. CLAIM: one specific repo-grounded finding
+2. EVIDENCE: exactly one path:line and observed fact, or none
+3. WHY_NOW: connect it to a supplied live signal
+4. PROPOSED_CHANGE: concise patch plan or review finding
+5. FILES_TO_TOUCH: up to 6 exact paths
+6. TESTS_TO_RUN: exact detected commands, or none
+7. EXPECTED_RESULT: what would prove the task worked
+8. RISK: low/medium/high
+9. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
+10. SAFE_FOR_CODEX_TO_ATTEMPT: yes/no
+11. lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
 STOP: no extra text.
 ```
 
@@ -104,7 +123,8 @@ STOP: no extra text.
 
 Codex must score every artifact:
 
-- `KEEP`: useful and safe enough to become a task, issue, or draft PR.
+- `KEEP`: grounded in supplied evidence, names real files and verification,
+  and is safe enough to become a task, issue, or draft PR.
 - `MAYBE`: useful idea but needs human/Codex rewrite.
 - `REJECT`: unsafe, broad, duplicate, stale, private, release-touching, or low signal.
 

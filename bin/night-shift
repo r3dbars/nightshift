@@ -28,6 +28,7 @@ BIN = CODEX_HOME / "bin"
 OVERNIGHT_ROOT = CODEX_HOME / "maestro" / "overnight"
 CONFIG_DIR = CODEX_HOME / "night-shift"
 CONFIG_PATH = CONFIG_DIR / "config.json"
+FEEDBACK_PATH = CONFIG_DIR / "feedback.jsonl"
 DEFAULT_LOCAL_URL = "http://localhost:1234/v1"
 DEFAULT_LOCAL_MODEL = "phi-4-mini-instruct"
 OLLAMA_LOCAL_URL = "http://localhost:11434/v1"
@@ -44,7 +45,7 @@ MODE_DEFAULTS = {
         "parallel_local": 1,
         "parallel_windows": 1,
         "target_tokens": 50_000,
-        "local_max_tokens": 512,
+        "local_max_tokens": 1024,
         "windows_max_tokens": 1024,
     },
     "night-shift": {
@@ -53,7 +54,7 @@ MODE_DEFAULTS = {
         "parallel_local": 3,
         "parallel_windows": 2,
         "target_tokens": 500_000,
-        "local_max_tokens": 768,
+        "local_max_tokens": 1536,
         "windows_max_tokens": 1536,
     },
     "afterburner": {
@@ -62,7 +63,7 @@ MODE_DEFAULTS = {
         "parallel_local": 4,
         "parallel_windows": 2,
         "target_tokens": 2_000_000,
-        "local_max_tokens": 1024,
+        "local_max_tokens": 2048,
         "windows_max_tokens": 2048,
     },
 }
@@ -420,10 +421,11 @@ def run_cmd(args, cwd=None, timeout=60, env=None, pid_log: Path | None = None) -
 
 
 def apply_compute_overrides(args) -> None:
-    local_url = getattr(args, "local_url", None)
-    local_model = getattr(args, "local_model", None)
-    windows_url = getattr(args, "windows_url", None)
-    windows_model = getattr(args, "windows_model", None)
+    saved = load_config()
+    local_url = getattr(args, "local_url", None) or os.environ.get("MAESTRO_LOCAL_BASE_URL") or config_value(saved, "local_url")
+    local_model = getattr(args, "local_model", None) or os.environ.get("MAESTRO_LOCAL_MODEL") or config_value(saved, "local_model")
+    windows_url = getattr(args, "windows_url", None) or os.environ.get("WINDOWS_WORKER_BASE_URL") or config_value(saved, "windows_url")
+    windows_model = getattr(args, "windows_model", None) or os.environ.get("WINDOWS_WORKER_MODEL") or config_value(saved, "windows_model")
     if local_url:
         os.environ["MAESTRO_LOCAL_BASE_URL"] = local_url.rstrip("/")
     if local_model:
@@ -460,7 +462,7 @@ def chat_probe(name: str, base_url: str, model: str, headers=None) -> tuple[str,
             {
                 "model": model,
                 "messages": [{"role": "user", "content": "Reply exactly: NIGHT_SHIFT_OK"}],
-                "max_tokens": 20,
+                "max_tokens": 128,
                 "temperature": 0,
             },
             headers=headers,
@@ -977,6 +979,18 @@ def repo_signal_scan(repo: Path | None) -> dict:
         )
         scan["github_open_prs_raw"] = prs.stdout.strip() if prs.rc == 0 else ""
         scan["github_open_prs_error"] = prs.stderr.strip() if prs.rc != 0 else ""
+        issues = run_cmd(
+            ["gh", "issue", "list", "--limit", "40", "--json", "number,title,labels,updatedAt"],
+            cwd=repo,
+            timeout=60,
+        )
+        scan["github_open_issues_raw"] = issues.stdout.strip() if issues.rc == 0 else ""
+        failed_runs = run_cmd(
+            ["gh", "run", "list", "--status", "failure", "--limit", "10", "--json", "databaseId,name,workflowName,headBranch,updatedAt,conclusion"],
+            cwd=repo,
+            timeout=60,
+        )
+        scan["github_failed_runs_raw"] = failed_runs.stdout.strip() if failed_runs.rc == 0 else ""
     return scan
 
 
@@ -1030,6 +1044,14 @@ def write_repo_scan(ledger: Path, scan: dict) -> None:
         lines.append(f"- {item}")
     if not scan.get("todo_sample"):
         lines.append("- None found in the sample.")
+    for title, key in [
+        ("Open pull requests", "github_open_prs_raw"),
+        ("Open issues", "github_open_issues_raw"),
+        ("Recent failed GitHub runs", "github_failed_runs_raw"),
+    ]:
+        raw = scan.get(key, "")
+        lines.extend(["", f"{title}:"])
+        lines.append(raw if raw and raw != "[]" else "- None found.")
     lines.append("")
     (ledger / "repo-scan.md").write_text("\n".join(lines), encoding="utf-8")
 
@@ -1047,6 +1069,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
                 "prompt": prompt,
                 "reason": reason,
                 "files": files or [],
+                "verification_commands": test_commands,
             }
         )
 
@@ -1055,6 +1078,15 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
     docs = scan.get("doc_files") or []
     todos = scan.get("todo_sample") or []
     test_commands = scan.get("test_commands") or []
+    todo_files = []
+    for line in todos:
+        match = re.match(r"^(.+?):\d+:", line)
+        if match:
+            value = match.group(1)
+            if repo and value.startswith(str(repo) + os.sep):
+                value = str(Path(value).relative_to(repo))
+            todo_files.append(value)
+    todo_files = list(dict.fromkeys(todo_files))
 
     if guidance == "goal" and goal_text.strip():
         add(
@@ -1078,6 +1110,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             "proof",
             "Check whether the detected test commands are the right proof path for a small morning PR. Identify the fastest command and the gap it proves.",
             "Night Shift should hand the user exact verification commands.",
+            (tests + recent)[:12],
         )
     if docs:
         add(
@@ -1093,34 +1126,40 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             "triage",
             "Cluster TODO/FIXME/HACK comments into one morning-ready issue candidate with exact files and risk.",
             "TODOs often contain real small chores if they are deduped.",
+            todo_files[:20],
         )
-    if "github_open_prs_raw" in scan:
+    if scan.get("github_failed_runs_raw") and scan.get("github_failed_runs_raw") != "[]":
+        add(
+            "failed-ci-triage",
+            "tests",
+            "Use the supplied failed GitHub run metadata to identify one narrow failure worth investigating. Do not guess the cause; name the missing evidence if logs are required.",
+            "A recent failed workflow is a stronger signal than a generic code scan.",
+            recent[:12],
+        )
+    if scan.get("github_open_issues_raw") and scan.get("github_open_issues_raw") != "[]":
+        add(
+            "open-issue-next-action",
+            "issue",
+            "Choose one open issue that maps to supplied repo evidence and propose the smallest verifiable next action.",
+            "Open issues describe work a maintainer has already chosen to track.",
+            recent[:12],
+        )
+    if scan.get("github_open_prs_raw") and scan.get("github_open_prs_raw") != "[]":
         add(
             "open-pr-dedupe",
             "triage",
             "Compare open PRs against current repo context and identify duplicates, stale branches, or one safe next review action.",
             "Open PRs are real repo work, not generic suggestions.",
         )
-    add(
-        "small-safe-fix-candidate",
-        "patch-plan",
-        "Find one small safe change that Codex could make tomorrow in an isolated worktree. Require exact files, exact tests, and a reason it is low risk.",
-        "This is the core autonomy step: useful, bounded, reviewable work.",
-        recent[:20],
-    )
-    add(
-        "morning-brief-actionability",
-        "product",
-        "Review the repo output surfaces and propose one change that would make the morning brief easier to act on in 60 seconds.",
-        "The user should wake up to choices, not homework.",
-    )
-    add(
-        "safety-boundary-proof",
-        "safety",
-        "Find one place where the repo should more clearly separate drafts, tests, manual proof, and release/deploy authority.",
-        "More autonomy needs stronger boundaries.",
-    )
-    if permission in {"draft-local", "draft-prs"}:
+    if recent:
+        add(
+            "small-safe-fix-candidate",
+            "patch-plan",
+            "Find one small safe change tied to the supplied recent diff or file evidence. Require exact files, exact tests, and a reason it matters now. Reject if the evidence does not support a real change.",
+            "Recent code gives the worker a concrete surface instead of an invitation to invent work.",
+            recent[:20],
+        )
+    if permission in {"draft-local", "draft-prs"} and recent:
         add(
             "draft-pr-candidate",
             "draft-pr",
@@ -1149,6 +1188,8 @@ def build_board(mode: str, queue: list[dict] | None = None, permission: str = "b
 def task_context_block(task: dict) -> str:
     files = task.get("files") or []
     file_lines = "\n".join(f"- {path}" for path in files[:24]) if files else "- No specific files preselected; infer from repo context."
+    commands = task.get("verification_commands") or []
+    command_lines_text = "\n".join(f"- {command}" for command in commands[:8]) if commands else "- No test command was detected; propose a read-only inspection command or reject."
     return textwrap.dedent(
         f"""
         WORK_QUEUE_ITEM:
@@ -1157,12 +1198,81 @@ def task_context_block(task: dict) -> str:
         - why this matters: {task.get('reason', 'selected from repo scan')}
         - candidate files:
         {file_lines}
+        - detected verification commands:
+        {command_lines_text}
         """
     ).strip()
 
 
+def load_feedback() -> list[dict]:
+    if not FEEDBACK_PATH.exists():
+        return []
+    rows: list[dict] = []
+    for line in FEEDBACK_PATH.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            value = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(value, dict):
+            rows.append(value)
+    return rows[-200:]
+
+
+def feedback_context(repo: Path | None) -> str:
+    if not repo:
+        return "No prior feedback for this repo."
+    relevant = [row for row in load_feedback() if row.get("repo") == str(repo)]
+    if not relevant:
+        return "No prior feedback for this repo."
+    lines = []
+    for row in relevant[-12:]:
+        verdict = row.get("verdict", "unknown")
+        summary = " ".join(str(row.get("summary", "")).split())[:180]
+        lines.append(f"- {verdict}: {summary}")
+    return "\n".join(lines)
+
+
+def task_evidence_pack(
+    repo: Path | None,
+    task: dict,
+    base_context: str,
+    max_chars: int = 36000,
+    max_files: int = 4,
+) -> str:
+    if not repo or not repo.exists():
+        return base_context[:max_chars]
+    tracked_result = run_cmd(["git", "ls-files"], cwd=repo, timeout=30)
+    tracked = set(tracked_result.stdout.splitlines()) if tracked_result.rc == 0 else set()
+    candidates = [path for path in task.get("files", []) if path in tracked][:6]
+    sections = ["## prior-user-feedback\n" + feedback_context(repo)]
+    if candidates:
+        diff = run_cmd(
+            ["git", "diff", "--unified=24", "HEAD~10..HEAD", "--", *candidates],
+            cwd=repo,
+            timeout=60,
+        )
+        if diff.rc != 0 or not diff.stdout.strip():
+            diff = run_cmd(["git", "show", "--format=", "--unified=24", "HEAD", "--", *candidates], cwd=repo, timeout=60)
+        if diff.stdout.strip():
+            sections.append("## candidate-diff\n" + diff.stdout[: min(12000, max_chars // 2)])
+    per_file_chars = max(1200, min(6000, max_chars // max(2, max_files + 1)))
+    for relative in candidates[:max_files]:
+        path = repo / relative
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            continue
+        if b"\x00" in raw[:4096]:
+            continue
+        text = raw.decode("utf-8", errors="replace")
+        numbered = "\n".join(f"{index:>5} | {line}" for index, line in enumerate(text.splitlines()[:180], start=1))
+        sections.append(f"## file-excerpt: {relative}\n{numbered[:per_file_chars]}")
+    sections.append("## repo-summary\n" + base_context[: min(5000, max_chars // 3)])
+    return "\n\n".join(sections)[:max_chars]
+
+
 def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict | None = None, permission: str = "brief") -> str:
-    context = context_pack[:14000]
+    context = context_pack[:30000]
     queue_context = task_context_block(task or {"slug": task_slug, "prompt": task_text})
     return textwrap.dedent(
         f"""
@@ -1178,22 +1288,31 @@ def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict |
         - merge, publish, tag, notarize, deploy, appcast, cask, credentials, billing
         - broad rewrites, hardware/audio/manual proof claims, moving or deleting user files
 
+        QUALITY BAR:
+        - Use only the supplied repo evidence. Never invent a path, line number, command result, issue, or failure.
+        - If the evidence does not support a useful task, set ACTION_TYPE: reject and say what evidence is missing.
+        - A suggestion without an exact path plus evidence is not useful.
+        - If the claim says a file is missing a check or behavior, EVIDENCE must cite that same file.
+
         OUTPUT:
         1. TASK_ID: {task_slug}
-        2. FINDINGS: exactly 5 bullets max
-        3. BEST_NEXT_ACTION: one concrete task
-        4. FILES_TO_TOUCH: up to 5 exact paths, or none
-        5. TESTS_TO_RUN: exact commands, or none
-        6. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
-        7. SAFE_FOR_DRAFT_PR: yes/no
-        8. CONFIDENCE: low/medium/high
+        2. CLAIM: one specific repo-grounded finding
+        3. EVIDENCE: exactly one `path:line - observed fact` entry, or `none`; no uncited command claims
+        4. WHY_NOW: connect the evidence to a recent change, issue, failure, TODO, or user mission
+        5. BEST_NEXT_ACTION: one concrete task
+        6. FILES_TO_TOUCH: up to 5 exact repo-relative paths, or none
+        7. TESTS_TO_RUN: exact detected command, or none
+        8. EXPECTED_RESULT: what would prove the task worked
+        9. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
+        10. SAFE_FOR_DRAFT_PR: yes/no
+        11. CONFIDENCE: low/medium/high
         STOP: no extra text.
         """
     ).strip()
 
 
 def windows_prompt(task_slug: str, task_text: str, context_pack: str, task: dict | None = None, permission: str = "brief") -> str:
-    context = context_pack[:18000]
+    context = context_pack[:34000]
     queue_context = task_context_block(task or {"slug": task_slug, "prompt": task_text})
     return textwrap.dedent(
         f"""
@@ -1209,16 +1328,25 @@ def windows_prompt(task_slug: str, task_text: str, context_pack: str, task: dict
         private user data, destructive cleanup, file reorganization, audio mutation, broad rewrites,
         real hardware/audio proof claims.
 
+        QUALITY BAR:
+        - Use only supplied repo evidence; never invent files, line numbers, issue state, failures, or command results.
+        - If evidence is insufficient, return ACTION_TYPE: reject and name the missing evidence.
+        - A review claim without an exact path plus evidence is not useful.
+        - If the claim says a file is missing a check or behavior, EVIDENCE must cite that same file.
+
         OUTPUT:
         1. TASK_ID: {task_slug}
-        2. SUMMARY: 2 sentences max
-        3. FILES_TO_TOUCH: up to 6 paths
-        4. PROPOSED_CHANGE: concise patch plan or review findings
-        5. TESTS_TO_RUN: exact commands
-        6. RISK: low/medium/high
-        7. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
-        8. SAFE_FOR_CODEX_TO_ATTEMPT: yes/no
-        9. lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
+        2. CLAIM: one specific repo-grounded finding
+        3. EVIDENCE: exactly one `path:line - observed fact` entry, or `none`; no uncited command claims
+        4. WHY_NOW: connect the evidence to a recent change, issue, failure, TODO, or user mission
+        5. PROPOSED_CHANGE: concise patch plan or review finding
+        6. FILES_TO_TOUCH: up to 6 exact repo-relative paths
+        7. TESTS_TO_RUN: exact detected commands, or none
+        8. EXPECTED_RESULT: what would prove the task worked
+        9. RISK: low/medium/high
+        10. ACTION_TYPE: brief | issue | patch-plan | draft-pr-candidate | reject
+        11. SAFE_FOR_CODEX_TO_ATTEMPT: yes/no
+        12. lanes used: Codex=skipped; Claude=skipped; Local=skipped; Windows=draft only
         STOP: no extra text.
         """
     ).strip()
@@ -1274,8 +1402,109 @@ def first_label_value(output: str, labels: list[str]) -> str:
     return ""
 
 
+def label_block(output: str, labels: list[str]) -> str:
+    lines = output.splitlines()
+    collected: list[str] = []
+    active = False
+    for raw in lines:
+        stripped = raw.strip()
+        normalized = stripped.lstrip("-*0123456789. ")
+        lower = normalized.lower()
+        if not active:
+            for label in labels:
+                if lower.startswith(label.lower()):
+                    active = True
+                    inline = normalized[len(label) :].strip(" :-")
+                    if inline:
+                        collected.append(inline)
+                    break
+            continue
+        if re.match(r"^\d+[.)]\s+[A-Z][A-Z_ ]+:", stripped) or re.match(r"^[A-Z][A-Z_ ]+:", stripped):
+            break
+        collected.append(stripped)
+    return "\n".join(line for line in collected if line).strip()
+
+
+def evidence_validation_reasons(
+    output: str,
+    repo: Path | None,
+    candidate_files: list[str] | None = None,
+) -> list[str]:
+    if not repo:
+        return []
+    block = label_block(output, ["EVIDENCE"])
+    entries = re.findall(r"(?:^|\s|[-*`])([A-Za-z0-9_./@+-]+):(\d+)\b", block)
+    if not entries:
+        return ["evidence did not include an exact path:line"]
+    evidence_bullets = [line for line in block.splitlines() if line.lstrip().startswith(("-", "*"))]
+    if any(not re.search(r"[A-Za-z0-9_./@+-]+:\d+\b", line) for line in evidence_bullets):
+        return ["evidence contains a statement that was not tied to an exact path:line"]
+    allowed = set(candidate_files or [])
+    claim = first_label_value(output, ["CLAIM"])
+    negative_claim = bool(re.search(r"\b(does not|doesn't|missing|no|lacks?|absent|without)\b", claim, re.IGNORECASE))
+    claimed_paths = {
+        value.strip("`.,:;()[]")
+        for value in re.findall(r"`([^`]+)`|((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.@+-]+)", claim)
+        for value in value
+        if value and "/" in value
+    }
+    stop = {
+        "about", "after", "change", "changes", "code", "coverage", "file", "files",
+        "from", "into", "line", "missing", "night", "repo", "shift", "test", "tests",
+        "that", "this", "with", "logic",
+    }
+    claim_words = {
+        word for word in re.findall(r"[a-z0-9]+", claim.lower()) if len(word) >= 4 and word not in stop
+    }
+    valid_entries = 0
+    for relative, raw_line in entries:
+        if negative_claim and claimed_paths and relative not in claimed_paths:
+            return [f"negative claim names {sorted(claimed_paths)[0]} but cites {relative}"]
+        if allowed and relative not in allowed:
+            return [f"evidence path was not supplied to the worker: {relative}"]
+        path = (repo / relative).resolve()
+        try:
+            path.relative_to(repo.resolve())
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            source_line = lines[int(raw_line) - 1]
+        except (OSError, ValueError, IndexError):
+            return [f"evidence path or line does not exist: {relative}:{raw_line}"]
+        source_words = {
+            word for word in re.findall(r"[a-z0-9]+", source_line.lower()) if len(word) >= 4 and word not in stop
+        }
+        if claim_words & source_words:
+            valid_entries += 1
+        else:
+            return [f"cited line does not support the claim: {relative}:{raw_line}"]
+    if valid_entries != len(entries):
+        return ["not every cited line supports the claim"]
+    if re.search(r"\b(missing|no|lacks?|absent)\b.{0,30}\btests?\b|\btests?\b.{0,30}\b(missing|absent)\b", claim, re.IGNORECASE):
+        tracked = run_cmd(["git", "ls-files"], cwd=repo, timeout=30)
+        test_paths = [
+            path
+            for path in tracked.stdout.splitlines()
+            if re.search(r"(^|/)(test|tests|spec|specs)(/|$)|(_test|\.test|\.spec)\.", path, re.IGNORECASE)
+        ]
+        tested_text = "\n".join(
+            (repo / path).read_text(encoding="utf-8", errors="replace")
+            for path in test_paths[:200]
+            if (repo / path).is_file()
+        ).lower()
+        subject_stop = stop | {"behavior", "command", "feature", "functionality", "regression"}
+        backticked = " ".join(re.findall(r"`([^`]+)`", claim))
+        subject_words = [
+            word
+            for word in re.findall(r"[a-z0-9]+", (backticked or claim).lower())
+            if len(word) >= 5 and word not in subject_stop
+        ]
+        if not subject_words or all(word in tested_text for word in subject_words):
+            return ["the claimed missing test was not confirmed by the repo test search"]
+    return []
+
+
 def summarize_output(output: str) -> str:
     for labels in [
+        ["CLAIM"],
         ["BEST_NEXT_ACTION", "BEST NEXT ACTION"],
         ["PROPOSED_CHANGE", "PROPOSED CHANGE"],
         ["SUMMARY"],
@@ -1303,6 +1532,55 @@ def action_type(output: str) -> str:
     return "brief"
 
 
+def concrete_paths(output: str, candidate_files: list[str] | None = None) -> list[str]:
+    candidates = candidate_files or []
+    found = [path for path in candidates if path and path in output]
+    path_pattern = re.compile(r"(?<![\w.-])(?:[\w.-]+/)+[\w.@+-]+\.[A-Za-z0-9]+")
+    file_block = label_block(output, ["FILES_TO_TOUCH", "FILES TO TOUCH"])
+    return list(dict.fromkeys(found + path_pattern.findall(file_block)))[:8]
+
+
+def clean_inline_code(value: str) -> str:
+    cleaned = value.strip()
+    cleaned = re.sub(r"^```(?:bash|sh|shell)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    if len(cleaned) >= 2 and cleaned.startswith("`") and cleaned.endswith("`"):
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
+
+
+def output_quality_reasons(
+    rc: int,
+    output: str,
+    candidate_files: list[str] | None = None,
+    verification_commands: list[str] | None = None,
+    repo: Path | None = None,
+) -> list[str]:
+    if rc != 0:
+        return ["worker command failed"]
+    if not output.strip():
+        return ["worker returned no output"]
+    reasons: list[str] = []
+    evidence = first_label_value(output, ["EVIDENCE"])
+    verification = first_label_value(output, ["TESTS_TO_RUN", "TESTS TO RUN", "VERIFICATION"])
+    expected = first_label_value(output, ["EXPECTED_RESULT", "EXPECTED RESULT"])
+    paths = concrete_paths(output, candidate_files)
+    if not evidence or evidence.lower() in {"none", "n/a", "unknown"}:
+        reasons.append("missing repo evidence")
+    if not paths:
+        reasons.append("missing an exact repo-relative path")
+    if not verification or verification.lower() in {"none", "n/a", "unknown"}:
+        reasons.append("missing an exact verification command")
+    elif verification_commands and not any(command in verification for command in verification_commands):
+        reasons.append("verification command was not detected from this repo")
+    if not expected or expected.lower() in {"none", "n/a", "unknown"}:
+        reasons.append("missing the expected proof result")
+    reasons.extend(evidence_validation_reasons(output, repo, candidate_files))
+    if action_type(output) == "reject":
+        reasons.append("worker explicitly rejected the task")
+    return reasons
+
+
 def confidence_bonus(output: str) -> int:
     confidence = first_label_value(output, ["CONFIDENCE"]).lower()
     risk = first_label_value(output, ["RISK"]).lower()
@@ -1315,7 +1593,13 @@ def confidence_bonus(output: str) -> int:
     return 0
 
 
-def score_output(rc: int, output: str) -> str:
+def score_output(
+    rc: int,
+    output: str,
+    candidate_files: list[str] | None = None,
+    verification_commands: list[str] | None = None,
+    repo: Path | None = None,
+) -> str:
     low = output.lower()
     if rc != 0:
         return "REJECT"
@@ -1328,16 +1612,27 @@ def score_output(rc: int, output: str) -> str:
         or "safe for codex to attempt: yes" in low
     ):
         return "REJECT"
-    if "forbidden" in low and ("merge" in low or "release" in low):
-        return "MAYBE"
-    if (
+    if action_type(output) == "reject":
+        return "REJECT"
+    quality_reasons = output_quality_reasons(rc, output, candidate_files, verification_commands, repo)
+    critical_quality = (
+        "evidence",
+        "cited line",
+        "not every cited",
+        "claimed missing test",
+        "negative claim",
+    )
+    if any(reason.startswith(critical_quality) for reason in quality_reasons):
+        return "REJECT"
+    safe_yes = (
         "safe_for_draft_pr: yes" in low
         or "safe for draft pr: yes" in low
         or "safe_for_codex_to_attempt: yes" in low
         or "safe for codex to attempt: yes" in low
-    ):
+    )
+    if safe_yes and not quality_reasons:
         return "KEEP"
-    if (
+    if len(quality_reasons) <= 1 and (
         "best_next_action:" in low
         or "best next action:" in low
         or "proposed_change:" in low
@@ -1385,6 +1680,17 @@ def dedupe_key(row: dict) -> str:
     return f"{label_family(row.get('label', 'task'))}:{summary_theme(summary)}:{action_type(row.get('output', ''))}"
 
 
+def feedback_adjustment(key: str, repo: str = "") -> int:
+    adjustment = 0
+    for row in load_feedback():
+        if row.get("key") != key:
+            continue
+        if repo and row.get("repo") != repo:
+            continue
+        adjustment += 20 if row.get("verdict") == "useful" else -120
+    return max(-240, min(40, adjustment))
+
+
 def deduped_work_items(results: list[dict], limit: int | None = None) -> list[dict]:
     clusters: dict[str, dict] = {}
     for row in ranked_results(results):
@@ -1396,7 +1702,7 @@ def deduped_work_items(results: list[dict], limit: int | None = None) -> list[di
                 "supporting": [],
                 "lanes": set(),
                 "labels": set(),
-                "priority": artifact_priority(row),
+                "priority": artifact_priority(row) + feedback_adjustment(key, row.get("repo", "")),
                 "action_type": action_type(row.get("output", "")),
                 "theme": summary_theme(row.get("summary", "")),
             }
@@ -1404,7 +1710,10 @@ def deduped_work_items(results: list[dict], limit: int | None = None) -> list[di
         cluster["supporting"].append(row)
         cluster["lanes"].add(row.get("lane", "unknown"))
         cluster["labels"].add(row.get("label", "unknown"))
-        cluster["priority"] = max(cluster["priority"], artifact_priority(row)) + min(len(cluster["supporting"]) - 1, 5)
+        cluster["priority"] = max(
+            cluster["priority"],
+            artifact_priority(row) + feedback_adjustment(key, row.get("repo", "")),
+        ) + min(len(cluster["supporting"]) - 1, 5)
         if artifact_priority(row) > artifact_priority(cluster["primary"]):
             cluster["primary"] = row
     items = sorted(clusters.values(), key=lambda item: (-item["priority"], item["key"]))
@@ -1432,42 +1741,98 @@ def token_totals_by_lane(results: list[dict]) -> dict[str, dict[str, int]]:
     return totals
 
 
-def dispatch_one(lane: str, label: str, prompt: str, ledger: Path, mode: str, timeout=900) -> dict:
+def dispatch_one(
+    lane: str,
+    label: str,
+    prompt: str,
+    ledger: Path,
+    mode: str,
+    timeout=900,
+    candidate_files: list[str] | None = None,
+    verification_commands: list[str] | None = None,
+    repo: Path | None = None,
+) -> dict:
     delegate = BIN / "maestro-delegate"
     env = os.environ.copy()
     defaults = MODE_DEFAULTS[mode]
     env.setdefault("MAESTRO_LOCAL_MAX_TOKENS", str(defaults["local_max_tokens"]))
     env.setdefault("MAESTRO_WINDOWS_MAX_TOKENS", str(defaults["windows_max_tokens"]))
     start = time.time()
-    res = run_cmd(
-        [delegate, lane, "--label", label, "--", prompt],
-        timeout=timeout,
-        env=env,
-        pid_log=ledger / "processes.tsv",
-    )
-    proof = parse_proof(res.stderr)
     safe_label = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-") or "task"
+
+    def run_attempt(attempt: int, attempt_prompt: str) -> dict:
+        attempt_label = label if attempt == 1 else f"{label}-retry"
+        result = run_cmd(
+            [delegate, lane, "--label", attempt_label, "--", attempt_prompt],
+            timeout=timeout,
+            env=env,
+            pid_log=ledger / "processes.tsv",
+        )
+        proof = parse_proof(result.stderr)
+        meta = read_meta(proof)
+        attempt_artifact = ledger / "artifacts" / f"{safe_label}-{lane}-attempt-{attempt}.md"
+        attempt_artifact.write_text(result.stdout.strip() + "\n", encoding="utf-8")
+        (ledger / "artifacts" / f"{safe_label}-{lane}-attempt-{attempt}.stderr.txt").write_text(
+            result.stderr.strip() + "\n", encoding="utf-8"
+        )
+        return {
+            "res": result,
+            "proof": proof or "",
+            "meta": meta,
+            "score": score_output(result.rc, result.stdout, candidate_files, verification_commands, repo),
+            "artifact": attempt_artifact,
+        }
+
+    attempts = [run_attempt(1, prompt)]
+    first = attempts[0]
+    reasons = output_quality_reasons(first["res"].rc, first["res"].stdout, candidate_files, verification_commands, repo)
+    if (
+        first["res"].rc == 0
+        and first["score"] != "KEEP"
+        and action_type(first["res"].stdout) != "reject"
+        and not UNSAFE_APPROVAL_RE.search(first["res"].stdout)
+    ):
+        correction = "; ".join(reasons) or "the response did not follow the schema"
+        retry_prompt = (
+            prompt
+            + "\n\nCORRECTION PASS: Your previous answer was rejected because: "
+            + correction
+            + ". Return the complete requested schema once. Use only supplied evidence; reject the task if evidence is insufficient."
+        )
+        attempts.append(run_attempt(2, retry_prompt))
+
+    rank = {"REJECT": 0, "MAYBE": 1, "KEEP": 2}
+    selected = max(attempts, key=lambda item: (rank[item["score"]], -item["res"].rc))
+    res = selected["res"]
+    score = selected["score"]
     artifact = ledger / "artifacts" / f"{safe_label}-{lane}.md"
     artifact.write_text(res.stdout.strip() + "\n", encoding="utf-8")
-    stderr_artifact = ledger / "artifacts" / f"{safe_label}-{lane}.stderr.txt"
-    stderr_artifact.write_text(res.stderr.strip() + "\n", encoding="utf-8")
-    meta = read_meta(proof)
-    score = score_output(res.rc, res.stdout)
+    proofs = [item["proof"] for item in attempts if item["proof"]]
+    total_tokens = sum(int(item["meta"].get("total_tokens_estimate") or 0) for item in attempts)
+    input_tokens = sum(int(item["meta"].get("prompt_tokens_estimate") or item["meta"].get("input_tokens") or 0) for item in attempts)
+    output_tokens = sum(int(item["meta"].get("output_tokens_estimate") or item["meta"].get("output_tokens") or 0) for item in attempts)
     return {
         "lane": lane,
         "label": label,
         "rc": res.rc,
         "timed_out": res.timed_out,
         "seconds": round(time.time() - start, 2),
-        "proof": proof or "",
+        "proof": selected["proof"],
+        "proofs": proofs,
         "artifact": str(artifact),
         "score": score,
         "priority": 0,
-        "tokens": int(meta.get("total_tokens_estimate") or 0),
-        "input_tokens": int(meta.get("prompt_tokens_estimate") or meta.get("input_tokens") or 0),
-        "output_tokens": int(meta.get("output_tokens_estimate") or meta.get("output_tokens") or 0),
+        "tokens": total_tokens,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
         "summary": summarize_output(res.stdout),
         "action_type": action_type(res.stdout),
+        "evidence": first_label_value(res.stdout, ["EVIDENCE"]),
+        "files": concrete_paths(res.stdout, candidate_files),
+        "tests": clean_inline_code(first_label_value(res.stdout, ["TESTS_TO_RUN", "TESTS TO RUN", "VERIFICATION"])),
+        "expected_result": clean_inline_code(first_label_value(res.stdout, ["EXPECTED_RESULT", "EXPECTED RESULT"])),
+        "quality_reasons": output_quality_reasons(res.rc, res.stdout, candidate_files, verification_commands, repo),
+        "retry_count": len(attempts) - 1,
         "output": res.stdout,
         "output_preview": " ".join(res.stdout.strip().split())[:240],
     }
@@ -1572,6 +1937,10 @@ def write_work_queue(ledger: Path, results: list[dict]) -> list[dict]:
                 "priority": item["priority"],
                 "summary": row["summary"],
                 "score": row["score"],
+                "evidence": row.get("evidence", ""),
+                "files": row.get("files", []),
+                "tests": row.get("tests", ""),
+                "expected_result": row.get("expected_result", ""),
                 "primary_artifact": row["artifact"],
                 "proof": row.get("proof", ""),
             }
@@ -1587,6 +1956,10 @@ def write_work_queue(ledger: Path, results: list[dict]) -> list[dict]:
         lines.append(f"- Score: {item['score']}")
         lines.append(f"- Support: {item['supporting_artifacts']} artifact(s)")
         lines.append(f"- Lanes: {', '.join(item['lanes']) or 'unknown'}")
+        lines.append(f"- Evidence: {item['evidence'] or 'not captured'}")
+        lines.append(f"- Files: {', '.join(item['files']) or 'none'}")
+        lines.append(f"- Verify: `{item['tests']}`" if item["tests"] else "- Verify: not captured")
+        lines.append(f"- Expected: {item['expected_result'] or 'not captured'}")
         lines.append(f"- Primary artifact: {item['primary_artifact']}")
         lines.append("")
     (ledger / "work-queue.md").write_text("\n".join(lines), encoding="utf-8")
@@ -1594,7 +1967,9 @@ def write_work_queue(ledger: Path, results: list[dict]) -> list[dict]:
 
 
 def write_token_report(ledger: Path, results: list[dict]) -> str:
-    proofs = [r["proof"] for r in results if r.get("proof")]
+    proofs = []
+    for row in results:
+        proofs.extend(row.get("proofs") or ([row["proof"]] if row.get("proof") else []))
     if not proofs:
         text = "No delegate proof paths captured.\n"
     else:
@@ -1604,15 +1979,17 @@ def write_token_report(ledger: Path, results: list[dict]) -> str:
     return text
 
 
-def run_status(results: list[dict], target_tokens: int, overall: str) -> str:
+def run_status(results: list[dict], target_tokens: int, overall: str, mode: str = "night-shift") -> str:
     if overall == "RED":
         return "RED"
     if not results:
         return "YELLOW"
     total_tokens = sum(r["tokens"] for r in results)
     failed = any(r["rc"] != 0 or r["timed_out"] for r in results)
-    useful = any(r["score"] in ("KEEP", "MAYBE") for r in results)
-    if failed or not useful or total_tokens < target_tokens:
+    useful = any(r["score"] == "KEEP" for r in results)
+    if failed or not useful:
+        return "YELLOW"
+    if mode == "afterburner" and total_tokens < target_tokens:
         return "YELLOW"
     return "GREEN"
 
@@ -1626,32 +2003,39 @@ def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: i
     keep = len([r for r in results if r["score"] == "KEEP"])
     maybe = len([r for r in results if r["score"] == "MAYBE"])
     reject = len([r for r in results if r["score"] == "REJECT"])
-    status = run_status(results, target_tokens, overall)
+    status = run_status(results, target_tokens, overall, mode)
     ranked = ranked_results(results)
-    work_items = deduped_work_items(results, limit=5)
-    first_action = (
-        work_items[0]["primary"]["summary"]
-        if work_items
-        else "Fix the startup gate or rerun with reachable local/Windows lanes."
-    )
+    work_items = deduped_work_items(results, limit=3)
+    if work_items:
+        first_action = work_items[0]["primary"]["summary"]
+    elif results:
+        first_action = "No evidence-backed item survived. Use a narrower mission or a repo with stronger live signals."
+    else:
+        first_action = "Fix the startup gate or run with reachable local/Windows lanes."
     token_totals = token_totals_by_lane(results)
     lines = [
         "# Morning Brief",
         "",
         f"Status: {status}",
         "",
-        "What should I do first?",
+        "Start here:",
         f"- {first_action}",
         "",
-        "Top unique choices:",
+        "Three useful choices:",
     ]
     if work_items:
         for index, item in enumerate(work_items, start=1):
             row = item["primary"]
             lines.append(
-                f"{index}. [{row['score']}] {row['summary']} "
-                f"(action={item['action_type']}, support={len(item['supporting'])}, lanes={','.join(item['lanes'])})"
+                f"{index}. {row['summary']} [{row['score']}]"
             )
+            if row.get("evidence"):
+                lines.append(f"   Evidence: {row['evidence']}")
+            if row.get("files"):
+                lines.append(f"   Files: {', '.join(row['files'][:5])}")
+            if row.get("tests"):
+                lines.append(f"   Verify: `{row['tests']}`")
+            lines.append(f"   Proof: {row['artifact']}")
     else:
         lines.append("1. No usable artifacts survived scoring. Rerun after fixing the blockers below.")
     lines.extend(
@@ -1666,6 +2050,7 @@ def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: i
             f"- Token target: {target_tokens}",
             f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}",
             f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}",
+            f"- Evidence-backed useful choices: {len([item for item in work_items if item['primary']['score'] == 'KEEP'])}",
             f"- Unique work queue items: {len(deduped_work_items(results))}",
             "",
             "Token totals by lane:",
@@ -1891,15 +2276,26 @@ def command_run(args) -> int:
 
     tasks = []
     if not queue:
-        queue = [{"slug": slug, "kind": "scan", "prompt": text, "reason": "fallback board item", "files": []} for slug, text in BOARD_ITEMS]
+        write_morning(ledger, args.mode, [], target_tokens, "YELLOW")
+        print(f"NIGHTSHIFT_RUN: YELLOW | no grounded repo tasks found | ledger={ledger}")
+        print("Give Night Shift a concrete --goal, or add live issues, recent changes, tests, or TODOs.")
+        return 0
+    local_evidence_packs = {
+        item["slug"]: task_evidence_pack(root, item, context, max_chars=7000, max_files=2) for item in queue
+    }
+    windows_evidence_packs = {
+        item["slug"]: task_evidence_pack(root, item, context, max_chars=34000, max_files=4) for item in queue
+    }
     for i in range(max_local):
         item = queue[i % len(queue)]
         slug, text = item["slug"], item["prompt"]
-        tasks.append(("local", f"{slug}-{i+1:03d}", local_prompt(slug, text, context, item, permission)))
+        candidate_files = item.get("files", [])[:6]
+        tasks.append(("local", f"{slug}-{i+1:03d}", local_prompt(slug, text, local_evidence_packs[slug], item, permission), candidate_files, item.get("verification_commands", [])))
     for i in range(max_windows):
         item = queue[i % len(queue)]
         slug, text = item["slug"], item["prompt"]
-        tasks.append(("windows", f"{slug}-{i+1:03d}", windows_prompt(slug, text, context, item, permission)))
+        candidate_files = item.get("files", [])[:6]
+        tasks.append(("windows", f"{slug}-{i+1:03d}", windows_prompt(slug, text, windows_evidence_packs[slug], item, permission), candidate_files, item.get("verification_commands", [])))
 
     results: list[dict] = []
     stop_file = ledger / "STOP"
@@ -1910,7 +2306,7 @@ def command_run(args) -> int:
     def submit_ready(executor, pending, remaining):
         submitted = 0
         for item in list(remaining):
-            lane, label, prompt = item
+            lane, label, prompt, candidate_files, verification_commands = item
             if lane_running[lane] >= lane_limits[lane]:
                 continue
             if stop_file.exists():
@@ -1919,7 +2315,18 @@ def command_run(args) -> int:
                 stop_file.write_text(f"automatic stop limit reached at {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n", encoding="utf-8")
                 break
             lane_running[lane] += 1
-            future = executor.submit(dispatch_one, lane, label, prompt, ledger, args.mode, args.timeout)
+            future = executor.submit(
+                dispatch_one,
+                lane,
+                label,
+                prompt,
+                ledger,
+                args.mode,
+                args.timeout,
+                candidate_files,
+                verification_commands,
+                root,
+            )
             pending[future] = lane
             remaining.remove(item)
             submitted += 1
@@ -1941,7 +2348,9 @@ def command_run(args) -> int:
                 lane = pending.pop(future)
                 lane_running[lane] -= 1
                 try:
-                    results.append(future.result())
+                    result = future.result()
+                    result["repo"] = str(root)
+                    results.append(result)
                 except Exception as exc:
                     results.append(
                         {
@@ -1960,6 +2369,7 @@ def command_run(args) -> int:
                             "summary": str(exc),
                             "output": "",
                             "output_preview": str(exc),
+                            "repo": str(root),
                         }
                     )
             if stop_file.exists():
@@ -1971,7 +2381,7 @@ def command_run(args) -> int:
     token_report = write_token_report(ledger, results)
     write_morning(ledger, args.mode, results, target_tokens, overall)
     total_tokens = sum(r["tokens"] for r in results)
-    status = run_status(results, target_tokens, overall)
+    status = run_status(results, target_tokens, overall, args.mode)
     print(
         f"NIGHTSHIFT_RUN: {status} | mode={args.mode} | local={len([r for r in results if r['lane']=='local'])} "
         f"| windows={len([r for r in results if r['lane']=='windows'])} | tokens={total_tokens} | ledger={ledger}"
@@ -2551,6 +2961,47 @@ def command_report(args) -> int:
     return 0
 
 
+def command_feedback(args) -> int:
+    if args.useful == args.not_useful:
+        print("NIGHTSHIFT_FEEDBACK: RED | choose exactly one of --useful or --not-useful")
+        return 2
+    if args.item < 1:
+        print("NIGHTSHIFT_FEEDBACK: RED | --item must be 1 or greater")
+        return 2
+    ledger = select_ledger(args)
+    queue_path = ledger / "work-queue.json" if ledger else None
+    if not ledger or not queue_path or not queue_path.exists():
+        print("NIGHTSHIFT_FEEDBACK: RED | no work queue found; use --latest or --ledger <path>")
+        return 1
+    try:
+        items = json.loads(queue_path.read_text(encoding="utf-8"))
+        item = items[args.item - 1]
+    except (ValueError, IndexError, TypeError, json.JSONDecodeError):
+        print(f"NIGHTSHIFT_FEEDBACK: RED | item {args.item} does not exist in {queue_path}")
+        return 1
+    try:
+        mode = json.loads((ledger / "mode.json").read_text(encoding="utf-8"))
+    except Exception:
+        mode = {}
+    verdict = "useful" if args.useful else "not-useful"
+    row = {
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "repo": mode.get("repo", ""),
+        "ledger": str(ledger),
+        "rank": args.item,
+        "key": item.get("key", ""),
+        "summary": item.get("summary", ""),
+        "verdict": verdict,
+        "note": args.note or "",
+    }
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with FEEDBACK_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, sort_keys=True) + "\n")
+    print(f"NIGHTSHIFT_FEEDBACK: GREEN | item={args.item} | verdict={verdict} | saved={FEEDBACK_PATH}")
+    print("Night Shift will use this signal when ranking and prompting future runs for the same repo.")
+    return 0
+
+
 def command_stop(args) -> int:
     if args.ledger and args.latest:
         print("NIGHTSHIFT_STOP: RED | use either --latest or --ledger <path>, not both")
@@ -2692,6 +3143,20 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--latest", action="store_true", help="use the newest Night Shift ledger")
     report.add_argument("--ledger", required=False, help="specific ledger path; cannot be combined with --latest")
     report.set_defaults(func=command_report)
+
+    feedback = sub.add_parser(
+        "feedback",
+        help="teach Night Shift which morning choices were useful",
+        description="Mark one ranked work-queue item useful or not useful. Feedback stays local and shapes later runs.",
+        epilog="Example: night-shift feedback --latest --item 1 --useful",
+    )
+    feedback.add_argument("--latest", action="store_true", help="use the newest Night Shift ledger")
+    feedback.add_argument("--ledger", required=False, help="specific ledger path")
+    feedback.add_argument("--item", type=int, required=True, help="ranked work-queue item number")
+    feedback.add_argument("--useful", action="store_true", help="prefer similar grounded work")
+    feedback.add_argument("--not-useful", action="store_true", help="downrank this repeated suggestion")
+    feedback.add_argument("--note", default="", help="optional short reason stored locally")
+    feedback.set_defaults(func=command_feedback)
 
     schedule = sub.add_parser(
         "schedule",
