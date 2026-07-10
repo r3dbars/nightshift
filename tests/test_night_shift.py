@@ -556,6 +556,15 @@ CONFIDENCE: high
         self.assertTrue(night_shift.may_attempt(previous, "task", "def", now=1001)[0])
         self.assertTrue(night_shift.may_attempt(previous, "task", "abc", now=3000)[0])
 
+    def test_rejection_count_is_scoped_to_one_repo_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "attempts.jsonl"
+            night_shift.append_attempt(path, {"repo": "owner/repo", "head": "abc", "state": "REJECTED"})
+            night_shift.append_attempt(path, {"repo": "owner/repo", "head": "abc", "state": "REJECTED"})
+            night_shift.append_attempt(path, {"repo": "owner/repo", "head": "def", "state": "REJECTED"})
+            self.assertEqual(night_shift.rejection_count(path, "owner/repo", "abc"), 2)
+            self.assertEqual(night_shift.rejection_count(path, "owner/repo", "def"), 1)
+
     def test_task_lifecycle_requires_ordered_transitions(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "lifecycle.jsonl"

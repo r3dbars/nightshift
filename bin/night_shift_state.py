@@ -48,6 +48,22 @@ def latest_attempts(path: Path) -> dict[str, dict]:
     return latest
 
 
+def rejection_count(path: Path, repo: str, head: str) -> int:
+    count = 0
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if item.get("repo") == repo and item.get("head") == head and item.get("state") == "REJECTED":
+            count += 1
+    return count
+
+
 def cooldown_seconds(rejections: int) -> int:
     return min(7 * 24 * 3600, 900 * (2 ** max(0, rejections - 1)))
 

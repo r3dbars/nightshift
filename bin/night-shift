@@ -30,7 +30,7 @@ from night_shift_portfolio import PortfolioEngine, parse_json_text
 from night_shift_drafts import DraftEngine, draft_proof_status, remaining_draft_timeout
 from night_shift_policy import PROFILE_NAME, command_display, load_repo_profile
 from night_shift_sandbox import build_runner_image, detect_sandbox
-from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state
+from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
 
@@ -75,6 +75,8 @@ TASK_LADDER = {
     "understand": 200,
     "index": 100,
 }
+
+REJECTION_BUDGET = {"quiet": 2, "night-shift": 4, "afterburner": 6}
 
 
 def stop_deadline(stop_after: str | None) -> float | None:
@@ -2999,6 +3001,14 @@ def command_run(args) -> int:
         else:
             skipped.append({"fingerprint": item["fingerprint"], "reason": reason})
     queue = eligible
+    rejection_budget = REJECTION_BUDGET[args.mode]
+    prior_rejections = rejection_count(TASK_ATTEMPTS_PATH, repo_name, scan.get("head", ""))
+    if prior_rejections >= rejection_budget:
+        (ledger / "model-circuit.json").write_text(
+            json.dumps({"status": "OPEN", "repo": repo_name, "head": scan.get("head", ""), "rejections": prior_rejections, "budget": rejection_budget}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        queue = []
     lifecycle_path = ledger / "task-lifecycle.jsonl"
     for item in queue:
         record_state(
@@ -3085,10 +3095,13 @@ def command_run(args) -> int:
     total_workers = max(1, parallel_local + parallel_windows)
     lane_limits = {"local": max(1, parallel_local), "windows": max(1, parallel_windows)}
     lane_running = {"local": 0, "windows": 0}
+    circuit = {"rejections": prior_rejections, "budget": rejection_budget, "opened": prior_rejections >= rejection_budget}
 
     def submit_ready(executor, pending, remaining):
         submitted = 0
         for item in list(remaining):
+            if circuit["opened"]:
+                break
             (
                 lane,
                 label,
@@ -3167,6 +3180,8 @@ def command_run(args) -> int:
                     result["source_ref"] = pending_item["source_ref"]
                     result["verification_commands"] = pending_item["verification_commands"]
                     results.append(result)
+                    if result.get("score") == "REJECT":
+                        circuit["rejections"] += 1
                 except Exception as exc:
                     results.append(
                         {
@@ -3194,6 +3209,14 @@ def command_run(args) -> int:
                             "source_ref": pending_item["source_ref"],
                             "verification_commands": pending_item["verification_commands"],
                         }
+                    )
+                    circuit["rejections"] += 1
+                if circuit["rejections"] >= circuit["budget"]:
+                    circuit["opened"] = True
+                    remaining.clear()
+                    (ledger / "model-circuit.json").write_text(
+                        json.dumps({"status": "OPEN", "repo": repo_name, "head": scan.get("head", ""), "rejections": circuit["rejections"], "budget": circuit["budget"]}, indent=2) + "\n",
+                        encoding="utf-8",
                     )
             if stop_file.exists():
                 cancel_pending_workers(ledger, pending)

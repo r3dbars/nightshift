@@ -104,6 +104,10 @@ Night Shift starts generic scans on your Mac's local model. It only routes a
 task to the second machine when a pinned failed CI run or active PR signal gives
 that heavier lane a concrete problem to solve.
 
+If a model keeps producing unsupported findings for one unchanged repo revision,
+Night Shift opens a small rejection circuit breaker and switches back to the
+factual brief rather than burning the rest of the night on retries.
+
 **No local models yet?** `night-shift start` still works: it makes a read-only
 planning brief and tells you exactly what to set up.
 
