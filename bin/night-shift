@@ -36,7 +36,13 @@ DEFAULT_WINDOWS_URL = ""
 DEFAULT_WINDOWS_MODEL = "qwen3-coder:30b"
 VERSION = "0.1.0"
 CONFIG_SCHEMA_VERSION = 2
-STOP_SECONDS = {"morning": None, "2h": 2 * 60 * 60, "6h": 6 * 60 * 60, "8h": 8 * 60 * 60}
+STOP_SECONDS = {
+    "morning": None,
+    "2h": 2 * 60 * 60,
+    "6h": 6 * 60 * 60,
+    "8h": 8 * 60 * 60,
+    "10h": 10 * 60 * 60,
+}
 
 MODE_DEFAULTS = {
     "quiet": {
@@ -279,6 +285,7 @@ def stop_label(stop: str) -> str:
         "2h": "Stop after 2 hours",
         "6h": "Stop after 6 hours",
         "8h": "Stop after 8 hours",
+        "10h": "Stop after 10 hours",
     }.get(stop, stop)
 
 
@@ -2508,8 +2515,9 @@ def command_start(args) -> int:
                 ("2h", "After 2 hours"),
                 ("6h", "After 6 hours"),
                 ("8h", "After 8 hours"),
+                ("10h", "After 10 hours"),
             ],
-            stop if stop in {"morning", "2h", "6h", "8h"} else "morning",
+            stop if stop in STOP_SECONDS else "morning",
         )
 
     config = {

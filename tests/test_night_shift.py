@@ -21,6 +21,10 @@ LOADER.exec_module(night_shift)
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_ten_hour_stop_option(self):
+        self.assertEqual(night_shift.STOP_SECONDS["10h"], 10 * 60 * 60)
+        self.assertEqual(night_shift.stop_label("10h"), "Stop after 10 hours")
+
     def test_generic_safe_output_is_rejected(self):
         output = """CLAIM: Improve test coverage
 BEST_NEXT_ACTION: Add more tests

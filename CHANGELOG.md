@@ -7,6 +7,7 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Add a 10-hour stop option for longer overnight runs.
 - Ground worker tasks with numbered source excerpts, recent diffs, live issues,
   pull requests, failed workflows, TODOs, and detected test commands.
 - Require exact evidence, files, verification commands, and expected results
