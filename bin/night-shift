@@ -2589,7 +2589,26 @@ def run_status(results: list[dict], target_tokens: int, overall: str, mode: str 
     return "GREEN"
 
 
-def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: int, overall: str) -> None:
+def factual_change_surface(scan: dict | None) -> list[str]:
+    if not scan or scan.get("status") != "ok":
+        return []
+    lines = []
+    changed = narrow_task_files(scan.get("recent_files") or [])
+    if changed:
+        lines.append(f"- Recent code/test surface: {', '.join(changed)}")
+    commands = scan.get("test_commands") or []
+    if commands:
+        lines.append(f"- Detected verification command: `{commands[0]}`")
+    branch = scan.get("branch")
+    head = scan.get("head")
+    if branch or head:
+        lines.append(f"- Repository revision: {branch or '(detached)'} at {head or 'unknown'}")
+    return lines
+
+
+def write_morning(
+    ledger: Path, mode: str, results: list[dict], target_tokens: int, overall: str, scan: dict | None = None
+) -> None:
     local = [r for r in results if r["lane"] == "local"]
     windows = [r for r in results if r["lane"] == "windows"]
     for row in results:
@@ -2604,7 +2623,8 @@ def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: i
     if work_items:
         first_action = work_items[0]["primary"]["summary"]
     elif results:
-        first_action = "No evidence-backed item survived. Use a narrower mission or a repo with stronger live signals."
+        factual = factual_change_surface(scan)
+        first_action = factual[0].removeprefix("- ") if factual else "No evidence-backed item survived. Review the deterministic repo scan before another model run."
     else:
         first_action = "Fix the startup gate or run with reachable local/Windows lanes."
     token_totals = token_totals_by_lane(results)
@@ -2632,7 +2652,12 @@ def write_morning(ledger: Path, mode: str, results: list[dict], target_tokens: i
                 lines.append(f"   Verify: `{row['tests']}`")
             lines.append(f"   Proof: {row['artifact']}")
     else:
-        lines.append("1. No usable artifacts survived scoring. Rerun after fixing the blockers below.")
+        factual = factual_change_surface(scan)
+        if factual:
+            lines.append("1. No model draft survived the evidence gate. Here is the factual review surface:")
+            lines.extend(f"   {line}" for line in factual)
+        else:
+            lines.append("1. No usable artifacts survived scoring. Review the startup gate before another run.")
     lines.extend(
         [
             "",
@@ -3223,7 +3248,7 @@ def command_run(args) -> int:
     write_outcome_metrics(ledger, results, skipped)
     write_task_lifecycle_summary(ledger)
     token_report = write_token_report(ledger, results)
-    write_morning(ledger, args.mode, results, target_tokens, overall)
+    write_morning(ledger, args.mode, results, target_tokens, overall, scan)
     total_tokens = sum(r["tokens"] for r in results)
     status = run_status(results, target_tokens, overall, args.mode)
     print(

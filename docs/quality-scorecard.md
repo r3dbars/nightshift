@@ -23,7 +23,7 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | Prompt and secret security | 88 | Redaction, protected paths, code-first context selection, and explicit untrusted-data boundaries. | Add a prompt-injection corpus and real-run measurements. |
 | GitHub usefulness | 72 | PR, issue, failed-workflow signals feed queues. | PR/issue outcome correlation and explicit repo ownership profiles. |
 | Setup UX | 88 | Friendly wizard, legacy re-consent migration, sandbox status, and local-runner builder. | Complete a real first-run profile on this Mac. |
-| Morning UX | 72 | Brief, queue, harvest, token report, and metrics files. | One concise outcome dashboard with feedback prompts. |
+| Morning UX | 82 | Brief, queue, harvest, token report, metrics, and a factual fallback when model drafts fail. | Validate usefulness with real morning reviews. |
 | Reliability | 82 | Stop deadlines, process cancellation, single-controller lock, migration tests, and validated task-state transitions. | Crash-recovery and concurrent-scheduler integration tests. |
 | Observability | 90 | Ledgers, task attempts, cooldown skips, outcome metrics, health, and review-preserving retention controls. | Confirm retention behavior in a real 10-hour soak. |
 | Learning loop | 72 | Local usefulness feedback and task lifecycle evidence are retained. | Tie feedback to task families and actual accepted patches. |

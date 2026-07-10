@@ -588,6 +588,17 @@ CONFIDENCE: high
         )
         self.assertIn("Cite only a path listed under candidate files", prompt)
 
+    def test_empty_model_queue_still_gets_a_factual_morning_surface(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            night_shift.write_morning(
+                ledger, "quiet", [{"lane": "local", "score": "REJECT", "tokens": 1, "rc": 0, "timed_out": False, "label": "x", "output": "", "summary": "weak", "priority": 0}],
+                10, "GREEN", {"status": "ok", "recent_files": ["README.md", "bin/night-shift"], "test_commands": ["python3 -m unittest"], "branch": "main", "head": "abc"},
+            )
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("Recent code/test surface: bin/night-shift, README.md", brief)
+            self.assertIn("Detected verification command", brief)
+
     def test_active_autopilot_ignores_stale_pid_state(self):
         previous = night_shift.AUTOPILOT_STATE_PATH
         with tempfile.TemporaryDirectory() as tmp:
