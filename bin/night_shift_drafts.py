@@ -12,6 +12,7 @@ from typing import Callable
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
 from night_shift_sandbox import sandbox_command, sandbox_patch_command
 from night_shift_patch_protocol import patch_prompt, validate_patch
+from night_shift_state import record_state
 
 
 def draft_proof_status(baseline_rc: int, after_rc: int, guards: list[str]) -> tuple[str, str]:
@@ -182,6 +183,8 @@ class DraftEngine:
         proof_dir.mkdir(parents=True, exist_ok=True)
         proof_path = proof_dir / f"{safe_task}.json"
         patch_path = proof_dir / f"{safe_task}.patch"
+        lifecycle_path = parent_ledger / "task-lifecycle.jsonl"
+        fingerprint = str(candidate.get("fingerprint") or candidate.get("key") or safe_task)
         initial_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
         if initial_timeout <= 0:
             result = {"status": "REJECT", "reason": "stop limit reached before draft execution"}
@@ -194,6 +197,7 @@ class DraftEngine:
             return result
         worktree.parent.mkdir(parents=True, exist_ok=True)
         source_ref = str(candidate.get("source_ref") or "HEAD")
+        record_state(lifecycle_path, fingerprint, "DISCOVERED", repo=repo_name, source_ref=source_ref, reason="draft candidate selected")
         added = self.run_cmd(
             ["git", "worktree", "add", "--detach", worktree, source_ref],
             cwd=repo,
@@ -236,6 +240,7 @@ class DraftEngine:
         )
         baseline_dirty = self.run_cmd(["git", "status", "--porcelain"], cwd=worktree, timeout=30)
         if baseline_dirty.stdout.strip():
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason="baseline modified worktree")
             return finish(
                 {
                     "status": "REJECT",
@@ -245,13 +250,17 @@ class DraftEngine:
                 }
             )
         if baseline.rc == 0:
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason="baseline did not reproduce a failure")
             return finish({
                 "status": "REJECT",
                 "reason": "baseline verification passed; Night Shift only patches reproduced failures",
                 "baseline_rc": baseline.rc,
                 "proof_level": "baseline clean",
             })
+        record_state(lifecycle_path, fingerprint, "REPRODUCED", baseline_rc=baseline.rc, verification=verification)
+        record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="reproduced failure handed to bounded patch worker")
         if not windows_url or not windows_model:
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason="sandboxed coding lane is not configured")
             return finish(
                 {
                     "status": "REJECT",
@@ -262,6 +271,7 @@ class DraftEngine:
             )
         patch_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
         if patch_timeout <= 0:
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason="stop limit reached before patch worker")
             return finish({"status": "REJECT", "reason": "stop limit reached before patch worker", "baseline_rc": baseline.rc})
         model = self.ask_for_patch(
             worktree, source_ref, candidate, verification_argv, patch_timeout,
@@ -272,6 +282,7 @@ class DraftEngine:
         )
         proposed = validate_patch(model.stdout, candidate["files"], profile)
         if model.rc != 0 or not proposed.valid:
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason="; ".join(proposed.reasons) if proposed.reasons else "patch worker failed")
             return finish({
                 "status": "REJECT",
                 "reason": "; ".join(proposed.reasons) if proposed.reasons else "patch worker failed",
@@ -280,10 +291,12 @@ class DraftEngine:
                 "proof_level": "reproduced only",
             })
         patch_path.write_text(proposed.patch, encoding="utf-8")
+        record_state(lifecycle_path, fingerprint, "PATCHED", patch=str(patch_path), paths=list(proposed.paths))
         sandbox_dir = proof_dir / f"{safe_task}-sandbox"
         sandbox_dir.mkdir(parents=True, exist_ok=True)
         verify_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
         if verify_timeout <= 0:
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason="stop limit reached before isolated verification")
             return finish({"status": "REJECT", "reason": "stop limit reached before isolated verification", "baseline_rc": baseline.rc})
         verified = self.run_cmd(
             sandbox_patch_command(worktree, patch_path, sandbox_dir, verification_argv, profile),
@@ -306,6 +319,10 @@ class DraftEngine:
         if verified.rc != 0 or after_rc != 0:
             guards.append("isolated verification did not pass")
         status, proof_level = draft_proof_status(baseline.rc, after_rc, guards)
+        record_state(
+            lifecycle_path, fingerprint, "VERIFIED" if status != "REJECT" else "REJECTED",
+            patch=str(applied_path if applied_path.exists() else patch_path), after_rc=after_rc, guards=guards,
+        )
         return finish({
             "status": status,
             "repo": repo_name,

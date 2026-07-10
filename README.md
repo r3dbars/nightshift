@@ -83,6 +83,10 @@ It shows whether the controller is live, whether both AI lanes answer, whether
 the selected repo is analysis-only or sandbox-ready, the latest outcome totals,
 and how much local ledger storage Night Shift is using.
 
+Every selected task also has a durable lifecycle: `DISCOVERED`, `REPRODUCED`,
+`DIAGNOSED`, `PATCHED`, `VERIFIED`, then human-only `REVIEWED` and `PROMOTED`.
+An overnight run cannot skip from a hunch to a patch.
+
 Old run artifacts stay until you review them. Preview safe reclamation with
 `night-shift clean`; only `night-shift clean --apply` removes completed,
 reviewed ledgers older than 21 days.

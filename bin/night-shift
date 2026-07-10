@@ -30,7 +30,7 @@ from night_shift_portfolio import PortfolioEngine, parse_json_text
 from night_shift_drafts import DraftEngine, draft_proof_status, remaining_draft_timeout
 from night_shift_policy import PROFILE_NAME, command_display, load_repo_profile
 from night_shift_sandbox import detect_sandbox
-from night_shift_state import append_attempt, exclusive_lock, latest_attempts, may_attempt
+from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
 
@@ -2470,6 +2470,18 @@ def write_outcome_metrics(ledger: Path, results: list[dict], skipped: list[dict]
     (ledger / "outcome-metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def write_task_lifecycle_summary(ledger: Path) -> None:
+    states = latest_states(ledger / "task-lifecycle.jsonl")
+    counts: dict[str, int] = {}
+    for event in states.values():
+        state = event["state"]
+        counts[state] = counts.get(state, 0) + 1
+    lines = ["# Task Lifecycle", ""]
+    for state in ("DISCOVERED", "REPRODUCED", "DIAGNOSED", "PATCHED", "VERIFIED", "REVIEWED", "PROMOTED", "REJECTED"):
+        lines.append(f"- {state}: {counts.get(state, 0)}")
+    (ledger / "task-lifecycle.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def write_work_queue(ledger: Path, results: list[dict]) -> list[dict]:
     items = deduped_work_items(results, limit=12)
     serializable = []
@@ -2488,6 +2500,7 @@ def write_work_queue(ledger: Path, results: list[dict]) -> list[dict]:
                 "proof_kind": row.get("proof_kind", "source"),
                 "executable": bool(row.get("executable", False)),
                 "source_ref": row.get("source_ref", ""),
+                "fingerprint": row.get("fingerprint", ""),
                 "verification_commands": row.get("verification_commands", []),
                 "priority": item["priority"],
                 "summary": row["summary"],
@@ -2917,6 +2930,12 @@ def command_run(args) -> int:
         else:
             skipped.append({"fingerprint": item["fingerprint"], "reason": reason})
     queue = eligible
+    lifecycle_path = ledger / "task-lifecycle.jsonl"
+    for item in queue:
+        record_state(
+            lifecycle_path, item["fingerprint"], "DISCOVERED",
+            repo=repo_name, head=scan.get("head", ""), task=item.get("slug", ""), reason="grounded task queued",
+        )
     (ledger / "task-skips.json").write_text(json.dumps(skipped, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     task_limit = getattr(args, "task_limit", None)
     if task_limit is not None:
@@ -3135,6 +3154,11 @@ def command_run(args) -> int:
                 "rejections": int(previous.get("rejections", 0)) + 1 if rejected else 0,
             },
         )
+        if rejected:
+            record_state(
+                lifecycle_path, fingerprint, "REJECTED",
+                repo=row.get("repo_name", repo_name), head=scan.get("head", ""), reason=row.get("summary", "")[:500],
+            )
     append_task_history(
         [
             {
@@ -3153,6 +3177,7 @@ def command_run(args) -> int:
     write_harvest(ledger, results)
     write_work_queue(ledger, results)
     write_outcome_metrics(ledger, results, skipped)
+    write_task_lifecycle_summary(ledger)
     token_report = write_token_report(ledger, results)
     write_morning(ledger, args.mode, results, target_tokens, overall)
     total_tokens = sum(r["tokens"] for r in results)

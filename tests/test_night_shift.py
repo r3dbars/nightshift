@@ -556,6 +556,18 @@ CONFIDENCE: high
         self.assertTrue(night_shift.may_attempt(previous, "task", "def", now=1001)[0])
         self.assertTrue(night_shift.may_attempt(previous, "task", "abc", now=3000)[0])
 
+    def test_task_lifecycle_requires_ordered_transitions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "lifecycle.jsonl"
+            night_shift.record_state(path, "task", "DISCOVERED", reason="queued")
+            with self.assertRaises(ValueError):
+                night_shift.record_state(path, "task", "PATCHED")
+            night_shift.record_state(path, "task", "REPRODUCED", baseline_rc=1)
+            night_shift.record_state(path, "task", "DIAGNOSED")
+            night_shift.record_state(path, "task", "PATCHED")
+            night_shift.record_state(path, "task", "VERIFIED", after_rc=0)
+            self.assertEqual(night_shift.latest_states(path)["task"]["state"], "VERIFIED")
+
     def test_active_autopilot_ignores_stale_pid_state(self):
         previous = night_shift.AUTOPILOT_STATE_PATH
         with tempfile.TemporaryDirectory() as tmp:
@@ -714,6 +726,8 @@ CONFIDENCE: high
             self.assertEqual(result["baseline_rc"], 1)
             self.assertEqual(result["after_rc"], 0)
             self.assertTrue(Path(result["patch"]).is_file())
+            lifecycle = night_shift.latest_states(ledger / "task-lifecycle.jsonl")
+            self.assertEqual(lifecycle["repair"]["state"], "VERIFIED")
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:

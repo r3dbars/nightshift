@@ -71,6 +71,49 @@ def transition(current: str, target: str) -> bool:
     return target in ALLOWED.get(current, set())
 
 
+def latest_states(path: Path) -> dict[str, dict]:
+    latest: dict[str, dict] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return latest
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        fingerprint = event.get("fingerprint")
+        if fingerprint and event.get("state") in STATES:
+            latest[fingerprint] = event
+    return latest
+
+
+def record_state(path: Path, fingerprint: str, target: str, **details) -> dict:
+    """Append one validated lifecycle event and return it.
+
+    A state may be recorded more than once to attach additional evidence, but
+    forward movement must follow the explicit state graph.
+    """
+    if target not in STATES:
+        raise ValueError(f"unknown task state: {target}")
+    previous = latest_states(path).get(fingerprint)
+    current = previous.get("state") if previous else ""
+    if not current and target != "DISCOVERED":
+        raise ValueError(f"task {fingerprint} must start at DISCOVERED")
+    if current and target != current and not transition(current, target):
+        raise ValueError(f"invalid task transition: {current} -> {target}")
+    event = {
+        "at": utc_now(),
+        "fingerprint": fingerprint,
+        "state": target,
+        **details,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, sort_keys=True) + "\n")
+    return event
+
+
 @contextmanager
 def exclusive_lock(path: Path) -> Iterator[bool]:
     """Atomic mkdir lock. Stale locks are reclaimed only when their PID is gone."""

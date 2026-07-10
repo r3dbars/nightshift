@@ -15,7 +15,7 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | Mac compute | 72 | LM Studio detection and local lane work. | Dynamic queueing and thermal/resource feedback. |
 | Windows compute | 72 | LAN worker detection and lane routing. | Authenticated endpoint validation and reconnect tests. |
 | Efficiency | 68 | Durable reject cooldowns and dedupe prevent known loops. | Token budgets per outcome and context caching by revision. |
-| Evidence quality | 84 | Numbered source/CI evidence and proof artifacts exist. | Independent reproduction evidence for every patch candidate. |
+| Evidence quality | 88 | Numbered source/CI evidence, proof artifacts, and persistent lifecycle transitions exist. | Exercise reproduction evidence across varied real repositories. |
 | Deterministic proof | 84 | Explicit argv profiles and a rootless-container baseline/after verifier are implemented. | Install and prove the sandbox on a real supported host. |
 | Patch autonomy | 76 | A model may return only a validated diff; it is applied and verified in a no-network temporary container workspace. | Prove the protocol with a real runner image and diverse repositories. |
 | Brief safety | 92 | No host repo execution; restricted actions and redaction. | Continue adversarial prompt-injection testing. |
@@ -24,9 +24,9 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | GitHub usefulness | 72 | PR, issue, failed-workflow signals feed queues. | PR/issue outcome correlation and explicit repo ownership profiles. |
 | Setup UX | 84 | Friendly wizard and legacy re-consent migration. | Explain profile setup from a single command. |
 | Morning UX | 72 | Brief, queue, harvest, token report, and metrics files. | One concise outcome dashboard with feedback prompts. |
-| Reliability | 78 | Stop deadlines, process cancellation, single-controller lock, and migration tests. | Crash-recovery and concurrent-scheduler integration tests. |
+| Reliability | 82 | Stop deadlines, process cancellation, single-controller lock, migration tests, and validated task-state transitions. | Crash-recovery and concurrent-scheduler integration tests. |
 | Observability | 90 | Ledgers, task attempts, cooldown skips, outcome metrics, health, and review-preserving retention controls. | Confirm retention behavior in a real 10-hour soak. |
-| Learning loop | 68 | Local usefulness feedback changes rankings. | Tie feedback to task families and actual accepted patches. |
+| Learning loop | 72 | Local usefulness feedback and task lifecycle evidence are retained. | Tie feedback to task families and actual accepted patches. |
 | Test coverage | 82 | 44 focused tests, including hostile command/profile cases and a full simulated patch chain. | Integration tests for Docker and interrupted autopilot runs. |
 | Maintainability | 58 | Policy, sandbox, state, and redaction modules now isolate critical rules. | Split the remaining controller/work-queue monolith. |
 | Portability | 70 | Local-first defaults with Linux/macOS scheduling paths. | Document/test rootless Docker on macOS, Linux, and Windows worker hosts. |
