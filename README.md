@@ -100,6 +100,10 @@ local model server · a second GPU box on your LAN as a heavy draft lane ·
 optionally the Claude CLI for one or two hard questions a night and the
 GitHub CLI for open-PR context.
 
+Night Shift starts generic scans on your Mac's local model. It only routes a
+task to the second machine when a pinned failed CI run or active PR signal gives
+that heavier lane a concrete problem to solve.
+
 **No local models yet?** `night-shift start` still works: it makes a read-only
 planning brief and tells you exactly what to set up.
 

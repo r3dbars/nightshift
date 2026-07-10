@@ -12,8 +12,8 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | Portfolio discovery | 74 | GitHub recent-repo ranking and cached checkouts work. | Owner allowlist and per-repo priority/quiet hours. |
 | Task specificity | 78 | Source evidence and exact paths are required; patching requires a reproduced failure. | Exercise it on varied real repositories. |
 | Multi-repo operation | 72 | Portfolio cycles, stop limits, and a controller lock exist. | Test real mixed-language portfolio runs. |
-| Mac compute | 72 | LM Studio detection and local lane work. | Dynamic queueing and thermal/resource feedback. |
-| Windows compute | 72 | LAN worker detection and lane routing. | Authenticated endpoint validation and reconnect tests. |
+| Mac compute | 82 | LM Studio detection, local lane work, and default routing for generic exploration. | Dynamic queueing and thermal/resource feedback. |
+| Windows compute | 80 | LAN worker detection and routing reserved for pinned CI/PR signals. | Authenticated endpoint validation and reconnect tests. |
 | Efficiency | 76 | Durable cooldowns, code-first context selection, smaller Windows packs, and no expensive Windows retry loops. | Per-outcome budgets and context caching by revision. |
 | Evidence quality | 88 | Numbered source/CI evidence, proof artifacts, and persistent lifecycle transitions exist. | Exercise reproduction evidence across varied real repositories. |
 | Deterministic proof | 84 | Explicit argv profiles and a rootless-container baseline/after verifier are implemented. | Install and prove the sandbox on a real supported host. |

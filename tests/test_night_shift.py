@@ -579,6 +579,7 @@ CONFIDENCE: high
         queue = night_shift.build_repo_work_queue(None, scan, "quiet", "draft-local", "goal", "Find a missing test")
         mission = next(item for item in queue if item["slug"] == "mission-brief")
         self.assertEqual(mission["files"][:2], ["tests/test_night_shift.py", "bin/night-shift"])
+        self.assertEqual(mission["preferred_lane"], "local")
         recent = next(item for item in queue if item["slug"] == "recent-change-test-gap")
         self.assertNotIn("README.md", recent["files"][:2])
 

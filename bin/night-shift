@@ -1453,7 +1453,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             "User supplied a specific mission.",
             recent_source[:6],
             ladder="repair",
-            preferred_lane="windows",
+            preferred_lane="local",
         )
     if recent_source:
         add(
@@ -1463,7 +1463,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             "Recent files are often where a useful regression check belongs.",
             recent_source[:6] + tests[:2],
             ladder="strengthen",
-            preferred_lane="windows",
+            preferred_lane="local",
         )
     if test_commands:
         add(
@@ -1567,7 +1567,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             "A changed source file is a bounded surface for useful regression work.",
             [path] + tests[:5],
             ladder="strengthen",
-            preferred_lane="windows",
+            preferred_lane="local",
             proof_kind="test",
             executable=bool(test_commands),
         )
