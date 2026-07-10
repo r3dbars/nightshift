@@ -741,6 +741,18 @@ CONFIDENCE: high
         finally:
             sandbox.detect_sandbox = original_detect
 
+    def test_doctor_marks_unready_installed_sandbox_provider_yellow(self):
+        original_detect = night_shift.detect_sandbox
+        original_checks = night_shift.check_storage_permissions
+        try:
+            night_shift.detect_sandbox = lambda run: __import__("night_shift_sandbox").SandboxStatus(False, "Podman not ready", "podman")
+            night_shift.check_storage_permissions = lambda: ("GREEN", "ok")
+            _, rows = night_shift.doctor_checks(None, run_smoke=False, allow_fetch=False)
+            self.assertEqual(night_shift.row_state(rows, "sandbox-provider"), "YELLOW")
+        finally:
+            night_shift.detect_sandbox = original_detect
+            night_shift.check_storage_permissions = original_checks
+
     def test_reproduced_failure_can_only_become_proven_after_isolated_patch_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"

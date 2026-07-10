@@ -876,6 +876,9 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
     rows.append(("disk", "GREEN" if free >= 5 else "YELLOW", f"{free} GB free near {CODEX_HOME}"))
     rows.append(("power", *check_power()))
     rows.append(("recovery", *check_recovery()))
+    provider = detect_sandbox(run_cmd)
+    provider_state = "GREEN" if provider.available else "YELLOW" if provider.runtime else "INFO"
+    rows.append(("sandbox-provider", provider_state, provider.detail))
     path_state = "GREEN" if str(BIN) in os.environ.get("PATH", "") else "INFO"
     rows.append(("path", path_state, f"{BIN} is {'on' if path_state == 'GREEN' else 'not on'} PATH"))
 
@@ -980,8 +983,7 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
             rows.append(("sandbox", "INFO", "analysis-only by repo-profile policy"))
         else:
             rows.append(("repo-profile", "GREEN", "owned repo with explicit sandbox execution profile"))
-            sandbox = detect_sandbox(run_cmd)
-            rows.append(("sandbox", "GREEN" if sandbox.available else "YELLOW", sandbox.detail))
+            rows.append(("sandbox", "GREEN" if provider.available else "YELLOW", provider.detail))
 
     if run_smoke:
         smoke = run_cmd([BIN / "maestro-smoke.sh"], timeout=180)
@@ -2818,7 +2820,7 @@ def command_health(args) -> int:
     print(f"- Durable task fingerprints: {len(attempts)}")
     if metrics:
         print(f"- Latest outcomes: attempted={metrics.get('attempted', 0)} accepted={metrics.get('accepted_candidates', 0)} rejected={metrics.get('rejected', 0)} tokens~={metrics.get('estimated_tokens', 0)}")
-    for name in ("local-chat", "windows-worker", "windows-chat", "repo-profile", "sandbox"):
+    for name in ("local-chat", "windows-worker", "windows-chat", "repo-profile", "sandbox-provider", "sandbox"):
         state, message = rows_by_name(rows).get(name, ("INFO", "not checked"))
         print(f"- {name}: {state} | {message}")
     return 1 if overall == "RED" else 0

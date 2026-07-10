@@ -25,7 +25,7 @@ repeatable code, test evidence, or an end-to-end run artifact behind it.
 | Setup UX | 88 | Friendly wizard, legacy re-consent migration, sandbox status, and local-runner builder. | Complete a real first-run profile on this Mac. |
 | Morning UX | 82 | Brief, queue, harvest, token report, metrics, and a factual fallback when model drafts fail. | Validate usefulness with real morning reviews. |
 | Reliability | 82 | Stop deadlines, process cancellation, single-controller lock, migration tests, and validated task-state transitions. | Crash-recovery and concurrent-scheduler integration tests. |
-| Observability | 90 | Ledgers, task attempts, cooldown skips, outcome metrics, health, and review-preserving retention controls. | Confirm retention behavior in a real 10-hour soak. |
+| Observability | 91 | Ledgers, task attempts, cooldown skips, outcome metrics, health, review-preserving retention, and explicit sandbox-capability health. | Confirm retention behavior in a real 10-hour soak. |
 | Learning loop | 72 | Local usefulness feedback and task lifecycle evidence are retained. | Tie feedback to task families and actual accepted patches. |
 | Test coverage | 82 | 44 focused tests, including hostile command/profile cases and a full simulated patch chain. | Integration tests for Docker and interrupted autopilot runs. |
 | Maintainability | 58 | Policy, sandbox, state, and redaction modules now isolate critical rules. | Split the remaining controller/work-queue monolith. |
