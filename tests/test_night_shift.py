@@ -945,6 +945,21 @@ CONFIDENCE: high
             self.assertTrue(night_shift.cleanup_isolated_worktree(repo, worktree))
             self.assertFalse(worktree.exists())
 
+    def test_chat_probe_gives_reasoning_models_enough_output_room(self):
+        original_post = night_shift.post_url_json
+        captured = {}
+        try:
+            def fake_post(url, payload, **kwargs):
+                captured.update(payload)
+                return {"choices": [{"message": {"content": "NIGHT_SHIFT_OK"}}]}
+
+            night_shift.post_url_json = fake_post
+            state, _ = night_shift.chat_probe("Local", "http://localhost:11434/v1", "reasoning-model")
+            self.assertEqual(state, "GREEN")
+            self.assertEqual(captured["max_tokens"], 1024)
+        finally:
+            night_shift.post_url_json = original_post
+
 
 if __name__ == "__main__":
     unittest.main()

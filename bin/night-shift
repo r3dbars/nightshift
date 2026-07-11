@@ -584,7 +584,8 @@ def chat_probe(name: str, base_url: str, model: str, headers=None) -> tuple[str,
             {
                 "model": model,
                 "messages": [{"role": "user", "content": "Reply exactly: NIGHT_SHIFT_OK"}],
-                "max_tokens": 128,
+                # Reasoning models may need room before they emit visible text.
+                "max_tokens": 1024,
                 "temperature": 0,
             },
             headers=headers,
