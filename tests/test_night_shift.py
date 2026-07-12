@@ -1750,6 +1750,27 @@ buildThing() { return 1; }
             )
             self.assertFalse(rename.valid)
 
+    def test_patch_protocol_rejects_header_without_complete_hunk(self):
+        profile = SimpleNamespace(protected_paths=(), allowed_paths=("src",))
+        check = night_shift.validate_patch(
+            "diff --git a/src/app.py b/src/app.py\nthis is prose\n",
+            ["src/app.py"], profile,
+        )
+        self.assertFalse(check.valid)
+        self.assertIn("patch needs matching --- and +++ file headers", check.reasons)
+        self.assertIn("patch has no hunk header", check.reasons)
+
+    def test_patch_protocol_binds_file_headers_to_approved_diff_path(self):
+        profile = SimpleNamespace(protected_paths=(), allowed_paths=("src", "private"))
+        check = night_shift.validate_patch(
+            "diff --git a/src/app.py b/src/app.py\n"
+            "--- a/private/secret.py\n+++ b/private/secret.py\n"
+            "@@ -1 +1 @@\n-old\n+new\n",
+            ["src/app.py"], profile,
+        )
+        self.assertFalse(check.valid)
+        self.assertIn("patch file headers must match diff --git paths", check.reasons)
+
     def test_patch_protocol_rejects_binary_added_and_deleted_files(self):
         profile = SimpleNamespace(protected_paths=(), allowed_paths=("src",))
         base = "diff --git a/src/app.py b/src/app.py\n--- a/src/app.py\n+++ b/src/app.py\n"
@@ -1781,6 +1802,7 @@ buildThing() { return 1; }
             self.assertEqual(command[command.index("--pull") + 1], "never")
             self.assertIn(f"{root.resolve()}:/source:ro", command)
             self.assertIn("rm -rf .git; git init -q", __import__("night_shift_sandbox").fixed_patch_script())
+            self.assertIn("git apply --recount --whitespace=error", __import__("night_shift_sandbox").fixed_patch_script())
 
     def test_podman_patch_tmpfs_avoids_docker_only_ownership_options(self):
         sandbox = __import__("night_shift_sandbox")
@@ -1994,6 +2016,73 @@ buildThing() { return 1; }
             self.assertTrue(Path(result["sandbox_output"]).is_file())
             lifecycle = night_shift.latest_states(ledger / "task-lifecycle.jsonl")
             self.assertEqual(lifecycle["repair"]["state"], "VERIFIED")
+
+    def test_patch_worker_gets_one_strict_format_correction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            prompts = []
+
+            def fake_run(args, **kwargs):
+                if args[:2] == ["git", "show"]:
+                    return night_shift.CmdResult("git show", 0, "value = 1\n", "")
+                prompts.append(args[-1])
+                return night_shift.CmdResult("worker", 0, "", "")
+
+            engine = night_shift.DraftEngine(fake_run, Path(tmp) / "worktrees", lambda: "now")
+            engine.ask_for_patch(
+                repo, "HEAD", {"summary": "fix", "evidence": "app.py:1", "files": ["app.py"]},
+                ("true",), 10, "http://windows/v1", "coder", Path(tmp), "task",
+                "CORRECTION: first line must be diff --git a/app.py b/app.py",
+            )
+            self.assertIn("CORRECTION: first line must be", prompts[0])
+
+    def test_patch_correction_allows_any_approved_file(self):
+        correction = __import__("night_shift_drafts").patch_format_correction(
+            ["src/first.py", "src/actual.py"]
+        )
+        self.assertIn("src/first.py, src/actual.py", correction)
+        self.assertNotIn("exactly `diff --git a/src/first.py", correction)
+
+    def test_patch_format_retry_obeys_new_stop_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, ledger, stop_file = root / "repo", root / "ledger", root / "STOP"
+            repo.mkdir()
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+            worker_calls = 0
+
+            def fake_run(args, cwd=None, timeout=60, **kwargs):
+                nonlocal worker_calls
+                parts = [str(part) for part in args]
+                if parts[0] == "git":
+                    result = subprocess.run(parts, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+                    return night_shift.CmdResult("git", result.returncode, result.stdout, result.stderr)
+                if "maestro-delegate" in parts[0]:
+                    worker_calls += 1
+                    stop_file.write_text("stop\n", encoding="utf-8")
+                    return night_shift.CmdResult("worker", 0, "--- a/app.py\n+++ b/app.py\n", "")
+                return night_shift.CmdResult("baseline", 1, "", "failing baseline")
+
+            profile = SimpleNamespace(
+                commands=(("true",),), max_seconds=60,
+                protected_paths=(".night-shift.json",), allowed_paths=("app.py",),
+                max_pids=64, max_cpu=1, max_memory_mb=512, image="sha256:" + "a" * 64,
+            )
+            result = night_shift.DraftEngine(fake_run, root / "worktrees", lambda: "now").run_draft(
+                repo, "owner/repo", {
+                    "key": "repair", "files": ["app.py"], "verification_argv": ["true"],
+                    "summary": "repair", "evidence": "app.py:1", "expected_result": "pass",
+                }, ledger, 60, "http://windows/v1", "coder", stop_file=stop_file, profile=profile,
+            )
+            self.assertEqual(result["status"], "REJECT")
+            self.assertEqual(worker_calls, 1)
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
