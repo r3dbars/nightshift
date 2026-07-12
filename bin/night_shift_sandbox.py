@@ -97,7 +97,7 @@ def fixed_patch_script() -> str:
         "set -eu; cp -a /source/. /work/; cd /work; rm -rf .git; git init -q; "
         "git config user.email night-shift@localhost; git config user.name 'Night Shift'; "
         "git add -A; git commit -qm baseline; "
-        "git apply --whitespace=error /input/candidate.patch; git diff --check; "
+        "git apply --recount --whitespace=error /input/candidate.patch; git diff --check; "
         "git diff --name-only > /artifacts/changed-paths.txt; "
         "git diff --binary > /artifacts/applied.patch; set +e; \"$@\" > /artifacts/verification.txt 2>&1; "
         "rc=$?; printf '%s\\n' \"$rc\" > /artifacts/verification.rc; exit \"$rc\""

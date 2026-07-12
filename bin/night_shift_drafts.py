@@ -149,9 +149,12 @@ class DraftEngine:
         windows_model: str,
         parent_ledger: Path,
         safe_task: str,
+        correction: str = "",
     ):
         delegate = shutil.which("maestro-delegate") or str(Path.home() / ".codex" / "bin" / "maestro-delegate")
         prompt = patch_prompt(candidate, self.source_excerpt(repo, source_ref, candidate["files"]), command)
+        if correction:
+            prompt += "\n\n" + correction
         env = os.environ.copy()
         env["WINDOWS_WORKER_BASE_URL"] = windows_url.rstrip("/")
         env["WINDOWS_WORKER_MODEL"] = windows_model
@@ -277,10 +280,30 @@ class DraftEngine:
             worktree, source_ref, candidate, verification_argv, patch_timeout,
             windows_url, windows_model, parent_ledger, safe_task,
         )
-        (proof_dir / f"{safe_task}.patch-worker.txt").write_text(
+        worker_path = proof_dir / f"{safe_task}.patch-worker.txt"
+        worker_path.write_text(
             (model.stdout + "\n" + model.stderr).strip() + "\n", encoding="utf-8"
         )
         proposed = validate_patch(model.stdout, candidate["files"], profile)
+        if model.rc == 0 and not proposed.valid and model.stdout.strip():
+            first_path = candidate["files"][0]
+            correction = (
+                "CORRECTION: Return the complete patch again with no markdown fence or prose. "
+                f"The first line must be exactly `diff --git a/{first_path} b/{first_path}`. "
+                "Include the `--- a/...`, `+++ b/...`, and `@@` lines."
+            )
+            retry = self.ask_for_patch(
+                worktree, source_ref, candidate, verification_argv, patch_timeout,
+                windows_url, windows_model, parent_ledger, f"{safe_task}-retry", correction,
+            )
+            (proof_dir / f"{safe_task}.patch-worker-attempt-1.txt").write_text(
+                worker_path.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            worker_path.write_text(
+                (retry.stdout + "\n" + retry.stderr).strip() + "\n", encoding="utf-8"
+            )
+            model = retry
+            proposed = validate_patch(model.stdout, candidate["files"], profile)
         if model.rc != 0 or not proposed.valid:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="; ".join(proposed.reasons) if proposed.reasons else "patch worker failed")
             return finish({

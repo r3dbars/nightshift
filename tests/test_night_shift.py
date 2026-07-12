@@ -1781,6 +1781,7 @@ buildThing() { return 1; }
             self.assertEqual(command[command.index("--pull") + 1], "never")
             self.assertIn(f"{root.resolve()}:/source:ro", command)
             self.assertIn("rm -rf .git; git init -q", __import__("night_shift_sandbox").fixed_patch_script())
+            self.assertIn("git apply --recount --whitespace=error", __import__("night_shift_sandbox").fixed_patch_script())
 
     def test_podman_patch_tmpfs_avoids_docker_only_ownership_options(self):
         sandbox = __import__("night_shift_sandbox")
@@ -1994,6 +1995,27 @@ buildThing() { return 1; }
             self.assertTrue(Path(result["sandbox_output"]).is_file())
             lifecycle = night_shift.latest_states(ledger / "task-lifecycle.jsonl")
             self.assertEqual(lifecycle["repair"]["state"], "VERIFIED")
+
+    def test_patch_worker_gets_one_strict_format_correction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            prompts = []
+
+            def fake_run(args, **kwargs):
+                if args[:2] == ["git", "show"]:
+                    return night_shift.CmdResult("git show", 0, "value = 1\n", "")
+                prompts.append(args[-1])
+                return night_shift.CmdResult("worker", 0, "", "")
+
+            engine = night_shift.DraftEngine(fake_run, Path(tmp) / "worktrees", lambda: "now")
+            engine.ask_for_patch(
+                repo, "HEAD", {"summary": "fix", "evidence": "app.py:1", "files": ["app.py"]},
+                ("true",), 10, "http://windows/v1", "coder", Path(tmp), "task",
+                "CORRECTION: first line must be diff --git a/app.py b/app.py",
+            )
+            self.assertIn("CORRECTION: first line must be", prompts[0])
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
