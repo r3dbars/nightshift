@@ -481,6 +481,48 @@ CONFIDENCE: high
             self.assertEqual(item["files"], ["src/app.py"])
             subprocess.run(["git", "cat-file", "-e", f"{pr_ref}^{{commit}}"], cwd=repo, check=True)
 
+    def test_failed_ci_queue_fetches_missing_remote_branch_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            remote = root / "remote.git"
+            seed = root / "seed"
+            repo = root / "repo"
+            subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+            subprocess.run(["git", "clone", "-q", str(remote), str(seed)], check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=seed, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=seed, check=True)
+            (seed / "README.md").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=seed, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=seed, check=True)
+            subprocess.run(["git", "push", "-q", "origin", "HEAD:main"], cwd=seed, check=True)
+            subprocess.run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], cwd=remote, check=True)
+            subprocess.run(["git", "clone", "-q", str(remote), str(repo)], check=True)
+            subprocess.run(["git", "checkout", "-qb", "feature"], cwd=seed, check=True)
+            (seed / "src").mkdir()
+            (seed / "src" / "app.py").write_text("raise RuntimeError()\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=seed, check=True)
+            subprocess.run(["git", "commit", "-qm", "feature failure"], cwd=seed, check=True)
+            source_ref = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=seed, text=True).strip()
+            subprocess.run(["git", "push", "-q", "origin", "HEAD:feature"], cwd=seed, check=True)
+            scan = {
+                "recent_files": ["README.md"], "tracked_files": ["README.md"],
+                "source_files": [], "test_files": [], "doc_files": ["README.md"],
+                "todo_sample": [], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": json.dumps([{
+                    "databaseId": 9, "headBranch": "feature", "headSha": source_ref,
+                    "updatedAt": "2026-07-12T01:00:00Z",
+                }]),
+                "github_failed_logs_raw": json.dumps([{
+                    "run": {"databaseId": 9},
+                    "log": "src/app.py:1 RuntimeError: failed",
+                }]),
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "draft-local")
+            item = next(row for row in queue if row["slug"] == "failed-ci-9")
+            self.assertEqual(item["source_ref"], source_ref)
+            self.assertIn("src/app.py", item["files"])
+
     def test_pre_model_gate_rejects_missing_ci_log_without_spending_tokens(self):
         task = {
             "slug": "failed-ci-42",
