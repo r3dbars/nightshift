@@ -424,6 +424,85 @@ CONFIDENCE: high
             self.assertIn("app/api/new/route.ts", failed["files"])
             self.assertIn("npm run check:routes", failed["verification_commands"])
 
+    def test_pre_model_gate_rejects_missing_ci_log_without_spending_tokens(self):
+        task = {
+            "slug": "failed-ci-42",
+            "kind": "tests",
+            "files": ["app.py"],
+            "verification_commands": ["python -m pytest"],
+            "source_ref": "abc123",
+            "signal": "{}",
+            "evidence_sources": {"github-actions/run-42.log": "log not found: 99"},
+        }
+        ready, skipped = night_shift.model_ready_tasks([task], "night-shift")
+        self.assertEqual(ready, [])
+        self.assertEqual(skipped[0]["category"], "pre-model")
+        self.assertIn("no usable failed-step log", skipped[0]["reason"])
+
+    def test_pre_model_gate_accepts_pinned_actionable_ci(self):
+        task = {
+            "slug": "failed-ci-42",
+            "kind": "tests",
+            "files": ["src/app.py"],
+            "verification_commands": ["python -m pytest"],
+            "source_ref": "abc123",
+            "signal": "{}",
+            "evidence_sources": {
+                "github-actions/run-42.log": "src/app.py:19 AssertionError: expected 42 but received 41"
+            },
+        }
+        ready, skipped = night_shift.model_ready_tasks([task], "night-shift")
+        self.assertEqual(ready, [task])
+        self.assertEqual(skipped, [])
+
+    def test_pre_model_gate_requires_actionable_pr_state_and_pinned_head(self):
+        healthy = {
+            "slug": "pr-12-review",
+            "kind": "triage",
+            "files": ["src/app.py"],
+            "verification_commands": ["npm test"],
+            "source_ref": "abc123",
+            "signal": json.dumps({"reviewDecision": "", "statusCheckRollup": []}),
+        }
+        failing = {
+            **healthy,
+            "signal": json.dumps({"statusCheckRollup": [{"conclusion": "FAILURE"}]}),
+        }
+        ready, skipped = night_shift.model_ready_tasks([healthy, failing], "afterburner")
+        self.assertEqual(ready, [failing])
+        self.assertIn("neither requested changes nor failed checks", skipped[0]["reason"])
+
+    def test_normal_mode_reserves_broad_mapping_for_afterburner(self):
+        task = {
+            "slug": "source-map-01",
+            "kind": "map",
+            "files": ["src/app.py"],
+            "verification_commands": ["git status --short"],
+            "signal": "{}",
+        }
+        normal, skipped = night_shift.model_ready_tasks([task], "night-shift")
+        afterburner, _ = night_shift.model_ready_tasks([task], "afterburner")
+        self.assertEqual(normal, [])
+        self.assertEqual(afterburner, [task])
+        self.assertIn("reserved for afterburner", skipped[0]["reason"])
+
+    def test_outcome_metrics_separate_free_pre_model_skips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            night_shift.write_outcome_metrics(
+                ledger,
+                [],
+                [
+                    {"category": "pre-model", "reason": "weak"},
+                    {"category": "cooldown", "reason": "wait"},
+                    {"category": "repeat", "reason": "done"},
+                ],
+            )
+            metrics = json.loads((ledger / "outcome-metrics.json").read_text(encoding="utf-8"))
+            self.assertEqual(metrics["pre_model_skips"], 1)
+            self.assertEqual(metrics["cooldown_or_repeat_skips"], 2)
+            self.assertEqual(metrics["estimated_tokens"], 0)
+
     def test_github_actions_log_transport_prefix_is_removed(self):
         raw = (
             "verify / tests\tUNKNOWN STEP\t2026-07-10T09:40:29.3485837Z AssertionError: expected 42\n"
@@ -649,6 +728,20 @@ CONFIDENCE: high
             self.assertIn("Recent code/test surface: bin/night-shift, README.md", brief)
             self.assertIn("Detected verification command", brief)
 
+    def test_morning_brief_reports_signals_skipped_before_model_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            (ledger / "task-skips.json").write_text(
+                json.dumps([
+                    {"category": "pre-model", "reason": "weak"},
+                    {"category": "cooldown", "reason": "wait"},
+                ]),
+                encoding="utf-8",
+            )
+            night_shift.write_morning(ledger, "quiet", [], 0, "GREEN", {"status": "ok"})
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("Weak signals skipped before model calls: 1", brief)
+
     def test_active_autopilot_ignores_stale_pid_state(self):
         previous = night_shift.AUTOPILOT_STATE_PATH
         with tempfile.TemporaryDirectory() as tmp:
@@ -732,6 +825,18 @@ CONFIDENCE: high
                 ["src/app.py"], profile,
             )
             self.assertFalse(rename.valid)
+
+    def test_patch_protocol_rejects_binary_added_and_deleted_files(self):
+        profile = SimpleNamespace(protected_paths=(), allowed_paths=("src",))
+        base = "diff --git a/src/app.py b/src/app.py\n--- a/src/app.py\n+++ b/src/app.py\n"
+        for marker in ("GIT binary patch", "new file mode 100644", "deleted file mode 100644"):
+            with self.subTest(marker=marker):
+                check = night_shift.validate_patch(
+                    f"{base}{marker}\n@@ -1 +1 @@\n-old\n+new\n",
+                    ["src/app.py"],
+                    profile,
+                )
+                self.assertIn("binary, added, and deleted files are not permitted overnight", check.reasons)
 
     def test_patch_runner_is_no_network_and_never_writes_source(self):
         with tempfile.TemporaryDirectory() as tmp:

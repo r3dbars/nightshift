@@ -7,6 +7,12 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Add a deterministic pre-model readiness gate: unusable CI logs, unpinned or
+  healthy PRs, source-unlinked issues, and broad Normal-mode scans are recorded
+  without spending model tokens. Morning metrics now separate these free skips
+  from cooldowns and repeated work.
+- Add regression coverage for rejecting binary, added, and deleted model
+  patches after a bounded two-lane run found the real missing test.
 - Add portfolio autopilot for recently active GitHub repositories, ranked by
   pushes, failed workflows, pull requests, review state, and issues.
 - Replace repeated prompt loops with a generic Repair, Finish, Strengthen,

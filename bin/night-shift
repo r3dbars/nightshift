@@ -1201,7 +1201,7 @@ def repo_signal_scan(repo: Path | None) -> dict:
                 "--limit",
                 "40",
                 "--json",
-                "number,title,isDraft,mergeStateStatus,headRefName,reviewDecision,statusCheckRollup,files,updatedAt,url",
+                "number,title,isDraft,mergeStateStatus,headRefName,headRefOid,reviewDecision,statusCheckRollup,files,updatedAt,url",
             ],
             cwd=repo,
             timeout=60,
@@ -1425,6 +1425,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
     todos = scan.get("todo_sample") or []
     test_commands = scan.get("test_commands") or []
     source_files = scan.get("source_files") or []
+    tracked_files = scan.get("tracked_files") or []
     recent_source = [path for path in recent if path in source_files]
     pull_requests = parse_json_text(scan.get("github_open_prs_raw", ""), [])
     issues = parse_json_text(scan.get("github_open_issues_raw", ""), [])
@@ -1547,12 +1548,14 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         )
     for issue in issues[:3]:
         number = issue.get("number") or "unknown"
+        issue_text = f"{issue.get('title', '')}\n{issue.get('body', '')}"
+        issue_files = [path for path in tracked_files if path and path in issue_text][:12]
         add(
             f"issue-{number}-next-action",
             "issue",
             f"Map GitHub issue #{number} to supplied source and propose the smallest verifiable next action. Reject it if the issue is stale or the source does not support it.",
             "Open issues describe work a maintainer has already chosen to track.",
-            recent[:12],
+            issue_files,
             ladder="finish",
             preferred_lane="windows",
             signal=json.dumps(issue, sort_keys=True),
@@ -1560,6 +1563,9 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
     for pr in pull_requests[:5]:
         number = pr.get("number") or "unknown"
         pr_files = [row.get("path", "") for row in pr.get("files") or [] if row.get("path")]
+        pr_source_ref = str(pr.get("headRefOid") or "")
+        if pr_source_ref:
+            pr_files = [path for path in pr_files if file_exists_at_ref(path, pr_source_ref)]
         checks = pr.get("statusCheckRollup") or []
         failed_check = any(row.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for row in checks)
         state = "requested changes" if pr.get("reviewDecision") == "CHANGES_REQUESTED" else "failed checks" if failed_check else "open draft" if pr.get("isDraft") else "open review"
@@ -1573,6 +1579,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             preferred_lane="windows" if failed_check or pr.get("reviewDecision") == "CHANGES_REQUESTED" else "local",
             signal=json.dumps(pr, sort_keys=True),
             commands=test_commands or ["git status --short"],
+            source_ref=pr_source_ref,
         )
     for index, path in enumerate(recent_source[:12], start=1):
         safe = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-").lower()[:48]
@@ -1634,6 +1641,59 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
     # Python's sort is stable, so equal-priority tasks keep live-signal recency
     # and insertion order instead of being reordered by arbitrary IDs.
     return sorted(queue, key=lambda item: -item["ladder_priority"])[:limit]
+
+
+def model_task_readiness_reasons(task: dict, mode: str) -> list[str]:
+    """Reject low-signal work before it consumes local or LAN model tokens."""
+    reasons: list[str] = []
+    slug = str(task.get("slug") or "")
+    files = task.get("files") or []
+    commands = [command for command in task.get("verification_commands") or [] if command != "git status --short"]
+    signal = parse_json_text(task.get("signal", ""), {})
+
+    if not files:
+        reasons.append("no exact repo file is tied to the signal")
+    if task.get("kind") in {"tests", "issue"} and not commands:
+        reasons.append("no deterministic verification command was detected")
+
+    if slug.startswith("failed-ci-"):
+        evidence = "\n".join(str(value) for value in (task.get("evidence_sources") or {}).values()).strip()
+        if not task.get("source_ref"):
+            reasons.append("failed CI is not pinned to a head SHA")
+        if not evidence or re.search(r"log not found|no logs? found|unable to (?:fetch|read).*log", evidence, re.IGNORECASE):
+            reasons.append("failed CI has no usable failed-step log")
+        elif not re.search(r"\b(error|failed|failure|assert(?:ion)?|exception|panic|fatal)", evidence, re.IGNORECASE):
+            reasons.append("failed-step log has no concrete failure marker")
+        elif files and not any(path in evidence for path in files):
+            reasons.append("failed-step log does not name a candidate repo file")
+    elif slug.startswith("pr-"):
+        checks = signal.get("statusCheckRollup") or []
+        failed_check = any(row.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for row in checks)
+        if signal.get("reviewDecision") != "CHANGES_REQUESTED" and not failed_check:
+            reasons.append("PR has neither requested changes nor failed checks")
+        if not task.get("source_ref"):
+            reasons.append("PR review is not pinned to its head SHA")
+    elif slug.startswith("issue-") and not files:
+        reasons.append("issue does not name a tracked repo file")
+
+    broad_kind = task.get("kind") in {"map", "docs", "proof"} or (
+        task.get("kind") == "triage" and not slug.startswith("pr-")
+    )
+    if mode != "afterburner" and broad_kind:
+        reasons.append("broad mapping or inspection work is reserved for afterburner")
+    return list(dict.fromkeys(reasons))
+
+
+def model_ready_tasks(queue: list[dict], mode: str) -> tuple[list[dict], list[dict]]:
+    ready: list[dict] = []
+    skipped: list[dict] = []
+    for task in queue:
+        reasons = model_task_readiness_reasons(task, mode)
+        if reasons:
+            skipped.append({"slug": task.get("slug", ""), "category": "pre-model", "reason": "; ".join(reasons)})
+        else:
+            ready.append(task)
+    return ready, skipped
 
 
 def build_board(mode: str, queue: list[dict] | None = None, permission: str = "brief") -> str:
@@ -2504,7 +2564,8 @@ def write_outcome_metrics(ledger: Path, results: list[dict], skipped: list[dict]
         "attempted": len(results),
         "accepted_candidates": accepted,
         "rejected": sum(1 for row in results if row.get("score") == "REJECT"),
-        "cooldown_or_repeat_skips": len(skipped),
+        "pre_model_skips": sum(1 for row in skipped if row.get("category") == "pre-model"),
+        "cooldown_or_repeat_skips": sum(1 for row in skipped if row.get("category") in {"cooldown", "repeat"}),
         "estimated_tokens": tokens,
         "accepted_per_1000_tokens": round(accepted * 1000 / tokens, 4) if tokens else 0,
         "patches_promoted": 0,
@@ -2644,6 +2705,11 @@ def write_morning(
     else:
         first_action = "Fix the startup gate or run with reachable local/Windows lanes."
     token_totals = token_totals_by_lane(results)
+    try:
+        task_skips = parse_json_text((ledger / "task-skips.json").read_text(encoding="utf-8"), [])
+    except OSError:
+        task_skips = []
+    pre_model_skips = sum(1 for row in task_skips if row.get("category") == "pre-model")
     lines = [
         "# Morning Brief",
         "",
@@ -2686,6 +2752,7 @@ def write_morning(
             f"- Token target: {target_tokens}",
             f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}",
             f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}",
+            f"- Weak signals skipped before model calls: {pre_model_skips}",
             f"- Evidence-backed candidates awaiting proof: {len([item for item in work_items if item['primary']['score'] == 'MAYBE'])}",
             f"- Unique work queue items: {len(deduped_work_items(results))}",
             "",
@@ -2997,23 +3064,25 @@ def command_run(args) -> int:
     context = repo_context_pack(root if root and root.exists() else None)
     scan = repo_signal_scan(root)
     write_repo_scan(ledger, scan)
-    queue = build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text)
+    discovered_queue = build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text)
+    queue, readiness_skips = model_ready_tasks(discovered_queue, args.mode)
     grounded_queue_count = len(queue)
+    discovered_queue_count = len(discovered_queue)
     repo_name = scan.get("github_slug") or str(root)
     history = load_task_history()
     attempts = latest_attempts(TASK_ATTEMPTS_PATH)
     for item in queue:
         item["fingerprint"] = task_fingerprint(repo_name, scan.get("head", ""), item)
-    skipped: list[dict] = []
+    skipped: list[dict] = list(readiness_skips)
     eligible = []
     for item in queue:
         allowed, reason = may_attempt(attempts.get(item["fingerprint"]), item["fingerprint"], scan.get("head", ""))
         if item["fingerprint"] in history:
-            skipped.append({"fingerprint": item["fingerprint"], "reason": "already accepted at this revision"})
+            skipped.append({"fingerprint": item["fingerprint"], "category": "repeat", "reason": "already accepted at this revision"})
         elif allowed:
             eligible.append(item)
         else:
-            skipped.append({"fingerprint": item["fingerprint"], "reason": reason})
+            skipped.append({"fingerprint": item["fingerprint"], "category": "cooldown", "reason": reason})
     queue = eligible
     rejection_budget = REJECTION_BUDGET[args.mode]
     prior_rejections = rejection_count(TASK_ATTEMPTS_PATH, repo_name, scan.get("head", ""))
@@ -3060,6 +3129,12 @@ def command_run(args) -> int:
             )
             print(f"NIGHTSHIFT_RUN: GREEN | no new grounded repo tasks | ledger={ledger}")
             print("Everything at this repo revision was already attempted. Night Shift will wait for new GitHub or code activity.")
+            return 0
+        if discovered_queue_count:
+            write_outcome_metrics(ledger, [], skipped)
+            write_morning(ledger, args.mode, [], target_tokens, "GREEN", scan)
+            print(f"NIGHTSHIFT_RUN: GREEN | no model-ready tasks; weak signals skipped before dispatch | ledger={ledger}")
+            print("Night Shift found repo activity, but none had enough evidence and verification to spend model tokens safely.")
             return 0
         write_morning(ledger, args.mode, [], target_tokens, "YELLOW")
         print(f"NIGHTSHIFT_RUN: YELLOW | no grounded repo tasks found | ledger={ledger}")
