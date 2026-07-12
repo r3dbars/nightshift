@@ -1,6 +1,7 @@
 """Fail-closed container runner for executing approved repo checks."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from dataclasses import dataclass
@@ -57,7 +58,27 @@ def detect_sandbox(run_cmd: Callable) -> SandboxStatus:
         info = run_cmd([podman, "info", "--format", "{{.Host.Security.Rootless}}"], timeout=20)
         if info.rc == 0 and "true" in (info.stdout or "").lower():
             return SandboxStatus(True, "Podman rootless sandbox is ready", "podman")
-        return SandboxStatus(False, "Podman is installed but its rootless machine is not ready; execution is disabled", "podman")
+        machines = run_cmd([podman, "machine", "list", "--format", "json"], timeout=20)
+        try:
+            rows = json.loads(machines.stdout) if machines.rc == 0 else []
+        except (TypeError, json.JSONDecodeError):
+            rows = []
+        if isinstance(rows, list) and rows:
+            machine = next((row for row in rows if row.get("Default")), rows[0])
+            name = str(machine.get("Name") or "podman-machine-default")
+            if machine.get("Running"):
+                detail = (
+                    f"Podman machine '{name}' is running but its engine is unreachable; "
+                    f"run `podman machine stop {name}` then `podman machine start {name}`"
+                )
+            else:
+                detail = f"Podman machine '{name}' is stopped; run `podman machine start {name}`"
+            return SandboxStatus(False, detail + "; execution is disabled", "podman")
+        return SandboxStatus(
+            False,
+            "Podman is installed but no machine is ready; run `podman machine init --now`; execution is disabled",
+            "podman",
+        )
     return SandboxStatus(False, "No supported container runtime is installed; execution is disabled")
 
 

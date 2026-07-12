@@ -1593,6 +1593,58 @@ buildThing() { return 1; }
         finally:
             night_shift.shutil.which = original_which
 
+    def test_podman_stopped_machine_gets_exact_start_command(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_which = sandbox.shutil.which
+        try:
+            sandbox.shutil.which = lambda name: "/usr/local/bin/podman" if name == "podman" else None
+
+            def fake_run(args, **kwargs):
+                if args[1:3] == ["machine", "list"]:
+                    return night_shift.CmdResult("podman machine list", 0, json.dumps([
+                        {"Name": "night-shift", "Default": True, "Running": False}
+                    ]), "")
+                return night_shift.CmdResult("podman info", 125, "", "connection refused")
+
+            status = sandbox.detect_sandbox(fake_run)
+            self.assertFalse(status.available)
+            self.assertIn("Podman machine 'night-shift' is stopped", status.detail)
+            self.assertIn("`podman machine start night-shift`", status.detail)
+        finally:
+            sandbox.shutil.which = original_which
+
+    def test_podman_running_unreachable_machine_gets_restart_commands(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_which = sandbox.shutil.which
+        try:
+            sandbox.shutil.which = lambda name: "/usr/local/bin/podman" if name == "podman" else None
+
+            def fake_run(args, **kwargs):
+                if args[1:3] == ["machine", "list"]:
+                    return night_shift.CmdResult("podman machine list", 0, json.dumps([
+                        {"Name": "night-shift", "Default": True, "Running": True}
+                    ]), "")
+                return night_shift.CmdResult("podman info", 125, "", "ssh reset")
+
+            status = sandbox.detect_sandbox(fake_run)
+            self.assertIn("running but its engine is unreachable", status.detail)
+            self.assertIn("`podman machine stop night-shift`", status.detail)
+            self.assertIn("`podman machine start night-shift`", status.detail)
+        finally:
+            sandbox.shutil.which = original_which
+
+    def test_podman_without_machine_gets_init_command(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_which = sandbox.shutil.which
+        try:
+            sandbox.shutil.which = lambda name: "/usr/local/bin/podman" if name == "podman" else None
+            status = sandbox.detect_sandbox(
+                lambda args, **kwargs: night_shift.CmdResult("podman", 125, "[]" if "machine" in args else "", "")
+            )
+            self.assertIn("`podman machine init --now`", status.detail)
+        finally:
+            sandbox.shutil.which = original_which
+
     def test_runner_build_returns_immutable_local_image_id(self):
         sandbox = __import__("night_shift_sandbox")
         original_detect = sandbox.detect_sandbox
