@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import subprocess
 
 
 ALLOWED_SCORES = {"KEEP", "MAYBE"}
 VERDICT_LINE = re.compile(r"(?m)^(CONFIRMED|REJECTED|NEEDS_INFO)\b")
-SOURCE_CITATION = re.compile(r"(?m)(?:^|\s)([A-Za-z0-9_.@+-]+(?:/[A-Za-z0-9_.@+-]+)+):(\d+)\b")
+SOURCE_CITATION = re.compile(r"(?m)(?:^|\s)([A-Za-z0-9_.@+-]+(?:/[A-Za-z0-9_.@+-]+)*):(\d+)\b")
 READY_LINE = re.compile(r"(?mi)^READY_FOR_IMPLEMENTATION:\s*(yes|no)\s*$")
 
 
@@ -71,13 +72,36 @@ End with: READY_FOR_IMPLEMENTATION: yes/no
 """
 
 
-def validate_handoff_review(output: str) -> list[str]:
+def citation_exists(repo: Path, relative: str, line: int, source_ref: str = "") -> bool:
+    if line < 1 or Path(relative).is_absolute() or ".." in Path(relative).parts:
+        return False
+    if source_ref:
+        result = subprocess.run(
+            ["git", "show", f"{source_ref}:{relative}"],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return result.returncode == 0 and line <= len(result.stdout.splitlines())
+    path = (repo / relative).resolve()
+    try:
+        path.relative_to(repo.resolve())
+        return path.is_file() and line <= len(path.read_text(encoding="utf-8", errors="replace").splitlines())
+    except (OSError, ValueError):
+        return False
+
+
+def validate_handoff_review(output: str, repo: Path | None = None, source_ref: str = "") -> list[str]:
     reasons: list[str] = []
     verdicts = VERDICT_LINE.findall(output)
     if len(verdicts) != 1:
         reasons.append("review must return exactly one verdict line")
-    if not SOURCE_CITATION.search(output):
+    citations = SOURCE_CITATION.findall(output)
+    if not citations:
         reasons.append("review must cite a current repo-relative path and line")
+    elif repo and not all(citation_exists(repo, path, int(line), source_ref) for path, line in citations):
+        reasons.append("review citation must exist at the reviewed revision")
     if not READY_LINE.search(output):
         reasons.append("review must state READY_FOR_IMPLEMENTATION: yes/no")
     return reasons

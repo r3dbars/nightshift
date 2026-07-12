@@ -646,6 +646,8 @@ CONFIDENCE: high
             ledger = root / "ledger"
             repo.mkdir()
             subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            (repo / "src").mkdir()
+            (repo / "src" / "app.py").write_text("first line\nreturn 42\n", encoding="utf-8")
             ledger.mkdir()
             (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
             (ledger / "work-queue.json").write_text(json.dumps([{
@@ -665,6 +667,36 @@ CONFIDENCE: high
             self.assertNotIn("supersecretvalue", prompt)
             self.assertFalse((ledger / "handoff" / "item-1-codex-review.md").exists())
 
+    def test_handoff_latest_resolves_autopilot_child_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            parent = root / "parent"
+            child = root / "child"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            parent.mkdir()
+            child.mkdir()
+            (parent / "cycles.json").write_text(json.dumps([{"ledger": str(child)}]), encoding="utf-8")
+            (child / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
+            (child / "work-queue.json").write_text(json.dumps([{
+                "rank": 1, "score": "MAYBE", "summary": "Add a test",
+                "evidence": "src/app.py:1 | return 42", "files": ["src/app.py"],
+                "tests": "python -m pytest",
+            }]), encoding="utf-8")
+            args = SimpleNamespace(
+                ledger=None, latest=True, item=1, agent="codex",
+                run=False, allow_cloud=False, timeout=30,
+            )
+            original_latest = night_shift.latest_ledger
+            night_shift.latest_ledger = lambda: parent
+            try:
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(night_shift.command_handoff(args), 0)
+            finally:
+                night_shift.latest_ledger = original_latest
+            self.assertTrue((child / "handoff" / "item-1-codex-prompt.md").exists())
+
     def test_handoff_cloud_run_is_explicit_and_read_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -672,6 +704,8 @@ CONFIDENCE: high
             ledger = root / "ledger"
             repo.mkdir()
             subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            (repo / "src").mkdir()
+            (repo / "src" / "app.py").write_text("first line\nreturn 42\n", encoding="utf-8")
             ledger.mkdir()
             (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
             (ledger / "work-queue.json").write_text(json.dumps([{
@@ -730,6 +764,17 @@ CONFIDENCE: high
             ),
             [],
         )
+
+    def test_handoff_review_rejects_missing_file_and_impossible_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("return 42\n", encoding="utf-8")
+            missing = "CONFIRMED\nmissing.py:1 | nope\nREADY_FOR_IMPLEMENTATION: yes"
+            impossible = "CONFIRMED\napp.py:2 | nope\nREADY_FOR_IMPLEMENTATION: yes"
+            valid = "CONFIRMED\napp.py:1 | return 42\nREADY_FOR_IMPLEMENTATION: yes"
+            self.assertIn("review citation must exist at the reviewed revision", night_shift.validate_handoff_review(missing, repo))
+            self.assertIn("review citation must exist at the reviewed revision", night_shift.validate_handoff_review(impossible, repo))
+            self.assertEqual(night_shift.validate_handoff_review(valid, repo), [])
 
     def test_inline_code_is_cleaned_for_morning_output(self):
         self.assertEqual(night_shift.clean_inline_code("`bash scripts/check-package.sh`"), "bash scripts/check-package.sh")

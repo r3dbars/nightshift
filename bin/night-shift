@@ -4323,6 +4323,10 @@ def command_report(args) -> int:
 
 def command_handoff(args) -> int:
     ledger = select_ledger(args)
+    if ledger and not (ledger / "work-queue.json").exists() and (ledger / "cycles.json").exists():
+        cycles = parse_json_text((ledger / "cycles.json").read_text(encoding="utf-8"), [])
+        child_ledgers = [Path(row.get("ledger", "")) for row in reversed(cycles) if row.get("ledger")]
+        ledger = next((child for child in child_ledgers if (child / "work-queue.json").exists()), ledger)
     queue_path = ledger / "work-queue.json" if ledger else None
     if not ledger or not queue_path or not queue_path.exists():
         print("NIGHTSHIFT_HANDOFF: RED | no ranked work queue found; choose a completed run")
@@ -4369,7 +4373,10 @@ def command_handoff(args) -> int:
     output_path = handoff_dir / f"item-{args.item}-{args.agent}-review.md"
     output_path.write_text(redact(result.stdout or result.stderr).strip() + "\n", encoding="utf-8")
     review_output = redact(result.stdout or result.stderr).strip()
-    review_reasons = validate_handoff_review(review_output) if result.rc == 0 else ["coding agent command failed"]
+    review_reasons = (
+        validate_handoff_review(review_output, repo, str(item.get("source_ref") or ""))
+        if result.rc == 0 else ["coding agent command failed"]
+    )
     metadata = {
         "agent": args.agent,
         "cloud_authorized": True,
