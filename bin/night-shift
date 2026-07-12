@@ -2581,6 +2581,16 @@ def correction_prompt(
     )
 
 
+def should_retry_local_output(lane: str, rc: int, score: str, output: str) -> bool:
+    return (
+        lane == "local"
+        and rc == 0
+        and score == "REJECT"
+        and action_type(output) != "reject"
+        and not UNSAFE_APPROVAL_RE.search(output)
+    )
+
+
 def dispatch_one(
     lane: str,
     label: str,
@@ -2647,13 +2657,7 @@ def dispatch_one(
         evidence_sources,
         source_ref,
     )
-    if (
-        lane == "local"
-        and first["res"].rc == 0
-        and first["score"] != "KEEP"
-        and action_type(first["res"].stdout) != "reject"
-        and not UNSAFE_APPROVAL_RE.search(first["res"].stdout)
-    ):
+    if should_retry_local_output(lane, first["res"].rc, first["score"], first["res"].stdout):
         retry_prompt = correction_prompt(prompt, reasons, candidate_files, evidence_sources)
         attempts.append(run_attempt(2, retry_prompt))
 

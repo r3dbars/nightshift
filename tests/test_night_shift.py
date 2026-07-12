@@ -202,6 +202,16 @@ CONFIDENCE: high
         self.assertIn("coverage-index/app.py-run.txt:2 | identifier_matches=0", context)
         self.assertNotIn("github-actions/run-1.log:1 | failure", context)
 
+    def test_local_retry_only_repairs_rejected_output(self):
+        valid = "ACTION_TYPE: issue\nSAFE_FOR_DRAFT_PR: no"
+        self.assertFalse(night_shift.should_retry_local_output("local", 0, "MAYBE", valid))
+        self.assertFalse(night_shift.should_retry_local_output("local", 0, "KEEP", valid))
+        self.assertTrue(night_shift.should_retry_local_output("local", 0, "REJECT", valid))
+        self.assertFalse(night_shift.should_retry_local_output("windows", 0, "REJECT", valid))
+        self.assertFalse(
+            night_shift.should_retry_local_output("local", 0, "REJECT", "ACTION_TYPE: reject")
+        )
+
     def test_old_observed_fact_evidence_format_is_rejected(self):
         output = """CLAIM: A grounded-looking claim
 EVIDENCE: app.py:2 - an interpretation rather than an exact quote
