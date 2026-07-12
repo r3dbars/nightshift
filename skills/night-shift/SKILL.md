@@ -43,8 +43,10 @@ Never ask for information a read-only check can detect.
 
 ## First Night
 
-Drive the conversation. Ask one dependent question at a time, recommend a
-default, and offer Skip. Do not silently run setup and explain afterward.
+Auto-detect the repo, GitHub login, local model servers, configured LAN worker,
+and safe defaults. Show one plain-English preview and ask only whether to start.
+Use `night-shift start --advanced` only when the user asks to customize scope,
+privacy, permissions, models, mode, or runtime.
 
 Open briefly:
 
@@ -58,15 +60,9 @@ get a few useful outcomes with evidence, exact files, and verification commands.
 Drafts, not deploys. Setup takes about a minute.
 ```
 
-### 1. Find Local Hardware
+### 1. Detect Local Hardware
 
-Ask first:
-
-> What AI hardware is sitting idle at night?
-> Scan this Mac (recommended), add another computer, type endpoints myself,
-> or continue without local AI.
-
-With consent, run the read-only scan in
+Run the read-only scan in
 [`references/hardware-scan.md`](references/hardware-scan.md). Report what the
 machine can do in plain language. Prefer the strongest downloaded coder or
 instruct model that answers a chat probe; never select an embedding model.
@@ -90,21 +86,16 @@ Detect Claude, Codex, and GitHub CLI. Explain only what matters:
 - GitHub adds live issue, PR, and failed-workflow context.
 - Cloud reasoning is optional and requires explicit permission.
 
-Ask where repo context may go: this Mac (recommended first night), Mac plus
-private LAN, or cloud subscriptions.
+Default to this Mac. Reuse a previously approved private LAN worker when it is
+healthy. Ask about LAN or cloud routing only in advanced setup or when the user
+explicitly requests it.
 
-### 4. Choose Scope And Tonight's Outcome
+### 4. Choose Safe Defaults
 
-Detect the current repo and GitHub login. Recommend recently active GitHub
-repos, with current-repo-only as the simpler option. Then ask:
-
-1. What would make tomorrow useful? Recommend a ranked chores brief.
-2. Is there one mission tonight? Recommend a concrete mission over a broad
-   "improve the repo" prompt.
-3. How much may Night Shift prepare? Recommend `draft-local` after a successful
-   rehearsal. For `draft-prs`, ask separately whether tested patches may be
-   created in disposable worktrees.
-4. How hard and how long? Recommend Normal for eight hours while plugged in.
+Detect the current repo and GitHub login. Default to recently active GitHub
+repos when authenticated, ranked chores, local draft plans, Normal mode, and
+an eight-hour stop. Keep context on the Mac unless a configured LAN worker is
+already healthy. Do not ask about these defaults in the normal flow.
 
 A good mission names an outcome and proof:
 

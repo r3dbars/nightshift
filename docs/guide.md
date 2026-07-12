@@ -32,10 +32,14 @@ without letting them become management.
 The simplest launch story:
 
 1. Run `night-shift start`.
-2. Answer a few plain-English setup questions.
-3. Review the "will / will not" summary.
-4. Let Night Shift run.
-5. Run `night-shift report --latest` in the morning.
+2. Review the automatically detected safe plan.
+3. Approve starting it.
+4. Run `night-shift report --latest` in the morning.
+
+The normal flow asks only whether to start. GitHub scope, available local AI,
+configured LAN compute, local-first privacy, Normal mode, draft-local autonomy,
+and an eight-hour stop are selected automatically. Run
+`night-shift start --advanced` to customize those choices.
 
 The promise is not "wake up to merged code." The promise is "keep idle local
 AI doing new useful work until morning, then show a short brief with proof."

@@ -22,6 +22,46 @@ LOADER.exec_module(night_shift)
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_first_run_defaults_need_only_start_consent(self):
+        rows = [
+            ("gh-auth", "GREEN", "signed in"),
+            ("windows-worker", "GREEN", "reachable"),
+        ]
+        defaults = night_shift.recommended_start_preferences({}, rows)
+        self.assertEqual(defaults["scope"], "github-recent")
+        self.assertEqual(defaults["privacy_route"], "mac-and-lan")
+        self.assertEqual(defaults["wake_goal"], "chores")
+        self.assertEqual(defaults["permission"], "draft-local")
+        self.assertEqual(defaults["mode"], "night-shift")
+        self.assertEqual(defaults["stop"], "8h")
+
+    def test_saved_setup_wins_over_recommended_defaults(self):
+        saved = {
+            "preferences": {
+                "scope": "current",
+                "privacy_route": "mac-only",
+                "wake_goal": "brief",
+                "permission": "brief",
+                "mode": "quiet",
+                "stop": "2h",
+            }
+        }
+        defaults = night_shift.recommended_start_preferences(
+            saved,
+            [("gh-auth", "GREEN", "signed in"), ("windows-worker", "GREEN", "reachable")],
+        )
+        self.assertEqual(defaults["scope"], "current")
+        self.assertEqual(defaults["privacy_route"], "mac-only")
+        self.assertEqual(defaults["permission"], "brief")
+        self.assertEqual(defaults["stop"], "2h")
+
+    def test_advanced_setup_is_explicit(self):
+        parser = night_shift.build_parser()
+        simple = parser.parse_args(["start", "--repo", str(ROOT), "--yes", "--dry-run"])
+        advanced = parser.parse_args(["start", "--repo", str(ROOT), "--advanced", "--dry-run"])
+        self.assertFalse(simple.advanced)
+        self.assertTrue(advanced.advanced)
+
     def test_ten_hour_stop_option(self):
         self.assertEqual(night_shift.STOP_SECONDS["10h"], 10 * 60 * 60)
         self.assertEqual(night_shift.stop_label("10h"), "Stop after 10 hours")
