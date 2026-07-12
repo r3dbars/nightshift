@@ -161,21 +161,26 @@ class DraftEngine:
         candidate: dict,
         command: tuple[str, ...],
         timeout: int,
-        windows_url: str,
-        windows_model: str,
+        worker_url: str,
+        worker_model: str,
         parent_ledger: Path,
         safe_task: str,
         correction: str = "",
+        patch_lane: str = "windows",
     ):
         delegate = shutil.which("maestro-delegate") or str(Path.home() / ".codex" / "bin" / "maestro-delegate")
         prompt = patch_prompt(candidate, self.source_excerpt(repo, source_ref, candidate["files"]), command)
         if correction:
             prompt += "\n\n" + correction
         env = os.environ.copy()
-        env["WINDOWS_WORKER_BASE_URL"] = windows_url.rstrip("/")
-        env["WINDOWS_WORKER_MODEL"] = windows_model
+        if patch_lane == "local":
+            env["MAESTRO_LOCAL_BASE_URL"] = worker_url.rstrip("/")
+            env["MAESTRO_LOCAL_MODEL"] = worker_model
+        else:
+            env["WINDOWS_WORKER_BASE_URL"] = worker_url.rstrip("/")
+            env["WINDOWS_WORKER_MODEL"] = worker_model
         return self.run_cmd(
-            [delegate, "windows", "--label", f"{safe_task}-patch", "--", prompt],
+            [delegate, patch_lane, "--label", f"{safe_task}-patch", "--", prompt],
             cwd=repo,
             timeout=timeout,
             env=env,
@@ -189,11 +194,12 @@ class DraftEngine:
         candidate: dict,
         parent_ledger: Path,
         timeout: int,
-        windows_url: str,
-        windows_model: str,
+        worker_url: str,
+        worker_model: str,
         deadline: float | None = None,
         stop_file: Path | None = None,
         profile: RepoProfile | None = None,
+        patch_lane: str = "windows",
     ) -> dict:
         safe_repo = re.sub(r"[^A-Za-z0-9._-]+", "--", repo_name)
         safe_task = re.sub(r"[^A-Za-z0-9._-]+", "-", candidate.get("key", "draft"))[:80]
@@ -278,7 +284,7 @@ class DraftEngine:
             })
         record_state(lifecycle_path, fingerprint, "REPRODUCED", baseline_rc=baseline.rc, verification=verification)
         record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="reproduced failure handed to bounded patch worker")
-        if not windows_url or not windows_model:
+        if not worker_url or not worker_model:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="sandboxed coding lane is not configured")
             return finish(
                 {
@@ -294,7 +300,7 @@ class DraftEngine:
             return finish({"status": "REJECT", "reason": "stop limit reached before patch worker", "baseline_rc": baseline.rc})
         model = self.ask_for_patch(
             worktree, source_ref, candidate, verification_argv, patch_timeout,
-            windows_url, windows_model, parent_ledger, safe_task,
+            worker_url, worker_model, parent_ledger, safe_task, patch_lane=patch_lane,
         )
         worker_path = proof_dir / f"{safe_task}.patch-worker.txt"
         worker_path.write_text(
@@ -307,7 +313,7 @@ class DraftEngine:
                 correction = patch_format_correction(candidate["files"])
                 retry = self.ask_for_patch(
                     worktree, source_ref, candidate, verification_argv, retry_timeout,
-                    windows_url, windows_model, parent_ledger, f"{safe_task}-retry", correction,
+                    worker_url, worker_model, parent_ledger, f"{safe_task}-retry", correction, patch_lane,
                 )
                 (proof_dir / f"{safe_task}.patch-worker-attempt-1.txt").write_text(
                     worker_path.read_text(encoding="utf-8"), encoding="utf-8"
@@ -374,6 +380,7 @@ class DraftEngine:
             "after_rc": after_rc,
             "proof_level": proof_level,
             "patch_worker_rc": model.rc,
+            "patch_lane": patch_lane,
             "sandbox_rc": verified.rc,
             "sandbox_output": str(sandbox_dir / "runner.txt"),
             "guard_reasons": guards,

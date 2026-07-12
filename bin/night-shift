@@ -3003,6 +3003,8 @@ def run_isolated_draft(
     candidate: dict,
     parent_ledger: Path,
     timeout: int,
+    local_url: str,
+    local_model: str,
     windows_url: str,
     windows_model: str,
     deadline: float | None = None,
@@ -3021,17 +3023,23 @@ def run_isolated_draft(
             "reason": f"candidate has no approved argv verification from {PROFILE_NAME}",
             "proof_level": "not executed",
         }
+    patch_lane = "windows" if windows_url and windows_model else "local"
+    patch_url = windows_url if patch_lane == "windows" else local_url
+    patch_model = windows_model if patch_lane == "windows" else local_model
+    if not patch_url or not patch_model:
+        return {"status": "REJECT", "reason": "no configured local or LAN patch lane", "proof_level": "not executed"}
     return draft_engine().run_draft(
         repo,
         repo_name,
         candidate,
         parent_ledger,
         timeout,
-        windows_url,
-        windows_model,
+        patch_url,
+        patch_model,
         deadline,
         stop_file,
         profile=profile,
+        patch_lane=patch_lane,
     )
 
 
@@ -3280,6 +3288,8 @@ def command_autopilot(args) -> int:
                             candidate,
                             ledger,
                             draft_timeout,
+                            getattr(args, "local_url", "") or os.environ.get("MAESTRO_LOCAL_BASE_URL", ""),
+                            getattr(args, "local_model", "") or os.environ.get("MAESTRO_LOCAL_MODEL", ""),
                             getattr(args, "windows_url", "") or os.environ.get("WINDOWS_WORKER_BASE_URL", ""),
                             getattr(args, "windows_model", "") or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL),
                             deadline,
