@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import re
+import signal
 import subprocess
 from pathlib import Path
 
@@ -15,6 +17,30 @@ UNSAFE_APPROVAL_RE = re.compile(
     r"|\b(push commits|merge prs|cut releases|deploy to|publish to|update appcast|update cask)\b",
     re.IGNORECASE,
 )
+
+
+def _git_show(repo: Path, source_ref: str, relative: str) -> list[str]:
+    proc = subprocess.Popen(
+        ["git", "show", f"{source_ref}:{relative}"],
+        cwd=repo,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+        raise OSError("git show timed out")
+    if proc.returncode != 0:
+        raise OSError(stderr or stdout)
+    return stdout.splitlines()
 
 
 def first_label_value(output: str, labels: list[str]) -> str:
@@ -109,23 +135,13 @@ def evidence_validation_reasons(
             if relative in supplied_sources:
                 lines = str(supplied_sources[relative]).splitlines()
             elif source_ref:
-                shown = subprocess.run(
-                    ["git", "show", f"{source_ref}:{relative}"],
-                    cwd=repo,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    check=False,
-                )
-                if shown.returncode != 0:
-                    raise OSError(shown.stderr or shown.stdout)
-                lines = shown.stdout.splitlines()
+                lines = _git_show(repo, source_ref, relative)
             else:
                 path = (repo / relative).resolve()
                 path.relative_to(repo.resolve())
                 lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
             source_line = lines[int(raw_line) - 1]
-        except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        except (OSError, ValueError, IndexError):
             return [f"evidence path or line does not exist: {relative}:{raw_line}"]
         quote = raw_quote.strip().strip("`").strip('"').strip()
         if " ".join(quote.split()) != " ".join(source_line.strip().split()):
@@ -333,5 +349,3 @@ def artifact_priority(row: dict) -> int:
     if row["rc"] != 0 or row["timed_out"]:
         base -= 40
     return base
-
-
