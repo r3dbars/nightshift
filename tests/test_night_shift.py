@@ -153,6 +153,11 @@ RISK: low
             self.assertEqual(night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=True), {})[0], "/current")
             night_shift.current_git_repo = lambda: ""
             self.assertEqual(night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=False), {}), ("", ""))
+            dry_repo, dry_error = night_shift.resolve_start_repo(
+                SimpleNamespace(repo=None, yes=True, dry_run=True), {}
+            )
+            self.assertEqual(dry_repo, "")
+            self.assertIn("no cache was created", dry_error)
             self.assertEqual(calls, [])
         finally:
             night_shift.current_git_repo = original_current
@@ -1902,6 +1907,7 @@ buildThing() { return 1; }
     def test_github_discovery_accepts_only_authenticated_owner_slugs(self):
         engine = night_shift.PortfolioEngine(lambda *args, **kwargs: None, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
         self.assertEqual(engine.owned_slug("Owner/repo.name", "owner"), ("Owner", "repo.name"))
+        self.assertEqual(engine.owned_slug("a/b", "a"), ("a", "b"))
         self.assertIsNone(engine.owned_slug("someone-else/repo", "owner"))
         self.assertIsNone(engine.owned_slug("owner/../escape", "owner"))
         self.assertIsNone(engine.owned_slug("owner/repo/extra", "owner"))

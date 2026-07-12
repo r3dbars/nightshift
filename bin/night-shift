@@ -3313,6 +3313,8 @@ def resolve_start_repo(args, saved: dict) -> tuple[str, str]:
         repo = current_git_repo()
     if repo or not args.yes:
         return repo, ""
+    if getattr(args, "dry_run", False):
+        return "", "dry run needs --repo when there is no saved or current Git repository; no cache was created"
 
     discovered = discover_github_portfolio(None, active_days=14, max_repos=1)
     if not discovered:
