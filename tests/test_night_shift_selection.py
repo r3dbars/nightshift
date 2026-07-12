@@ -25,6 +25,26 @@ class SelectionTests(unittest.TestCase):
         )
         self.assertEqual(symbols, ["public_function", "Service", "run"])
 
+    def test_python_symbols_include_top_level_conditional_declarations(self):
+        symbols = declared_symbols(
+            "try:\n"
+            "    def fast_parse():\n"
+            "        return 1\n"
+            "except ImportError:\n"
+            "    def fast_parse():\n"
+            "        return 2\n"
+            "if True:\n"
+            "    async def optional_sync():\n"
+            "        return 3\n"
+        )
+        self.assertEqual(symbols, ["fast_parse", "optional_sync"])
+
+    def test_non_python_source_uses_regex_fallback(self):
+        self.assertEqual(
+            declared_symbols("export function parseThing() { return 1; }"),
+            ["parseThing"],
+        )
+
     def test_complete_coverage_outranks_broad_repair(self):
         broad = {"ladder_priority": 500}
         coverage = {
