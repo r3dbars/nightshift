@@ -485,6 +485,49 @@ CONFIDENCE: high
             self.assertFalse(night_shift.contains_identifier("runtime = 1", "run"))
             self.assertTrue(night_shift.contains_identifier("run()", "run"))
 
+    def test_coverage_gap_has_complete_zero_match_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def run():\n    return True\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            (tests / "test_app.py").write_text("def test_other():\n    assert True\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": ["tests/test_app.py"], "tracked_files": ["app.py", "tests/test_app.py"],
+                "doc_files": [], "todo_sample": [], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            task = next(item for item in queue if item["slug"] == "recent-change-test-gap")
+            evidence = next(iter(task["evidence_sources"].values()))
+            self.assertIn("symbol=run", evidence)
+            self.assertIn("source_file=app.py", evidence)
+            self.assertIn("identifier_matches=0", evidence)
+            self.assertIn("scan_complete=true", evidence)
+            self.assertEqual(night_shift.model_task_readiness_reasons(task, "night-shift"), [])
+
+    def test_incomplete_coverage_index_is_rejected_before_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def run():\n    return True\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            (tests / "test_app.py").write_text("# filler\n" + "x" * 262_144, encoding="utf-8")
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": ["tests/test_app.py"], "tracked_files": ["app.py", "tests/test_app.py"],
+                "doc_files": [], "todo_sample": [], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            task = next(item for item in queue if item["slug"] == "recent-change-test-gap")
+            evidence = next(iter(task["evidence_sources"].values()))
+            self.assertIn("scan_complete=false", evidence)
+            self.assertIn("coverage index is incomplete", night_shift.model_task_readiness_reasons(task, "night-shift"))
+
     def test_declared_symbols_cover_supported_language_forms(self):
         source = """
 export function loadUser() {}
