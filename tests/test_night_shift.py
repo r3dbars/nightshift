@@ -29,7 +29,7 @@ class NightShiftQualityTests(unittest.TestCase):
         ]
         defaults = night_shift.recommended_start_preferences({}, rows)
         self.assertEqual(defaults["scope"], "github-recent")
-        self.assertEqual(defaults["privacy_route"], "mac-and-lan")
+        self.assertEqual(defaults["privacy_route"], "mac-only")
         self.assertEqual(defaults["wake_goal"], "chores")
         self.assertEqual(defaults["permission"], "draft-local")
         self.assertEqual(defaults["mode"], "night-shift")
@@ -751,6 +751,43 @@ CONFIDENCE: high
             self.assertTrue(metadata["cloud_authorized"])
             self.assertTrue(metadata["read_only"])
             self.assertTrue(metadata["valid_review"])
+
+    def test_handoff_refuses_cloud_review_when_checkout_does_not_match_source_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            ledger = root / "ledger"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            (repo / "app.py").write_text("first\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "first"], cwd=repo, check=True)
+            source_ref = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True, capture_output=True, check=True
+            ).stdout.strip()
+            (repo / "app.py").write_text("second\n", encoding="utf-8")
+            subprocess.run(["git", "commit", "-qam", "second"], cwd=repo, check=True)
+            ledger.mkdir()
+            (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "rank": 1, "score": "MAYBE", "summary": "Review pinned code",
+                "evidence": "app.py:1 | first", "files": ["app.py"],
+                "tests": "python -m pytest", "source_ref": source_ref,
+            }]), encoding="utf-8")
+            args = SimpleNamespace(
+                ledger=str(ledger), latest=False, item=1, agent="codex",
+                run=True, allow_cloud=True, timeout=30,
+            )
+            original_which = night_shift.shutil.which
+            night_shift.shutil.which = lambda name: "/usr/bin/codex" if name == "codex" else original_which(name)
+            try:
+                with redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(night_shift.command_handoff(args), 1)
+            finally:
+                night_shift.shutil.which = original_which
+            self.assertIn("does not match", output.getvalue())
 
     def test_handoff_review_schema_rejects_unstructured_cloud_output(self):
         self.assertEqual(night_shift.validate_handoff_review("looks good"), [

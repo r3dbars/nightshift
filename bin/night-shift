@@ -352,10 +352,9 @@ def recommended_start_preferences(saved: dict, rows: list[tuple[str, str, str]])
     """Choose safe, useful defaults so the normal setup needs one consent."""
     by_name = rows_by_name(rows)
     github_ready = by_name.get("gh-auth", ("", ""))[0] == "GREEN"
-    windows_ready = by_name.get("windows-worker", ("", ""))[0] == "GREEN"
     return {
         "wake_goal": config_value(saved, "wake_goal", "chores"),
-        "privacy_route": config_value(saved, "privacy_route", "mac-and-lan" if windows_ready else "mac-only"),
+        "privacy_route": config_value(saved, "privacy_route", "mac-only"),
         "permission": config_value(saved, "permission", "draft-local"),
         "mode": config_value(saved, "mode", "night-shift"),
         "stop": config_value(saved, "stop", "8h"),
@@ -4362,6 +4361,15 @@ def command_handoff(args) -> int:
         print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
         return 1
 
+    source_ref = str(item.get("source_ref") or "")
+    if source_ref:
+        current = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, timeout=30)
+        pinned = run_cmd(["git", "rev-parse", source_ref], cwd=repo, timeout=30)
+        if current.rc != 0 or pinned.rc != 0 or current.stdout.strip() != pinned.stdout.strip():
+            print("NIGHTSHIFT_HANDOFF: RED | the checked-out revision does not match this pinned candidate")
+            print(f"Review the candidate in a detached checkout of {source_ref[:12]}, then rerun the handoff there.")
+            return 1
+
     result = run_cmd(
         [
             "codex", "exec", "--ephemeral", "--sandbox", "read-only",
@@ -4374,7 +4382,7 @@ def command_handoff(args) -> int:
     output_path.write_text(redact(result.stdout or result.stderr).strip() + "\n", encoding="utf-8")
     review_output = redact(result.stdout or result.stderr).strip()
     review_reasons = (
-        validate_handoff_review(review_output, repo, str(item.get("source_ref") or ""))
+        validate_handoff_review(review_output, repo, source_ref)
         if result.rc == 0 else ["coding agent command failed"]
     )
     metadata = {
