@@ -1391,6 +1391,21 @@ def write_repo_scan(ledger: Path, scan: dict) -> None:
     (ledger / "repo-scan.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+def declared_symbols(text: str) -> list[str]:
+    patterns = (
+        r"(?m)^\s*(?:(?:export|pub(?:\([^)]*\))?)\s+)?(?:async\s+)?(?:def|class|function|fn|fun)\s+([A-Za-z_][A-Za-z0-9_]*)",
+        r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)",
+        r"(?m)^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=.*=>",
+        r"(?m)^\s*(?:(?:public|private|protected|internal|static|final|open|override|suspend|async)\s+)+"
+        r"[A-Za-z_][A-Za-z0-9_<>,.?\[\]:]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+        r"(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{",
+    )
+    found: list[str] = []
+    for pattern in patterns:
+        found.extend(re.findall(pattern, text))
+    return list(dict.fromkeys(found))
+
+
 def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: str, guidance: str = "scan", goal_text: str = "") -> list[dict]:
     queue: list[dict] = []
 
@@ -1471,10 +1486,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
     coverage_gaps: list[tuple[str, str]] = []
     for path in recent_source:
         source_text = read_current_text(path)
-        symbols = re.findall(
-            r"(?m)^\s*(?:async\s+)?(?:def|class|function)\s+([A-Za-z_][A-Za-z0-9_]*)",
-            source_text,
-        )
+        symbols = declared_symbols(source_text)
         missing = next(
             (
                 symbol
@@ -1967,7 +1979,7 @@ def task_evidence_pack(
     for relative, text in file_texts.items():
         if is_test_path(relative):
             continue
-        symbols.update(re.findall(r"(?m)^\s*(?:async\s+)?(?:def|class|function)\s+([A-Za-z_][A-Za-z0-9_]*)", text))
+        symbols.update(declared_symbols(text))
     for relative, text in file_texts.items():
         test_terms = symbols if is_test_path(relative) else set()
         matches = numbered_symbol_matches(text, test_terms)

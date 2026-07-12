@@ -485,6 +485,23 @@ CONFIDENCE: high
             self.assertFalse(night_shift.contains_identifier("runtime = 1", "run"))
             self.assertTrue(night_shift.contains_identifier("run()", "run"))
 
+    def test_declared_symbols_cover_supported_language_forms(self):
+        source = """
+export function loadUser() {}
+export const saveUser = async () => true
+func (s *Server) ServeHTTP() {}
+pub fn parse_record() {}
+public static String renderPage() { return ""; }
+fun calculateTotal(): Int = 42
+buildThing() { return 1; }
+"""
+        symbols = night_shift.declared_symbols(source)
+        for expected in (
+            "loadUser", "saveUser", "ServeHTTP", "parse_record",
+            "renderPage", "calculateTotal", "buildThing",
+        ):
+            self.assertIn(expected, symbols)
+
     def test_coverage_check_uses_tracked_tests_beyond_display_cap(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
