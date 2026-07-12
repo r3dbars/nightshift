@@ -20,8 +20,29 @@ night_shift = importlib.util.module_from_spec(SPEC)
 sys.modules[LOADER.name] = night_shift
 LOADER.exec_module(night_shift)
 
+from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
+
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_evidence_module_parses_and_prioritizes_worker_results(self):
+        output = """CLAIM: Add a focused regression test
+ACTION_TYPE: patch-plan
+RISK: low
+"""
+        self.assertEqual(first_label_value(output, ["CLAIM"]), "Add a focused regression test")
+        self.assertEqual(summarize_output(output), "Add a focused regression test")
+        self.assertEqual(action_type(output), "patch-plan")
+        self.assertGreater(
+            artifact_priority({
+                "score": "MAYBE", "lane": "windows", "output": output,
+                "rc": 0, "timed_out": False,
+            }),
+            artifact_priority({
+                "score": "REJECT", "lane": "local", "output": "",
+                "rc": 1, "timed_out": False,
+            }),
+        )
+
     def test_first_run_defaults_need_only_start_consent(self):
         rows = [
             ("gh-auth", "GREEN", "signed in"),
