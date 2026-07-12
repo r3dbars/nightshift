@@ -60,7 +60,7 @@ class PortfolioEngine:
                 "--limit",
                 "30",
                 "--json",
-                "number,title,isDraft,reviewDecision,statusCheckRollup,updatedAt,url",
+                "number,title,isDraft,reviewDecision,statusCheckRollup,updatedAt,url,headRefOid",
             ],
             timeout=60,
         )

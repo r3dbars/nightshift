@@ -18,8 +18,8 @@ findings, 0 accepted findings, and about 181,159 estimated tokens.
 | First-run UX | 55 | Normal setup now auto-selects safe defaults and asks one start confirmation; advanced choices are optional. | Observe new users completing setup with at most one consent and no endpoint knowledge. |
 | Hardware detection | 70 | Ollama and configured Windows endpoints are detected and chat-probed. | Prove LM Studio, Ollama, offline fallback, LAN discovery, and reconnect behavior. |
 | Minimal setup | 50 | Normal setup hides modes, endpoints, privacy routing, and duration behind detected defaults. | Fresh-user proof with no manual URLs, model names, or GitHub repo selection. |
-| Useful output | 25 | The July 11 run accepted 0 of 40 attempted findings. | Varied healthy runs produce independently verified useful outcomes without duplicate churn. |
-| Task selection | 38 | GitHub and repo signals create bounded queues, but weak tasks dominated the real run. | Deterministic executable signals consistently produce high-value tasks before model calls. |
+| Useful output | 35 | A July 12 bounded run accepted 1 of 3 candidates and exposed a real missing patch-validator test, now independently added and passing; the July 11 overnight baseline remains 0 of 40. | Varied healthy overnight runs produce independently verified useful outcomes without duplicate churn. |
+| Task selection | 50 | A deterministic readiness gate now skips unusable CI logs, healthy/unpinned PRs, source-unlinked issues, and broad Normal-mode scans before dispatch. | Demonstrate high accepted-outcome rates across varied live GitHub signals and repos. |
 | Repository prioritization | 62 | Activity, PR, issue, and failed-run scores exist. | Measure that selected repos match user value and active work, not recency alone. |
 | GitHub usefulness | 72 | PR, issue, failed-workflow, and recent-repo signals feed queues. | Correlate selected work to accepted PR/issue outcomes across owned repos. |
 | Portfolio discovery | 74 | GitHub recent-repo ranking and cached checkouts work. | Owner allowlist and per-repo priority/quiet hours. |
@@ -27,7 +27,7 @@ findings, 0 accepted findings, and about 181,159 estimated tokens.
 | Multi-repo operation | 72 | Portfolio cycles, stop limits, and a controller lock exist. | Test real mixed-language portfolio runs. |
 | Mac compute | 82 | LM Studio detection, local lane work, and default routing for generic exploration. | Dynamic queueing and thermal/resource feedback. |
 | Windows compute | 80 | LAN worker detection and routing reserved for pinned CI/PR signals. | Authenticated endpoint validation and reconnect tests. |
-| Efficiency | 28 | The real run spent about 181k estimated tokens for 0 accepted outcomes. | Enforce per-outcome budgets, revision caches, and stop-before-model signal gates. |
+| Efficiency | 40 | A bounded rehearsal skipped 3 weak signals at zero model tokens and spent about 14k estimated tokens to find one real candidate; the July 11 baseline remains poor. | Prove strong tokens-per-accepted-outcome across full overnight runs with revision caching. |
 | Evidence quality | 88 | Numbered source/CI evidence, proof artifacts, and persistent lifecycle transitions exist. | Exercise reproduction evidence across varied real repositories. |
 | Deterministic proof | 84 | Explicit argv profiles and a rootless-container baseline/after verifier are implemented. | Install and prove the sandbox on a real supported host. |
 | Patch autonomy | 58 | A bounded patch protocol exists, but the real host sandbox is not ready. | Prove isolated patches and checks across diverse repositories. |
@@ -40,7 +40,7 @@ findings, 0 accepted findings, and about 181,159 estimated tokens.
 | Reliability | 82 | Stop deadlines, process cancellation, single-controller lock, migration tests, and validated task-state transitions. | Crash-recovery and concurrent-scheduler integration tests. |
 | Observability | 91 | Ledgers, task attempts, cooldown skips, outcome metrics, health, review-preserving retention, and explicit sandbox-capability health. | Confirm retention behavior in a real 10-hour soak. |
 | Learning loop | 45 | Local feedback is retained but has no demonstrated outcome lift. | Prove feedback changes ranking and accepted outcomes across later runs. |
-| Test coverage | 82 | 58 focused tests after the first-run simplification, including a simulated patch chain. | Real provider, interrupted-controller, scheduler, and GitHub-write integration tests. |
+| Test coverage | 84 | 65 focused tests cover first-run defaults, pre-model readiness, skip accounting, morning visibility, and the simulated patch chain. | Real provider, interrupted-controller, scheduler, and GitHub-write integration tests. |
 | Maintainability | 42 | Policy helpers exist, but the main controller remains about 4,550 lines. | Split setup, scanning, queueing, dispatch, reporting, and lifecycle into tested modules. |
 | Portability | 78 | Local-first defaults with Linux/macOS scheduling and Docker-rootless/Podman-rootless sandbox providers. | Prove both providers on real supported hosts. |
 | Ten-hour readiness | 86 | Fixed stop limits, lock, cooldown, unattended pause, retention controls, and a per-revision rejection circuit breaker. | A clean 10-hour soak with resource and disk evidence. |
