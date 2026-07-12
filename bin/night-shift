@@ -34,7 +34,7 @@ from night_shift_sandbox import build_runner_image, detect_sandbox
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import build_handoff_prompt, materialize_review_files, select_handoff_item, validate_handoff_review
+from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, materialize_review_files, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_task_feedback, task_family
 
 
