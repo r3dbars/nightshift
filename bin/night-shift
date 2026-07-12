@@ -1475,6 +1475,18 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             return ""
         return raw[:max_bytes].decode("utf-8", errors="replace")
 
+    def read_coverage_text(relative: str, max_bytes: int) -> tuple[str, bool]:
+        if not repo:
+            return "", False
+        try:
+            with (repo / relative).open("rb") as handle:
+                raw = handle.read(max_bytes + 1)
+        except OSError:
+            return "", False
+        if len(raw) > max_bytes or b"\x00" in raw[:4096]:
+            return "", False
+        return raw.decode("utf-8", errors="replace"), True
+
     coverage_test_paths = scan.get("coverage_test_files") or [path for path in tracked_files if is_test_path(path)]
     corpus_parts: list[str] = []
     corpus_bytes = 0
@@ -1485,12 +1497,9 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             corpus_complete = False
             break
         file_limit = min(262_144, 8_388_608 - corpus_bytes)
-        try:
-            if repo and (repo / path).stat().st_size > file_limit:
-                corpus_complete = False
-        except OSError:
+        text, indexed = read_coverage_text(path, file_limit)
+        if not indexed:
             corpus_complete = False
-        text = read_current_text(path, file_limit)
         corpus_parts.append(text)
         corpus_bytes += len(text.encode("utf-8", errors="replace"))
         corpus_files_scanned += 1

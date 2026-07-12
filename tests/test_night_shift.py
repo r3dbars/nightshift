@@ -608,7 +608,10 @@ buildThing() { return 1; }
                 "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
             }
             queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
-            self.assertTrue(any("`calculate_total`" in item["prompt"] for item in queue))
+            task = next(item for item in queue if item["slug"] == "recent-change-test-gap")
+            self.assertIn("`calculate_total`", task["prompt"])
+            self.assertIn("scan_complete=false", next(iter(task["evidence_sources"].values())))
+            self.assertIn("coverage index is incomplete", night_shift.model_task_readiness_reasons(task, "night-shift"))
 
     def test_failed_ci_queue_starts_with_newest_run(self):
         scan = {
