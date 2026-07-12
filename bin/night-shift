@@ -3311,7 +3311,7 @@ def resolve_start_repo(args, saved: dict) -> tuple[str, str]:
     repo = args.repo or config_value(saved, "repo")
     if not repo:
         repo = current_git_repo()
-    if repo or not args.yes:
+    if repo:
         return repo, ""
     if getattr(args, "dry_run", False):
         return "", "dry run needs --repo when there is no saved or current Git repository; no cache was created"

@@ -141,7 +141,7 @@ RISK: low
         finally:
             night_shift.run_cmd = original_run
 
-    def test_start_repo_precedence_and_discovery_requires_yes(self):
+    def test_start_repo_precedence_and_dry_run_avoids_discovery(self):
         original_current = night_shift.current_git_repo
         original_discover = night_shift.discover_github_portfolio
         calls = []
@@ -152,7 +152,6 @@ RISK: low
             self.assertEqual(night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=True), {"project": {"repo": "/saved"}})[0], "/saved")
             self.assertEqual(night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=True), {})[0], "/current")
             night_shift.current_git_repo = lambda: ""
-            self.assertEqual(night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=False), {}), ("", ""))
             dry_repo, dry_error = night_shift.resolve_start_repo(
                 SimpleNamespace(repo=None, yes=True, dry_run=True), {}
             )
@@ -173,6 +172,10 @@ RISK: low
         try:
             self.assertEqual(
                 night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=True), {}),
+                ("/cache/owner-repo", ""),
+            )
+            self.assertEqual(
+                night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=False), {}),
                 ("/cache/owner-repo", ""),
             )
         finally:
