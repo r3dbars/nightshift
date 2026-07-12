@@ -37,6 +37,7 @@ from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, materialize_review_files, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_task_feedback, task_family
 from night_shift_reporting import ReportEngine
+from night_shift_selection import declared_symbols, relevant_tests_for_source, task_selection_priority
 from night_shift_evidence import (
     FORBIDDEN_ACTION_RE,
     UNSAFE_APPROVAL_RE,
@@ -1398,43 +1399,6 @@ def write_repo_scan(ledger: Path, scan: dict) -> None:
     (ledger / "repo-scan.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-def declared_symbols(text: str) -> list[str]:
-    patterns = (
-        r"(?m)^\s*(?:(?:export|pub(?:\([^)]*\))?)\s+)?(?:async\s+)?(?:def|class|function|fn|fun)\s+([A-Za-z_][A-Za-z0-9_]*)",
-        r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)",
-        r"(?m)^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=.*=>",
-        r"(?m)^\s*(?:(?:public|private|protected|internal|static|final|open|override|suspend|async)\s+)+"
-        r"[A-Za-z_][A-Za-z0-9_<>,.?\[\]:]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
-        r"(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{",
-    )
-    found: list[str] = []
-    for pattern in patterns:
-        found.extend(re.findall(pattern, text))
-    return list(dict.fromkeys(found))
-
-
-def task_selection_priority(task: dict) -> int:
-    """Rank evidence strength inside the Repair-to-Index task ladder."""
-    priority = int(task.get("ladder_priority") or 0)
-    evidence = "\n".join(str(value) for value in (task.get("evidence_sources") or {}).values())
-    files = task.get("files") or []
-    commands = task.get("verification_commands") or []
-    complete_index = "scan_complete=true" in evidence and "identifier_matches=0" in evidence
-    pinned_failed_ci = (
-        str(task.get("slug") or "").startswith("failed-ci-")
-        and task.get("proof_kind") == "test"
-        and bool(task.get("source_ref"))
-        and bool(evidence)
-        and bool(files)
-        and bool(commands)
-    )
-    if pinned_failed_ci:
-        priority += 1000
-    elif complete_index and files and commands:
-        priority += 500
-    return priority
-
-
 def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: str, guidance: str = "scan", goal_text: str = "") -> list[dict]:
     queue: list[dict] = []
 
@@ -1502,22 +1466,6 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         if b"\x00" in raw[:4096]:
             return ""
         return raw[:max_bytes].decode("utf-8", errors="replace")
-
-    def relevant_tests_for_source(source_path: str) -> list[str]:
-        ignored = {"app", "api", "src", "lib", "route", "index", "page", "test", "tests", "unit", "id"}
-        source_terms = {
-            term for term in re.findall(r"[a-z0-9]+", source_path.lower())
-            if len(term) > 2 and term not in ignored
-        }
-        ranked = []
-        for index, test_path in enumerate(tests):
-            test_terms = set(re.findall(r"[a-z0-9]+", test_path.lower()))
-            content = read_current_text(test_path, max_bytes=131_072)
-            score = len(source_terms & test_terms) * 10
-            if source_path in content:
-                score += 100
-            ranked.append((-score, index, test_path))
-        return [path for _, _, path in sorted(ranked)]
 
     def read_coverage_text(relative: str, max_bytes: int) -> tuple[str, bool]:
         if not repo:
@@ -1656,7 +1604,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             "tests",
             f"Inspect only `{gap_symbol}` in `{gap_path}`. Cite that exact source line plus the supplied coverage-index evidence. Reject if the index is incomplete or this exact gap is unsupported.",
             "This declared symbol has no textual match in the tracked test corpus.",
-            [gap_path] + relevant_tests_for_source(gap_path)[:4],
+            [gap_path] + relevant_tests_for_source(gap_path, tests, read_current_text)[:4],
             ladder="strengthen",
             preferred_lane="local",
             evidence_sources=gap_evidence,
@@ -1775,7 +1723,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             "tests",
             f"Inspect only `{symbol}` in `{path}`. Cite that exact source line plus the supplied coverage-index evidence. Do not discuss another function; reject when the index is incomplete or this exact gap is unsupported.",
             "A declared source symbol with no textual test match is a bounded coverage lead, not proof of a gap.",
-            [path] + relevant_tests_for_source(path)[:5],
+            [path] + relevant_tests_for_source(path, tests, read_current_text)[:5],
             ladder="strengthen",
             preferred_lane="local",
             proof_kind="test",
