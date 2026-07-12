@@ -13,6 +13,7 @@ import subprocess
 import sys
 import textwrap
 import time
+import tempfile
 import ipaddress
 import urllib.parse
 import urllib.error
@@ -33,7 +34,7 @@ from night_shift_sandbox import build_runner_image, detect_sandbox
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import build_handoff_prompt, select_handoff_item, validate_handoff_review
+from night_shift_handoff import build_handoff_prompt, materialize_review_files, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_task_feedback, task_family
 
 
@@ -1445,6 +1446,24 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         result = run_cmd(["git", "cat-file", "-e", f"{ref}:{relative}"], cwd=repo, timeout=20)
         return result.rc == 0
 
+    def ensure_pr_ref(number: str, ref: str) -> bool:
+        if not repo or not ref or not re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+            return False
+        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
+        if available.rc == 0:
+            return True
+        if not str(number).isdigit():
+            return False
+        fetched = run_cmd(
+            ["git", "fetch", "--quiet", "--no-tags", "origin", f"refs/pull/{number}/head"],
+            cwd=repo,
+            timeout=120,
+        )
+        if fetched.rc != 0:
+            return False
+        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
+        return available.rc == 0
+
     def log_paths(log_text: str) -> list[str]:
         found = re.findall(
             r"(?<![A-Za-z0-9_.@+-])((?:[A-Za-z0-9_.@+-]+/)+[A-Za-z0-9_.@+-]+\.[A-Za-z0-9]+)",
@@ -1567,8 +1586,11 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         number = pr.get("number") or "unknown"
         pr_files = [row.get("path", "") for row in pr.get("files") or [] if row.get("path")]
         pr_source_ref = str(pr.get("headRefOid") or "")
-        if pr_source_ref:
+        if pr_source_ref and ensure_pr_ref(str(number), pr_source_ref):
             pr_files = [path for path in pr_files if file_exists_at_ref(path, pr_source_ref)]
+        elif pr_source_ref:
+            pr_files = []
+            pr_source_ref = ""
         checks = pr.get("statusCheckRollup") or []
         failed_check = any(row.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for row in checks)
         state = "requested changes" if pr.get("reviewDecision") == "CHANGES_REQUESTED" else "failed checks" if failed_check else "open draft" if pr.get("isDraft") else "open review"
@@ -4370,14 +4392,20 @@ def command_handoff(args) -> int:
             print(f"Review the candidate in a detached checkout of {source_ref[:12]}, then rerun the handoff there.")
             return 1
 
-    result = run_cmd(
-        [
-            "codex", "exec", "--ephemeral", "--sandbox", "read-only",
-            "--ask-for-approval", "never", "--color", "never", "-C", str(repo), prompt,
-        ],
-        cwd=repo,
-        timeout=args.timeout,
-    )
+    with tempfile.TemporaryDirectory(prefix="night-shift-handoff-") as temporary:
+        review_root = Path(temporary)
+        copied = materialize_review_files(repo, review_root, item.get("files") or [], source_ref)
+        if not copied:
+            print("NIGHTSHIFT_HANDOFF: RED | no safe committed review files could be materialized")
+            return 1
+        result = run_cmd(
+            [
+                "codex", "exec", "--ephemeral", "--sandbox", "read-only",
+                "--ask-for-approval", "never", "--color", "never", "-C", str(review_root), prompt,
+            ],
+            cwd=review_root,
+            timeout=args.timeout,
+        )
     output_path = handoff_dir / f"item-{args.item}-{args.agent}-review.md"
     output_path.write_text(redact(result.stdout or result.stderr).strip() + "\n", encoding="utf-8")
     review_output = redact(result.stdout or result.stderr).strip()

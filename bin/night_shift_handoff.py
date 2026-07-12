@@ -72,6 +72,29 @@ End with: READY_FOR_IMPLEMENTATION: yes/no
 """
 
 
+def materialize_review_files(repo: Path, target: Path, files: list[str], source_ref: str = "") -> list[str]:
+    """Copy only allowlisted committed files into an isolated review directory."""
+    copied: list[str] = []
+    revision = source_ref or "HEAD"
+    for relative in files[:6]:
+        path = Path(str(relative))
+        if path.is_absolute() or ".." in path.parts or not path.parts:
+            continue
+        shown = subprocess.run(
+            ["git", "show", f"{revision}:{path.as_posix()}"],
+            cwd=repo,
+            capture_output=True,
+            check=False,
+        )
+        if shown.returncode != 0 or b"\x00" in shown.stdout[:4096]:
+            continue
+        destination = target / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(shown.stdout)
+        copied.append(path.as_posix())
+    return copied
+
+
 def citation_exists(repo: Path, relative: str, line: int, source_ref: str = "") -> bool:
     if line < 1 or Path(relative).is_absolute() or ".." in Path(relative).parts:
         return False

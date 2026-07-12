@@ -424,6 +424,49 @@ CONFIDENCE: high
             self.assertIn("app/api/new/route.ts", failed["files"])
             self.assertIn("npm run check:routes", failed["verification_commands"])
 
+    def test_pr_queue_fetches_missing_numbered_head_before_dispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            remote = root / "remote.git"
+            seed = root / "seed"
+            repo = root / "repo"
+            subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+            subprocess.run(["git", "clone", "-q", str(remote), str(seed)], check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=seed, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=seed, check=True)
+            (seed / "README.md").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=seed, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=seed, check=True)
+            subprocess.run(["git", "push", "-q", "origin", "HEAD:main"], cwd=seed, check=True)
+            subprocess.run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], cwd=remote, check=True)
+            subprocess.run(["git", "clone", "-q", str(remote), str(repo)], check=True)
+            (seed / "src").mkdir()
+            (seed / "src" / "app.py").write_text("return 42\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=seed, check=True)
+            subprocess.run(["git", "commit", "-qm", "pr head"], cwd=seed, check=True)
+            pr_ref = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=seed, text=True).strip()
+            subprocess.run(["git", "push", "-q", "origin", "HEAD:refs/pull/7/head"], cwd=seed, check=True)
+            missing = subprocess.run(
+                ["git", "cat-file", "-e", f"{pr_ref}^{{commit}}"], cwd=repo, capture_output=True
+            )
+            self.assertNotEqual(missing.returncode, 0)
+            scan = {
+                "recent_files": ["README.md"], "tracked_files": ["README.md"],
+                "source_files": [], "test_files": [], "doc_files": ["README.md"],
+                "todo_sample": [], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": json.dumps([{
+                    "number": 7, "reviewDecision": "CHANGES_REQUESTED", "headRefOid": pr_ref,
+                    "files": [{"path": "src/app.py"}], "statusCheckRollup": [],
+                }]),
+                "github_open_issues_raw": "[]", "github_failed_runs_raw": "[]",
+                "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "draft-local")
+            item = next(row for row in queue if row["slug"] == "pr-7-review")
+            self.assertEqual(item["source_ref"], pr_ref)
+            self.assertEqual(item["files"], ["src/app.py"])
+            subprocess.run(["git", "cat-file", "-e", f"{pr_ref}^{{commit}}"], cwd=repo, check=True)
+
     def test_pre_model_gate_rejects_missing_ci_log_without_spending_tokens(self):
         task = {
             "slug": "failed-ci-42",
@@ -646,8 +689,13 @@ CONFIDENCE: high
             ledger = root / "ledger"
             repo.mkdir()
             subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
             (repo / "src").mkdir()
             (repo / "src" / "app.py").write_text("first line\nreturn 42\n", encoding="utf-8")
+            (repo / "private.txt").write_text("do not send\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
             ledger.mkdir()
             (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
             (ledger / "work-queue.json").write_text(json.dumps([{
@@ -704,8 +752,13 @@ CONFIDENCE: high
             ledger = root / "ledger"
             repo.mkdir()
             subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
             (repo / "src").mkdir()
             (repo / "src" / "app.py").write_text("first line\nreturn 42\n", encoding="utf-8")
+            (repo / "private.txt").write_text("do not send\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
             ledger.mkdir()
             (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
             (ledger / "work-queue.json").write_text(json.dumps([{
@@ -721,6 +774,7 @@ CONFIDENCE: high
                 self.assertEqual(night_shift.command_handoff(args), 2)
 
             captured = []
+            review_files = []
             original_run = night_shift.run_cmd
             original_which = night_shift.shutil.which
             try:
@@ -732,6 +786,11 @@ CONFIDENCE: high
                         )
                         return night_shift.CmdResult("git", completed.returncode, completed.stdout, completed.stderr)
                     captured.append(values)
+                    review_root = Path(kwargs["cwd"])
+                    review_files.extend(
+                        path.relative_to(review_root).as_posix()
+                        for path in review_root.rglob("*") if path.is_file()
+                    )
                     return night_shift.CmdResult(
                         "codex", 0,
                         "CONFIRMED\nsrc/app.py:2 | return 42\nREADY_FOR_IMPLEMENTATION: yes", "",
@@ -747,6 +806,8 @@ CONFIDENCE: high
                 night_shift.shutil.which = original_which
             self.assertIn("read-only", captured[0])
             self.assertNotIn("workspace-write", captured[0])
+            self.assertEqual(review_files, ["src/app.py"])
+            self.assertNotEqual(captured[0][captured[0].index("-C") + 1], str(repo))
             metadata = json.loads((ledger / "handoff" / "item-1-codex.json").read_text(encoding="utf-8"))
             self.assertTrue(metadata["cloud_authorized"])
             self.assertTrue(metadata["read_only"])
