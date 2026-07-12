@@ -184,6 +184,23 @@ CONFIDENCE: high
         self.assertIn("- bin/night_shift_drafts.py", prompt)
         self.assertIn("- tests/test_night_shift.py", prompt)
         self.assertIn("- coverage-index/bin-night_shift_drafts.py-select_candidate.txt", prompt)
+        self.assertIn(
+            "coverage-index/bin-night_shift_drafts.py-select_candidate.txt:1 | identifier_matches=0",
+            prompt,
+        )
+
+    def test_task_context_gives_copy_ready_coverage_citations_only(self):
+        context = night_shift.task_context_block({
+            "slug": "coverage",
+            "files": ["app.py"],
+            "evidence_sources": {
+                "coverage-index/app.py-run.txt": "symbol=run\nidentifier_matches=0",
+                "github-actions/run-1.log": "failure with a secret-looking value",
+            },
+        })
+        self.assertIn("coverage-index/app.py-run.txt:1 | symbol=run", context)
+        self.assertIn("coverage-index/app.py-run.txt:2 | identifier_matches=0", context)
+        self.assertNotIn("github-actions/run-1.log:1 | failure", context)
 
     def test_old_observed_fact_evidence_format_is_rejected(self):
         output = """CLAIM: A grounded-looking claim
