@@ -2088,6 +2088,23 @@ buildThing() { return 1; }
             night_shift.detect_sandbox = original_sandbox
             night_shift.draft_engine = original_engine
 
+    def test_isolated_draft_rejects_when_no_patch_lane_is_configured(self):
+        original_profile = night_shift.load_repo_profile
+        original_sandbox = night_shift.detect_sandbox
+        profile = SimpleNamespace(may_execute=True, commands=(("true",),))
+        try:
+            night_shift.load_repo_profile = lambda _repo: (profile, "loaded")
+            night_shift.detect_sandbox = lambda _run: SimpleNamespace(available=True, detail="ready")
+            result = night_shift.run_isolated_draft(
+                Path("/tmp/repo"), "owner/repo", {"files": ["app.py"]}, Path("/tmp/ledger"), 60,
+                "", "", "", "windows-coder",
+            )
+            self.assertEqual(result["status"], "REJECT")
+            self.assertEqual(result["reason"], "no configured local or LAN patch lane")
+        finally:
+            night_shift.load_repo_profile = original_profile
+            night_shift.detect_sandbox = original_sandbox
+
     def test_patch_correction_allows_any_approved_file(self):
         correction = __import__("night_shift_drafts").patch_format_correction(
             ["src/first.py", "src/actual.py"]
