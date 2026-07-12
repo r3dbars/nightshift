@@ -55,6 +55,20 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertEqual(defaults["permission"], "brief")
         self.assertEqual(defaults["stop"], "2h")
 
+    def test_mac_only_autopilot_clears_configured_lan_worker(self):
+        args = SimpleNamespace(privacy_route="mac-only", windows_url="http://windows.test/v1")
+        previous = os.environ.get("WINDOWS_WORKER_BASE_URL")
+        os.environ["WINDOWS_WORKER_BASE_URL"] = "http://windows.test/v1"
+        try:
+            self.assertEqual(night_shift.enforce_autopilot_privacy(args), "mac-only")
+            self.assertEqual(args.windows_url, "")
+            self.assertNotIn("WINDOWS_WORKER_BASE_URL", os.environ)
+        finally:
+            if previous is not None:
+                os.environ["WINDOWS_WORKER_BASE_URL"] = previous
+            else:
+                os.environ.pop("WINDOWS_WORKER_BASE_URL", None)
+
     def test_advanced_setup_is_explicit(self):
         parser = night_shift.build_parser()
         simple = parser.parse_args(["start", "--repo", str(ROOT), "--yes", "--dry-run"])

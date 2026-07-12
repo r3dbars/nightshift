@@ -3151,11 +3151,8 @@ def command_run(args) -> int:
     tasks = []
     if not queue:
         if grounded_queue_count:
-            (ledger / "morning.md").write_text(
-                "# Morning Brief\n\nStatus: GREEN\n\nNo new work at this repository revision. "
-                "All grounded task fingerprints were already attempted.\n",
-                encoding="utf-8",
-            )
+            write_outcome_metrics(ledger, [], skipped)
+            write_morning(ledger, args.mode, [], target_tokens, "GREEN", scan)
             print(f"NIGHTSHIFT_RUN: GREEN | no new grounded repo tasks | ledger={ledger}")
             print("Everything at this repo revision was already attempted. Night Shift will wait for new GitHub or code activity.")
             return 0
@@ -3532,11 +3529,22 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
     (ledger / "morning.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def enforce_autopilot_privacy(args) -> str | None:
+    privacy_route = getattr(args, "privacy_route", None)
+    if privacy_route and privacy_route != "mac-and-lan":
+        args.windows_url = ""
+        os.environ.pop("WINDOWS_WORKER_BASE_URL", None)
+    return privacy_route
+
+
 def command_autopilot(args) -> int:
     saved = load_config()
     if not getattr(args, "repo", None):
         args.repo = config_value(saved, "repo")
+    privacy_route = enforce_autopilot_privacy(args)
     for name in ("local_url", "local_model", "windows_url", "windows_model"):
+        if name == "windows_url" and privacy_route and privacy_route != "mac-and-lan":
+            continue
         if not getattr(args, name, None):
             setattr(args, name, config_value(saved, name))
     if getattr(args, "active_days", 14) < 1 or (getattr(args, "max_repos", None) is not None and args.max_repos < 1):
@@ -3966,6 +3974,7 @@ def command_start(args) -> int:
         local_model=local_model,
         windows_url=windows_url,
         windows_model=windows_model,
+        privacy_route=privacy_route,
         timeout=args.timeout,
         skip_smoke=args.skip_smoke,
         stop_after=stop,
@@ -4227,6 +4236,7 @@ def command_nightly(args) -> int:
         local_model=config_value(config, "local_model"),
         windows_url=config_value(config, "windows_url") if config_value(config, "privacy_route") == "mac-and-lan" else None,
         windows_model=config_value(config, "windows_model"),
+        privacy_route=config_value(config, "privacy_route", "mac-only"),
         timeout=900,
         skip_smoke=False,
         stop_after=config_value(config, "stop", "8h") if config_value(config, "stop") != "morning" else "8h",
