@@ -36,6 +36,7 @@ from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, materialize_review_files, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_task_feedback, task_family
+from night_shift_reporting import ReportEngine
 from night_shift_evidence import (
     FORBIDDEN_ACTION_RE,
     UNSAFE_APPROVAL_RE,
@@ -154,16 +155,6 @@ BOARD_ITEMS = [
     ("code-smell-map", "Find duplicated patterns, unsafe boundaries, or unclear ownership seams."),
     ("morning-issues", "Draft small morning-ready issue candidates from existing evidence."),
     ("proof-audit", "Check whether current proof separates deterministic, telemetry, and manual evidence."),
-]
-
-ACTION_THEMES = [
-    ("tests", re.compile(r"\b(test|tests|fixture|fixtures|smoke|regression|coverage)\b", re.IGNORECASE)),
-    ("docs", re.compile(r"\b(readme|docs?|documentation|quickstart|troubleshooting|copy|example)\b", re.IGNORECASE)),
-    ("install", re.compile(r"\b(install|path|linked mode|package|doctor|setup wizard|first-run|first run)\b", re.IGNORECASE)),
-    ("telemetry", re.compile(r"\b(telemetry|analytics|event|events|dashboard|posthog|sentry)\b", re.IGNORECASE)),
-    ("pr-triage", re.compile(r"\b(pr|pull request|branch|merge|stale)\b", re.IGNORECASE)),
-    ("safety", re.compile(r"\b(safety|privacy|secret|credential|billing|release|deploy|publish)\b", re.IGNORECASE)),
-    ("cleanup", re.compile(r"\b(duplicate|dedupe|refactor|oversized|smell|cleanup|ownership)\b", re.IGNORECASE)),
 ]
 
 CODE_EXTENSIONS = {".py", ".js", ".ts", ".tsx", ".jsx", ".swift", ".go", ".rs", ".rb", ".java", ".kt", ".cs", ".c", ".cc", ".cpp", ".h"}
@@ -2169,84 +2160,42 @@ def read_meta(proof: str | None) -> dict:
         return {}
 
 
+def report_engine() -> ReportEngine:
+    return ReportEngine(
+        load_feedback=load_feedback,
+        run_cmd=run_cmd,
+        token_reporter=BIN / "maestro-token-report",
+        narrow_task_files=narrow_task_files,
+        latest_states=latest_states,
+    )
+
+
 def label_family(label: str) -> str:
-    return re.sub(r"-\d{3}$", "", label)
+    return report_engine().label_family(label)
 
 
 def summary_theme(text: str) -> str:
-    for name, regex in ACTION_THEMES:
-        if regex.search(text):
-            return name
-    words = re.findall(r"[a-z0-9]+", text.lower())
-    stop = {"the", "and", "for", "with", "that", "this", "from", "into", "night", "shift", "add", "update"}
-    useful = [word for word in words if len(word) > 2 and word not in stop]
-    return "-".join(useful[:4]) or "general"
+    return report_engine().summary_theme(text)
 
 
 def dedupe_key(row: dict) -> str:
-    summary = row.get("summary", "")
-    return f"{label_family(row.get('label', 'task'))}:{summary_theme(summary)}:{action_type(row.get('output', ''))}"
+    return report_engine().dedupe_key(row)
 
 
 def feedback_adjustment(key: str, repo: str = "") -> int:
-    adjustment = 0
-    for row in load_feedback():
-        if row.get("key") != key:
-            continue
-        if repo and row.get("repo") != repo:
-            continue
-        adjustment += 20 if row.get("verdict") == "useful" else -120
-    return max(-240, min(40, adjustment))
+    return report_engine().feedback_adjustment(key, repo)
 
 
 def deduped_work_items(results: list[dict], limit: int | None = None) -> list[dict]:
-    clusters: dict[str, dict] = {}
-    for row in ranked_results(results):
-        key = dedupe_key(row)
-        if key not in clusters:
-            clusters[key] = {
-                "key": key,
-                "primary": row,
-                "supporting": [],
-                "lanes": set(),
-                "labels": set(),
-                "priority": artifact_priority(row) + feedback_adjustment(key, row.get("repo", "")),
-                "action_type": action_type(row.get("output", "")),
-                "theme": summary_theme(row.get("summary", "")),
-            }
-        cluster = clusters[key]
-        cluster["supporting"].append(row)
-        cluster["lanes"].add(row.get("lane", "unknown"))
-        cluster["labels"].add(row.get("label", "unknown"))
-        cluster["priority"] = max(
-            cluster["priority"],
-            artifact_priority(row) + feedback_adjustment(key, row.get("repo", "")),
-        ) + min(len(cluster["supporting"]) - 1, 5)
-        if artifact_priority(row) > artifact_priority(cluster["primary"]):
-            cluster["primary"] = row
-    items = sorted(clusters.values(), key=lambda item: (-item["priority"], item["key"]))
-    for item in items:
-        item["lanes"] = sorted(item["lanes"])
-        item["labels"] = sorted(item["labels"])
-    return items[:limit] if limit else items
+    return report_engine().deduped_work_items(results, limit)
 
 
 def ranked_results(results: list[dict], include_reject=False) -> list[dict]:
-    rows = [r for r in results if include_reject or r["score"] != "REJECT"]
-    return sorted(rows, key=lambda r: (-artifact_priority(r), r["score"], r["label"]))
+    return report_engine().ranked_results(results, include_reject)
 
 
 def token_totals_by_lane(results: list[dict]) -> dict[str, dict[str, int]]:
-    totals: dict[str, dict[str, int]] = {}
-    for row in results:
-        lane = row["lane"]
-        if lane not in totals:
-            totals[lane] = {"calls": 0, "input": 0, "output": 0, "total": 0}
-        totals[lane]["calls"] += 1
-        totals[lane]["input"] += int(row.get("input_tokens") or 0)
-        totals[lane]["output"] += int(row.get("output_tokens") or 0)
-        totals[lane]["total"] += int(row.get("tokens") or 0)
-    return totals
+    return report_engine().token_totals_by_lane(results)
 
 
 def correction_prompt(
@@ -2434,332 +2383,37 @@ def cancel_pending_workers(ledger: Path, pending) -> None:
 
 
 def write_harvest(ledger: Path, results: list[dict]) -> None:
-    lines = ["# Harvest", ""]
-    for row in results:
-        row["priority"] = artifact_priority(row)
-    keep = [r for r in results if r["score"] == "KEEP"]
-    maybe = [r for r in results if r["score"] == "MAYBE"]
-    reject = [r for r in results if r["score"] == "REJECT"]
-    lines.append(f"KEEP: {len(keep)}")
-    lines.append(f"MAYBE: {len(maybe)}")
-    lines.append(f"REJECT: {len(reject)}")
-    lines.append("")
-    lines.append("## Top Ranked Artifacts")
-    lines.append("")
-    ranked = ranked_results(results)
-    if ranked:
-        lines.append("| rank | score | priority | lane | label | action | artifact |")
-        lines.append("| ---: | --- | ---: | --- | --- | --- | --- |")
-        for index, row in enumerate(ranked[:10], start=1):
-            action = row["summary"].replace("|", "\\|")
-            lines.append(
-                f"| {index} | {row['score']} | {row['priority']} | {row['lane']} | {row['label']} | {action} | {row['artifact']} |"
-            )
-    else:
-        lines.append("No KEEP or MAYBE artifacts survived scoring.")
-    lines.append("")
-    lines.append("## Deduped Work Queue")
-    lines.append("")
-    work_items = deduped_work_items(results, limit=10)
-    if work_items:
-        lines.append("| rank | action | support | lanes | candidate | primary artifact |")
-        lines.append("| ---: | --- | ---: | --- | --- | --- |")
-        for index, item in enumerate(work_items, start=1):
-            row = item["primary"]
-            summary = row["summary"].replace("|", "\\|")
-            lanes = ", ".join(item["lanes"])
-            lines.append(
-                f"| {index} | {item['action_type']} | {len(item['supporting'])} | {lanes} | {summary} | {row['artifact']} |"
-            )
-    else:
-        lines.append("No work queue items survived dedupe.")
-    lines.append("")
-    lines.append("## Full Scorecard")
-    lines.append("")
-    lines.append("| score | priority | lane | label | tokens | artifact |")
-    lines.append("| --- | ---: | --- | --- | ---: | --- |")
-    for row in sorted(results, key=lambda r: (-r["priority"], r["label"])):
-        lines.append(f"| {row['score']} | {row['priority']} | {row['lane']} | {row['label']} | {row['tokens']} | {row['artifact']} |")
-    lines.append("")
-    for score, rows in [("KEEP", keep), ("MAYBE", maybe), ("REJECT", reject)]:
-        lines.append(f"## {score} Summary")
-        lines.append("")
-        if not rows:
-            lines.append("- None.")
-            lines.append("")
-            continue
-        for row in sorted(rows, key=lambda r: (-r["priority"], r["label"]))[:12]:
-            lines.append(f"- {row['label']} ({row['lane']}, priority {row['priority']}): {row['summary']}")
-        lines.append("")
-    (ledger / "harvest.md").write_text("\n".join(lines), encoding="utf-8")
+    report_engine().write_harvest(ledger, results)
 
 
 def write_outcome_metrics(ledger: Path, results: list[dict], skipped: list[dict]) -> None:
-    tokens = sum(int(row.get("tokens") or 0) for row in results)
-    accepted = sum(1 for row in results if row.get("score") in {"KEEP", "MAYBE"})
-    metrics = {
-        "attempted": len(results),
-        "accepted_candidates": accepted,
-        "rejected": sum(1 for row in results if row.get("score") == "REJECT"),
-        "pre_model_skips": sum(1 for row in skipped if row.get("category") == "pre-model"),
-        "feedback_skips": sum(1 for row in skipped if row.get("category") == "feedback"),
-        "cooldown_or_repeat_skips": sum(1 for row in skipped if row.get("category") in {"cooldown", "repeat"}),
-        "estimated_tokens": tokens,
-        "accepted_per_1000_tokens": round(accepted * 1000 / tokens, 4) if tokens else 0,
-        "patches_promoted": 0,
-        "human_feedback_events": len(load_feedback()),
-    }
-    (ledger / "outcome-metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    report_engine().write_outcome_metrics(ledger, results, skipped)
 
 
 def write_task_lifecycle_summary(ledger: Path) -> None:
-    states = latest_states(ledger / "task-lifecycle.jsonl")
-    counts: dict[str, int] = {}
-    for event in states.values():
-        state = event["state"]
-        counts[state] = counts.get(state, 0) + 1
-    lines = ["# Task Lifecycle", ""]
-    for state in ("DISCOVERED", "REPRODUCED", "DIAGNOSED", "PATCHED", "VERIFIED", "REVIEWED", "PROMOTED", "REJECTED"):
-        lines.append(f"- {state}: {counts.get(state, 0)}")
-    (ledger / "task-lifecycle.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    report_engine().write_task_lifecycle_summary(ledger)
 
 
 def write_work_queue(ledger: Path, results: list[dict]) -> list[dict]:
-    items = deduped_work_items(results, limit=12)
-    serializable = []
-    for item in items:
-        row = item["primary"]
-        serializable.append(
-            {
-                "rank": len(serializable) + 1,
-                "key": item["key"],
-                "action_type": item["action_type"],
-                "theme": item["theme"],
-                "supporting_artifacts": len(item["supporting"]),
-                "lanes": item["lanes"],
-                "labels": item["labels"],
-                "ladder": row.get("ladder", "strengthen"),
-                "proof_kind": row.get("proof_kind", "source"),
-                "executable": bool(row.get("executable", False)),
-                "source_ref": row.get("source_ref", ""),
-                "fingerprint": row.get("fingerprint", ""),
-                "verification_commands": row.get("verification_commands", []),
-                "priority": item["priority"],
-                "summary": row["summary"],
-                "score": row["score"],
-                "evidence": row.get("evidence", ""),
-                "files": row.get("files", []),
-                "tests": row.get("tests", ""),
-                "expected_result": row.get("expected_result", ""),
-                "primary_artifact": row["artifact"],
-                "proof": row.get("proof", ""),
-            }
-        )
-    (ledger / "work-queue.json").write_text(json.dumps(serializable, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    lines = ["# Work Queue", ""]
-    if not serializable:
-        lines.append("No usable work queue items survived scoring and dedupe.")
-    for item in serializable:
-        lines.append(f"## {item['rank']}. {item['summary']}")
-        lines.append("")
-        lines.append(f"- Action: {item['action_type']}")
-        lines.append(f"- Score: {item['score']}")
-        lines.append(f"- Support: {item['supporting_artifacts']} artifact(s)")
-        lines.append(f"- Lanes: {', '.join(item['lanes']) or 'unknown'}")
-        lines.append(f"- Evidence: {item['evidence'] or 'not captured'}")
-        lines.append(f"- Files: {', '.join(item['files']) or 'none'}")
-        lines.append(f"- Verify: `{item['tests']}`" if item["tests"] else "- Verify: not captured")
-        lines.append(f"- Expected: {item['expected_result'] or 'not captured'}")
-        lines.append(f"- Primary artifact: {item['primary_artifact']}")
-        lines.append("")
-    (ledger / "work-queue.md").write_text("\n".join(lines), encoding="utf-8")
-    return items
+    return report_engine().write_work_queue(ledger, results)
 
 
 def write_token_report(ledger: Path, results: list[dict]) -> str:
-    proofs = []
-    for row in results:
-        proofs.extend(row.get("proofs") or ([row["proof"]] if row.get("proof") else []))
-    if not proofs:
-        text = "No delegate proof paths captured.\n"
-    else:
-        res = run_cmd([BIN / "maestro-token-report", *proofs], timeout=120)
-        text = res.stdout or res.stderr or "No token report output.\n"
-    (ledger / "token-report.txt").write_text(text, encoding="utf-8")
-    return text
+    return report_engine().write_token_report(ledger, results)
 
 
 def run_status(results: list[dict], target_tokens: int, overall: str, mode: str = "night-shift") -> str:
-    if overall == "RED":
-        return "RED"
-    if not results:
-        return "YELLOW"
-    total_tokens = sum(r["tokens"] for r in results)
-    failed = any(r["rc"] != 0 or r["timed_out"] for r in results)
-    useful = any(r["score"] == "KEEP" for r in results)
-    if failed or not useful:
-        return "YELLOW"
-    if mode == "afterburner" and total_tokens < target_tokens:
-        return "YELLOW"
-    return "GREEN"
+    return report_engine().run_status(results, target_tokens, overall, mode)
 
 
 def factual_change_surface(scan: dict | None) -> list[str]:
-    if not scan or scan.get("status") != "ok":
-        return []
-    lines = []
-    changed = narrow_task_files(scan.get("recent_files") or [])
-    if changed:
-        lines.append(f"- Recent code/test surface: {', '.join(changed)}")
-    commands = scan.get("test_commands") or []
-    if commands:
-        lines.append(f"- Detected verification command: `{commands[0]}`")
-    branch = scan.get("branch")
-    head = scan.get("head")
-    if branch or head:
-        lines.append(f"- Repository revision: {branch or '(detached)'} at {head or 'unknown'}")
-    return lines
+    return report_engine().factual_change_surface(scan)
 
 
 def write_morning(
     ledger: Path, mode: str, results: list[dict], target_tokens: int, overall: str, scan: dict | None = None
 ) -> None:
-    local = [r for r in results if r["lane"] == "local"]
-    windows = [r for r in results if r["lane"] == "windows"]
-    for row in results:
-        row["priority"] = artifact_priority(row)
-    total_tokens = sum(r["tokens"] for r in results)
-    keep = len([r for r in results if r["score"] == "KEEP"])
-    maybe = len([r for r in results if r["score"] == "MAYBE"])
-    reject = len([r for r in results if r["score"] == "REJECT"])
-    status = run_status(results, target_tokens, overall, mode)
-    ranked = ranked_results(results)
-    work_items = deduped_work_items(results, limit=3)
-    if work_items:
-        first_action = work_items[0]["primary"]["summary"]
-    elif results:
-        factual = factual_change_surface(scan)
-        first_action = factual[0].removeprefix("- ") if factual else "No evidence-backed item survived. Review the deterministic repo scan before another model run."
-    else:
-        first_action = "Fix the startup gate or run with reachable local/Windows lanes."
-    token_totals = token_totals_by_lane(results)
-    try:
-        task_skips = parse_json_text((ledger / "task-skips.json").read_text(encoding="utf-8"), [])
-    except OSError:
-        task_skips = []
-    pre_model_skips = sum(1 for row in task_skips if row.get("category") == "pre-model")
-    feedback_skips = sum(1 for row in task_skips if row.get("category") == "feedback")
-    lines = [
-        "# Morning Brief",
-        "",
-        f"Status: {status}",
-        "",
-        "Start here:",
-        f"- {first_action}",
-        "",
-        "Three useful choices:",
-    ]
-    if work_items:
-        for index, item in enumerate(work_items, start=1):
-            row = item["primary"]
-            lines.append(
-                f"{index}. {row['summary']} [{row['score']}]"
-            )
-            if row.get("evidence"):
-                lines.append(f"   Evidence: {row['evidence']}")
-            if row.get("files"):
-                lines.append(f"   Files: {', '.join(row['files'][:5])}")
-            if row.get("tests"):
-                lines.append(f"   Verify: `{row['tests']}`")
-            lines.append(f"   Proof: {row['artifact']}")
-    else:
-        factual = factual_change_surface(scan)
-        if factual:
-            lines.append("1. No model draft survived the evidence gate. Here is the factual review surface:")
-            lines.extend(f"   {line}" for line in factual)
-        else:
-            lines.append("1. No usable artifacts survived scoring. Review the startup gate before another run.")
-    lines.extend(
-        [
-            "",
-            "Run totals:",
-            f"- Mode: {mode}",
-            f"- Startup gate: {overall}",
-            f"- Local loops: {len(local)}",
-            f"- Windows loops: {len(windows)}",
-            f"- Estimated local+Windows tokens: {total_tokens}",
-            f"- Token target: {target_tokens}",
-            f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}",
-            f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}",
-            f"- Weak signals skipped before model calls: {pre_model_skips}",
-            f"- User-rejected task families skipped: {feedback_skips}",
-            f"- Evidence-backed candidates awaiting proof: {len([item for item in work_items if item['primary']['score'] == 'MAYBE'])}",
-            f"- Unique work queue items: {len(deduped_work_items(results))}",
-            "",
-            "Token totals by lane:",
-        ]
-    )
-    for lane in sorted(token_totals):
-        row = token_totals[lane]
-        lines.append(
-            f"- {lane}: calls={row['calls']} input~{row['input']} output~{row['output']} total~{row['total']}"
-        )
-    if not token_totals:
-        lines.append("- none")
-    lines.extend(
-        [
-            "",
-            "Deterministically proven worker findings:",
-        ]
-    )
-    ready = [item for item in deduped_work_items(results) if item["primary"]["score"] == "KEEP"]
-    for item in ready[:5]:
-        row = item["primary"]
-        lines.append(f"- {item['action_type']}: {row['summary']} ({len(item['supporting'])} supporting artifact(s))")
-    if not ready:
-        lines.append("- None.")
-    lines.extend(
-        [
-            "",
-            "Evidence-backed candidates that still need deterministic proof:",
-        ]
-    )
-    needs_rewrite = [item for item in deduped_work_items(results) if item["primary"]["score"] == "MAYBE"]
-    for item in needs_rewrite[:5]:
-        row = item["primary"]
-        lines.append(f"- {item['action_type']}: {row['summary']} ({len(item['supporting'])} supporting artifact(s))")
-    if not needs_rewrite:
-        lines.append("- None.")
-    lines.extend(
-        [
-            "",
-            "REJECT summary:",
-        ]
-    )
-    rejected = sorted([r for r in results if r["score"] == "REJECT"], key=lambda r: (-r["priority"], r["label"]))
-    for row in rejected[:5]:
-        lines.append(f"- {row['label']}: {row['summary']}")
-    if reject == 0:
-        lines.append("- None.")
-    lines.extend(
-        [
-            "",
-            "Needs user review:",
-            "- Review only the top ranked KEEP/MAYBE item first; worker output is draft input, not truth.",
-            "- Treat manual hardware/audio proof as UNKNOWN unless a human verified it.",
-            "",
-            "Safety:",
-            "- No merges, releases, tags, notarization, deploys, appcast/cask updates, billing, credentials, or user-file cleanup were performed by this command.",
-            "- Local and Windows outputs are drafts, not truth.",
-            "",
-            "Proof files:",
-            f"- Repo scan: {ledger / 'repo-scan.md'}",
-            f"- Work queue: {ledger / 'work-queue.md'}",
-            f"- Harvest: {ledger / 'harvest.md'}",
-            f"- Token report: {ledger / 'token-report.txt'}",
-        ]
-    )
-    (ledger / "morning.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    report_engine().write_morning(ledger, mode, results, target_tokens, overall, scan)
 
 
 def command_doctor(args) -> int:

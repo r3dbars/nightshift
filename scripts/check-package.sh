@@ -14,8 +14,7 @@ bash -n \
 
 python3 -m py_compile \
   bin/night-shift \
-  bin/night_shift_portfolio.py \
-  bin/night_shift_drafts.py \
+  bin/night_shift_*.py \
   bin/maestro-token-report
 
 python3 -m unittest discover -s tests -p 'test_*.py'
@@ -48,6 +47,10 @@ bin/night-shift --help >/dev/null
 
 tmp_home="$(mktemp -d)"
 trap 'rm -rf "$tmp_home"' EXIT
+copied_home="$tmp_home/copied-install"
+./install.sh --codex-home "$copied_home" >/dev/null
+"$copied_home/bin/night-shift" --version | grep -q "Night Shift $version_file"
+
 CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --dry-run --skip-smoke >/dev/null
 CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --dry-run --skip-smoke >/dev/null
 test -s "$tmp_home/night-shift/config.json"
