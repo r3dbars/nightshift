@@ -1161,6 +1161,7 @@ def repo_signal_scan(repo: Path | None) -> dict:
     tracked = commands[4]["stdout"].splitlines() if len(commands) > 4 and commands[4]["stdout"] else []
     scan["tracked_count"] = len(tracked)
     scan["tracked_files"] = tracked[:5000]
+    scan["coverage_test_files"] = [path for path in tracked if is_test_path(path)]
     scan["doc_files"] = [f for f in tracked if f.lower().endswith((".md", ".mdx", ".rst"))][:60]
     scan["test_files"] = [
         f
@@ -1391,6 +1392,21 @@ def write_repo_scan(ledger: Path, scan: dict) -> None:
     (ledger / "repo-scan.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+def declared_symbols(text: str) -> list[str]:
+    patterns = (
+        r"(?m)^\s*(?:(?:export|pub(?:\([^)]*\))?)\s+)?(?:async\s+)?(?:def|class|function|fn|fun)\s+([A-Za-z_][A-Za-z0-9_]*)",
+        r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)",
+        r"(?m)^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=.*=>",
+        r"(?m)^\s*(?:(?:public|private|protected|internal|static|final|open|override|suspend|async)\s+)+"
+        r"[A-Za-z_][A-Za-z0-9_<>,.?\[\]:]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+        r"(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{",
+    )
+    found: list[str] = []
+    for pattern in patterns:
+        found.extend(re.findall(pattern, text))
+    return list(dict.fromkeys(found))
+
+
 def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: str, guidance: str = "scan", goal_text: str = "") -> list[dict]:
     queue: list[dict] = []
 
@@ -1446,6 +1462,44 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         reverse=True,
     )
     failed_logs = parse_json_text(scan.get("github_failed_logs_raw", ""), [])
+
+    def read_current_text(relative: str, max_bytes: int = 262_144) -> str:
+        if not repo:
+            return ""
+        try:
+            with (repo / relative).open("rb") as handle:
+                raw = handle.read(max_bytes + 1)
+        except OSError:
+            return ""
+        if b"\x00" in raw[:4096]:
+            return ""
+        return raw[:max_bytes].decode("utf-8", errors="replace")
+
+    coverage_test_paths = scan.get("coverage_test_files") or [path for path in tracked_files if is_test_path(path)]
+    corpus_parts: list[str] = []
+    corpus_bytes = 0
+    for path in coverage_test_paths:
+        if corpus_bytes >= 8_388_608:
+            break
+        text = read_current_text(path, min(262_144, 8_388_608 - corpus_bytes))
+        corpus_parts.append(text)
+        corpus_bytes += len(text.encode("utf-8", errors="replace"))
+    test_corpus = "\n".join(corpus_parts)
+    coverage_gaps: list[tuple[str, str]] = []
+    for path in recent_source:
+        source_text = read_current_text(path)
+        symbols = declared_symbols(source_text)
+        missing = next(
+            (
+                symbol
+                for symbol in symbols
+                if not symbol.startswith("_")
+                and not re.search(rf"\b{re.escape(symbol)}\b", test_corpus)
+            ),
+            "",
+        )
+        if missing:
+            coverage_gaps.append((path, missing))
 
     def file_exists_at_ref(relative: str, ref: str) -> bool:
         if not repo or not ref or not relative or relative.startswith(("/", ".git/")):
@@ -1519,13 +1573,14 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             ladder="repair",
             preferred_lane="local",
         )
-    if recent_source:
+    if coverage_gaps:
+        gap_path, gap_symbol = coverage_gaps[0]
         add(
             "recent-change-test-gap",
             "tests",
-            "Find the highest-value missing deterministic test around the most recent changed files. Prefer one narrow test or fixture, not a broad rewrite.",
-            "Recent files are often where a useful regression check belongs.",
-            recent_source[:6] + tests[:2],
+            f"Inspect only `{gap_symbol}` in `{gap_path}` and its supplied tests. Cite that exact source path and symbol plus relevant test evidence. Do not discuss another function; reject if this exact gap is not supported.",
+            "This declared symbol has no textual match in the tracked test corpus.",
+            [gap_path] + tests[:4],
             ladder="strengthen",
             preferred_lane="local",
         )
@@ -1636,13 +1691,13 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             commands=test_commands or ["git status --short"],
             source_ref=pr_source_ref,
         )
-    for index, path in enumerate(recent_source[:12], start=1):
+    for index, (path, symbol) in enumerate(coverage_gaps[:12], start=1):
         safe = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-").lower()[:48]
         add(
             f"changed-file-proof-{index:02d}-{safe}",
             "tests",
-            "Inspect this one recently changed source file and its nearest tests. Identify one concrete untested branch or reject the task when coverage already exists.",
-            "A changed source file is a bounded surface for useful regression work.",
+            f"Inspect only `{symbol}` in `{path}` and its supplied tests. Cite that exact source path and symbol plus relevant test evidence. Do not discuss another function; reject when this exact gap is unsupported or already covered.",
+            "A declared source symbol with no textual test match is a bounded coverage lead, not proof of a gap.",
             [path] + tests[:5],
             ladder="strengthen",
             preferred_lane="local",
@@ -1829,6 +1884,44 @@ def feedback_context(repo: Path | None) -> str:
     return "\n".join(lines)
 
 
+def is_test_path(relative: str) -> bool:
+    return bool(re.search(
+        r"(^|/)(test|tests|spec|specs)(/|$)|(^|/)(test|spec)_[^/]+\.|(_test|_spec|\.test|\.spec)\.",
+        relative,
+        re.IGNORECASE,
+    ))
+
+
+def contains_identifier(text: str, term: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(term)}\b", text))
+
+
+def numbered_relevant_excerpt(text: str, terms: set[str], max_lines: int = 180) -> str:
+    lines = text.splitlines()
+    if len(lines) <= max_lines or not terms:
+        selected = range(min(len(lines), max_lines))
+    else:
+        matches = [index for index, line in enumerate(lines) if any(contains_identifier(line, term) for term in terms)]
+        if not matches:
+            selected = range(max_lines)
+        else:
+            indexes: set[int] = set()
+            for index in matches:
+                indexes.update(range(max(0, index - 6), min(len(lines), index + 7)))
+            selected = sorted(indexes)[:max_lines]
+    return "\n".join(f"{index + 1:>5} | {lines[index]}" for index in selected)
+
+
+def numbered_symbol_matches(text: str, terms: set[str], max_lines: int = 120) -> str:
+    lines = text.splitlines()
+    matches = [
+        f"{index + 1:>5} | {line}"
+        for index, line in enumerate(lines)
+        if any(contains_identifier(line, term) for term in terms)
+    ]
+    return "\n".join(matches[:max_lines])
+
+
 def task_evidence_pack(
     repo: Path | None,
     task: dict,
@@ -1872,6 +1965,7 @@ def task_evidence_pack(
         if diff.stdout.strip():
             sections.append("## candidate-diff\n" + redact(diff.stdout[: min(12000, max_chars // 2)]))
     per_file_chars = max(1200, min(6000, max_chars // max(2, max_files + 1)))
+    file_texts: dict[str, str] = {}
     for relative in candidates[:max_files]:
         if source_ref:
             shown = run_cmd(["git", "show", f"{source_ref}:{relative}"], cwd=repo, timeout=30)
@@ -1886,8 +1980,18 @@ def task_evidence_pack(
                 continue
         if b"\x00" in raw[:4096]:
             continue
-        text = redact(raw.decode("utf-8", errors="replace"))
-        numbered = "\n".join(f"{index:>5} | {line}" for index, line in enumerate(text.splitlines()[:180], start=1))
+        file_texts[relative] = redact(raw.decode("utf-8", errors="replace"))
+    symbols: set[str] = set()
+    for relative, text in file_texts.items():
+        if is_test_path(relative):
+            continue
+        symbols.update(declared_symbols(text))
+    for relative, text in file_texts.items():
+        test_terms = symbols if is_test_path(relative) else set()
+        matches = numbered_symbol_matches(text, test_terms)
+        if matches:
+            sections.append(f"## exact source-symbol matches: {relative}\n{matches[:per_file_chars]}")
+        numbered = numbered_relevant_excerpt(text, test_terms)
         sections.append(f"## file-excerpt: {relative}\n{numbered[:per_file_chars]}")
     sections.append("## repo-summary\n" + base_context[: min(1800, max_chars // 8)])
     return redact("\n\n".join(sections))[:max_chars]

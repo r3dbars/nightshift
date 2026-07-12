@@ -414,6 +414,159 @@ CONFIDENCE: high
             )
             self.assertEqual(score, "MAYBE")
 
+    def test_large_test_excerpt_follows_candidate_source_symbols(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            (repo / "app.py").write_text("def calculate_total():\n    return 42\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            lines = [f"# filler {index}" for index in range(240)]
+            lines.extend(["def test_calculate_total():", "    assert calculate_total() == 42"])
+            (tests / "test_app.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
+            task = {"files": ["app.py", "tests/test_app.py"]}
+            pack = night_shift.task_evidence_pack(repo, task, "base", max_files=2)
+            self.assertIn("## exact source-symbol matches: tests/test_app.py", pack)
+            self.assertIn("  241 | def test_calculate_total():", pack)
+            self.assertIn("  242 |     assert calculate_total() == 42", pack)
+
+    def test_changed_file_task_is_skipped_when_symbols_exist_in_tests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def calculate_total():\n    return 42\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            (tests / "test_app.py").write_text("def test_calculate_total():\n    assert calculate_total() == 42\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": ["tests/test_app.py"], "doc_files": [], "todo_sample": [],
+                "tracked_files": ["app.py", "tests/test_app.py"], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            self.assertFalse(any(item["slug"].startswith("changed-file-proof") for item in queue))
+            self.assertFalse(any(item["slug"] == "recent-change-test-gap" for item in queue))
+
+    def test_private_constructor_does_not_create_coverage_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("class App:\n    def __init__(self):\n        self.value = 1\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"], "test_files": [],
+                "doc_files": [], "todo_sample": [], "tracked_files": ["app.py"], "test_commands": [],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            prompts = "\n".join(item["prompt"] for item in queue)
+            self.assertNotIn("`__init__`", prompts)
+
+    def test_symbol_substrings_do_not_count_as_test_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def run():\n    return True\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            (tests / "test_app.py").write_text("runtime = 1\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": ["tests/test_app.py"], "tracked_files": ["app.py", "tests/test_app.py"],
+                "doc_files": [], "todo_sample": [], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            self.assertTrue(any("`run`" in item["prompt"] for item in queue))
+            self.assertFalse(night_shift.contains_identifier("runtime = 1", "run"))
+            self.assertTrue(night_shift.contains_identifier("run()", "run"))
+
+    def test_declared_symbols_cover_supported_language_forms(self):
+        source = """
+export function loadUser() {}
+export const saveUser = async () => true
+func (s *Server) ServeHTTP() {}
+pub fn parse_record() {}
+public static String renderPage() { return ""; }
+fun calculateTotal(): Int = 42
+buildThing() { return 1; }
+"""
+        symbols = night_shift.declared_symbols(source)
+        for expected in (
+            "loadUser", "saveUser", "ServeHTTP", "parse_record",
+            "renderPage", "calculateTotal", "buildThing",
+        ):
+            self.assertIn(expected, symbols)
+
+    def test_root_level_pytest_and_spec_files_are_tests(self):
+        self.assertTrue(night_shift.is_test_path("test_app.py"))
+        self.assertTrue(night_shift.is_test_path("spec_app.rb"))
+        self.assertTrue(night_shift.is_test_path("src/test_app.py"))
+        self.assertFalse(night_shift.is_test_path("contest_app.py"))
+
+    def test_coverage_check_uses_tracked_tests_beyond_display_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def calculate_total():\n    return 42\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            tracked = ["app.py"]
+            for index in range(81):
+                relative = f"tests/test_{index:02d}.py"
+                (repo / relative).write_text(
+                    "calculate_total()\n" if index == 80 else f"# test {index}\n",
+                    encoding="utf-8",
+                )
+                tracked.append(relative)
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": tracked[1:81], "tracked_files": tracked,
+                "doc_files": [], "todo_sample": [], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            self.assertFalse(any("`calculate_total`" in item["prompt"] for item in queue))
+
+    def test_coverage_check_uses_complete_scan_index_beyond_tracked_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def calculate_total():\n    return 42\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            (tests / "test_late.py").write_text("calculate_total()\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": [], "tracked_files": ["app.py"],
+                "coverage_test_files": ["tests/test_late.py"],
+                "doc_files": [], "todo_sample": [], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            self.assertFalse(any("`calculate_total`" in item["prompt"] for item in queue))
+
+    def test_coverage_corpus_skips_binary_test_assets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def calculate_total():\n    return 42\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            (tests / "fixture.bin").write_bytes(b"\x00calculate_total" + b"x" * 300_000)
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": [], "tracked_files": ["app.py", "tests/fixture.bin"],
+                "doc_files": [], "todo_sample": [], "test_commands": [],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            self.assertTrue(any("`calculate_total`" in item["prompt"] for item in queue))
+
     def test_failed_ci_queue_starts_with_newest_run(self):
         scan = {
             "recent_files": ["app.py"],
@@ -1052,24 +1205,31 @@ CONFIDENCE: high
         self.assertNotEqual(first, night_shift.task_fingerprint("owner/repo", "def456", task))
 
     def test_compounding_queue_uses_unique_ladder_tasks(self):
-        scan = {
-            "recent_files": ["src/app.ts"],
-            "source_files": ["src/app.ts", "src/util.ts"],
-            "test_files": ["tests/app.test.ts"],
-            "doc_files": ["README.md"],
-            "todo_sample": [],
-            "test_commands": ["npm test"],
-            "github_open_prs_raw": "[]",
-            "github_open_issues_raw": "[]",
-            "github_failed_runs_raw": "[]",
-        }
-        queue = night_shift.build_repo_work_queue(Path("/tmp/repo"), scan, "night-shift", "draft-local")
-        slugs = [item["slug"] for item in queue]
-        self.assertEqual(len(slugs), len(set(slugs)))
-        self.assertIn("changed-file-proof-01-src-app-ts", slugs)
-        self.assertIn("test-contract-map-01", slugs)
-        self.assertIn("source-map-01", slugs)
-        self.assertTrue(all(item["ladder"] in night_shift.TASK_LADDER for item in queue))
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "src").mkdir()
+            (repo / "src" / "app.ts").write_text("function calculateTotal() { return 42 }\n", encoding="utf-8")
+            (repo / "src" / "util.ts").write_text("function helper() { return 1 }\n", encoding="utf-8")
+            (repo / "tests").mkdir()
+            (repo / "tests" / "app.test.ts").write_text("test('smoke', () => true)\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["src/app.ts"],
+                "source_files": ["src/app.ts", "src/util.ts"],
+                "test_files": ["tests/app.test.ts"],
+                "doc_files": ["README.md"],
+                "todo_sample": [],
+                "test_commands": ["npm test"],
+                "github_open_prs_raw": "[]",
+                "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "draft-local")
+            slugs = [item["slug"] for item in queue]
+            self.assertEqual(len(slugs), len(set(slugs)))
+            self.assertIn("changed-file-proof-01-src-app-ts", slugs)
+            self.assertIn("test-contract-map-01", slugs)
+            self.assertIn("source-map-01", slugs)
+            self.assertTrue(all(item["ladder"] in night_shift.TASK_LADDER for item in queue))
 
     def test_live_work_creates_specific_tasks_not_generic_drafts(self):
         scan = {
@@ -1176,8 +1336,7 @@ CONFIDENCE: high
         mission = next(item for item in queue if item["slug"] == "mission-brief")
         self.assertEqual(mission["files"][:2], ["tests/test_night_shift.py", "bin/night-shift"])
         self.assertEqual(mission["preferred_lane"], "local")
-        recent = next(item for item in queue if item["slug"] == "recent-change-test-gap")
-        self.assertNotIn("README.md", recent["files"][:2])
+        self.assertNotIn("README.md", mission["files"][:2])
 
     def test_windows_prompt_marks_candidate_file_boundary(self):
         prompt = night_shift.windows_prompt(
