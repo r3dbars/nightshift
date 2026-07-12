@@ -156,7 +156,11 @@ class PublishEngine:
                 return finish({"status": "REJECT", "reason": "fresh publication verification failed"})
             staged = self.run_cmd(["git", "add", "--", *validated.paths], cwd=worktree, timeout=30)
             committed = self.run_cmd(
-                ["git", "commit", "-m", f"Night Shift: {str(proof.get('summary') or 'verified repair')[:60]}"],
+                [
+                    "git", "-c", "user.name=Night Shift", "-c",
+                    "user.email=night-shift@users.noreply.github.com",
+                    "commit", "-m", f"Night Shift: {str(proof.get('summary') or 'verified repair')[:60]}",
+                ],
                 cwd=worktree,
                 timeout=60,
             ) if staged.rc == 0 else staged
