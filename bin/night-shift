@@ -1161,6 +1161,7 @@ def repo_signal_scan(repo: Path | None) -> dict:
     tracked = commands[4]["stdout"].splitlines() if len(commands) > 4 and commands[4]["stdout"] else []
     scan["tracked_count"] = len(tracked)
     scan["tracked_files"] = tracked[:5000]
+    scan["coverage_test_files"] = [path for path in tracked if is_test_path(path)]
     scan["doc_files"] = [f for f in tracked if f.lower().endswith((".md", ".mdx", ".rst"))][:60]
     scan["test_files"] = [
         f
@@ -1466,14 +1467,15 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         if not repo:
             return ""
         try:
-            raw = (repo / relative).read_bytes()[: max_bytes + 1]
+            with (repo / relative).open("rb") as handle:
+                raw = handle.read(max_bytes + 1)
         except OSError:
             return ""
         if b"\x00" in raw[:4096]:
             return ""
         return raw[:max_bytes].decode("utf-8", errors="replace")
 
-    coverage_test_paths = [path for path in tracked_files if is_test_path(path)]
+    coverage_test_paths = scan.get("coverage_test_files") or [path for path in tracked_files if is_test_path(path)]
     corpus_parts: list[str] = []
     corpus_bytes = 0
     for path in coverage_test_paths:
