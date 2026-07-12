@@ -1,5 +1,6 @@
 import importlib.machinery
 import importlib.util
+import hashlib
 import io
 import json
 import os
@@ -139,6 +140,88 @@ RISK: low
             self.assertEqual(night_shift.current_git_repo(), "")
         finally:
             night_shift.run_cmd = original_run
+
+    def test_start_repo_precedence_and_discovery_requires_yes(self):
+        original_current = night_shift.current_git_repo
+        original_discover = night_shift.discover_github_portfolio
+        calls = []
+        night_shift.current_git_repo = lambda: "/current"
+        night_shift.discover_github_portfolio = lambda *args, **kwargs: calls.append(True) or []
+        try:
+            self.assertEqual(night_shift.resolve_start_repo(SimpleNamespace(repo="/explicit", yes=True), {"project": {"repo": "/saved"}})[0], "/explicit")
+            self.assertEqual(night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=True), {"project": {"repo": "/saved"}})[0], "/saved")
+            self.assertEqual(night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=True), {})[0], "/current")
+            night_shift.current_git_repo = lambda: ""
+            self.assertEqual(night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=False), {}), ("", ""))
+            self.assertEqual(calls, [])
+        finally:
+            night_shift.current_git_repo = original_current
+            night_shift.discover_github_portfolio = original_discover
+
+    def test_start_successfully_falls_back_to_github_checkout(self):
+        original_current = night_shift.current_git_repo
+        original_discover = night_shift.discover_github_portfolio
+        original_checkout = night_shift.ensure_portfolio_checkout
+        night_shift.current_git_repo = lambda: ""
+        night_shift.discover_github_portfolio = lambda *args, **kwargs: [{"slug": "owner/repo"}]
+        night_shift.ensure_portfolio_checkout = lambda item, primary: (Path("/cache/owner-repo"), "cached")
+        try:
+            self.assertEqual(
+                night_shift.resolve_start_repo(SimpleNamespace(repo=None, yes=True), {}),
+                ("/cache/owner-repo", ""),
+            )
+        finally:
+            night_shift.current_git_repo = original_current
+            night_shift.discover_github_portfolio = original_discover
+            night_shift.ensure_portfolio_checkout = original_checkout
+
+    def test_start_discovery_failure_does_not_save_config(self):
+        original_current = night_shift.current_git_repo
+        original_discover = night_shift.discover_github_portfolio
+        original_save = night_shift.save_config
+        saved = []
+        night_shift.current_git_repo = lambda: ""
+        night_shift.discover_github_portfolio = lambda *args, **kwargs: []
+        night_shift.save_config = lambda config: saved.append(config)
+        args = night_shift.build_parser().parse_args(["start", "--yes", "--dry-run", "--reset"])
+        try:
+            self.assertEqual(night_shift.command_start(args), 2)
+            self.assertEqual(saved, [])
+        finally:
+            night_shift.current_git_repo = original_current
+            night_shift.discover_github_portfolio = original_discover
+            night_shift.save_config = original_save
+
+    def test_repeat_dry_run_is_read_only_and_skips_first_run_intro(self):
+        original_load = night_shift.load_config
+        original_interactive = night_shift.is_interactive
+        original_intro = night_shift.print_first_run_intro
+        original_doctor = night_shift.doctor_checks
+        original_save = night_shift.save_config
+        intros = []
+        saves = []
+        night_shift.load_config = lambda: {
+            "project": {"repo": str(ROOT)},
+            "preferences": {},
+            "legacy": {},
+        }
+        night_shift.is_interactive = lambda: True
+        night_shift.print_first_run_intro = lambda: intros.append(True)
+        night_shift.doctor_checks = lambda *args, **kwargs: ("GREEN", [("repo", "GREEN", "ready")])
+        night_shift.save_config = lambda config: saves.append(config)
+        try:
+            args = night_shift.build_parser().parse_args(["start", "--dry-run"])
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(night_shift.command_start(args), 0)
+            self.assertEqual(intros, [])
+            self.assertEqual(saves, [])
+            self.assertIn("Nothing was saved or started", output.getvalue())
+        finally:
+            night_shift.load_config = original_load
+            night_shift.is_interactive = original_interactive
+            night_shift.print_first_run_intro = original_intro
+            night_shift.doctor_checks = original_doctor
+            night_shift.save_config = original_save
 
     def test_ten_hour_stop_option(self):
         self.assertEqual(night_shift.STOP_SECONDS["10h"], 10 * 60 * 60)
@@ -1815,6 +1898,53 @@ buildThing() { return 1; }
             night_shift.run_cmd = original_run_cmd
         self.assertEqual(portfolio[0]["slug"], "owner/broken")
         self.assertGreater(portfolio[0]["score"], portfolio[1]["score"])
+
+    def test_github_discovery_accepts_only_authenticated_owner_slugs(self):
+        engine = night_shift.PortfolioEngine(lambda *args, **kwargs: None, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
+        self.assertEqual(engine.owned_slug("Owner/repo.name", "owner"), ("Owner", "repo.name"))
+        self.assertIsNone(engine.owned_slug("someone-else/repo", "owner"))
+        self.assertIsNone(engine.owned_slug("owner/../escape", "owner"))
+        self.assertIsNone(engine.owned_slug("owner/repo/extra", "owner"))
+
+    def test_github_checkout_rejects_symlink_cache_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "cache"
+            cache.mkdir()
+            slug = "owner/repo"
+            cache_name = f"owner--repo-{hashlib.sha256(slug.encode()).hexdigest()[:12]}"
+            (cache / cache_name).symlink_to(Path(tmp) / "elsewhere")
+
+            def fake_run(cmd, **kwargs):
+                if list(cmd)[:3] == ["gh", "api", "user"]:
+                    return night_shift.CmdResult("", 0, "owner\n", "")
+                return night_shift.CmdResult("", 1, "", "unexpected")
+
+            engine = night_shift.PortfolioEngine(fake_run, cache, Path(tmp) / "history", lambda: "now")
+            checkout, message = engine.ensure_checkout({"slug": slug}, None)
+            self.assertIsNone(checkout)
+            self.assertIn("symlink", message)
+
+    def test_github_checkout_rejects_mismatched_cached_origin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "cache"
+            cache.mkdir()
+            slug = "owner/repo"
+            cache_name = f"owner--repo-{hashlib.sha256(slug.encode()).hexdigest()[:12]}"
+            target = cache / cache_name
+            target.mkdir()
+
+            def fake_run(cmd, **kwargs):
+                command = list(cmd)
+                if command[:3] == ["gh", "api", "user"]:
+                    return night_shift.CmdResult("", 0, "owner\n", "")
+                if command[:4] == ["git", "remote", "get-url", "origin"]:
+                    return night_shift.CmdResult("", 0, "git@github.com:owner/other.git\n", "")
+                return night_shift.CmdResult("", 1, "", "unexpected")
+
+            engine = night_shift.PortfolioEngine(fake_run, cache, Path(tmp) / "history", lambda: "now")
+            checkout, message = engine.ensure_checkout({"slug": slug}, None)
+            self.assertIsNone(checkout)
+            self.assertIn("origin does not match", message)
 
     def test_draft_guard_rejects_unapproved_files(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -51,10 +51,20 @@ copied_home="$tmp_home/copied-install"
 ./install.sh --codex-home "$copied_home" >/dev/null
 "$copied_home/bin/night-shift" --version | grep -q "Night Shift $version_file"
 
-CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --dry-run --skip-smoke >/dev/null
-CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --dry-run --skip-smoke >/dev/null
+CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --setup-only --skip-smoke >/dev/null
 test -s "$tmp_home/night-shift/config.json"
 find "$tmp_home/maestro/overnight" -path '*/lab/readiness.json' -type f | grep -q .
+config_before="$(shasum -a 256 "$tmp_home/night-shift/config.json")"
+ledgers_before="$(find "$tmp_home/maestro/overnight" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --dry-run --skip-smoke >/dev/null
+test "$config_before" = "$(shasum -a 256 "$tmp_home/night-shift/config.json")"
+test "$ledgers_before" = "$(find "$tmp_home/maestro/overnight" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+mkdir "$tmp_home/not-a-repo"
+if CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$tmp_home/not-a-repo" --yes --setup-only >/dev/null; then
+  echo "setup-only accepted a non-git directory" >&2
+  exit 1
+fi
+test "$config_before" = "$(shasum -a 256 "$tmp_home/night-shift/config.json")"
 
 noninteractive_out="$tmp_home/noninteractive.out"
 if CODEX_HOME="$tmp_home" python3 bin/night-shift start </dev/null >"$noninteractive_out" 2>&1; then

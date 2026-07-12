@@ -3307,6 +3307,22 @@ def command_autopilot(args) -> int:
     return 0 if status == "GREEN" else 1
 
 
+def resolve_start_repo(args, saved: dict) -> tuple[str, str]:
+    repo = args.repo or config_value(saved, "repo")
+    if not repo:
+        repo = current_git_repo()
+    if repo or not args.yes:
+        return repo, ""
+
+    discovered = discover_github_portfolio(None, active_days=14, max_repos=1)
+    if not discovered:
+        return "", "no recent owned GitHub repo could be discovered"
+    checkout, checkout_status = ensure_portfolio_checkout(discovered[0], None)
+    if not checkout:
+        return "", f"GitHub repo setup failed: {checkout_status}"
+    return str(checkout), ""
+
+
 def command_start(args) -> int:
     saved = {} if args.reset else load_config()
     first_run = not bool(saved)
@@ -3319,11 +3335,12 @@ def command_start(args) -> int:
         print("Or run: night-shift start from a normal terminal window.")
         return 2
 
-    repo = args.repo or config_value(saved, "repo")
-    if not repo:
-        repo = current_git_repo()
+    repo, repo_error = resolve_start_repo(args, saved)
+    if repo_error:
+        print(f"NIGHTSHIFT_START: RED | {repo_error}")
+        return 2
 
-    if not args.yes and is_interactive():
+    if first_run and not args.yes and is_interactive():
         print_first_run_intro()
     if advanced and not args.yes and is_interactive():
         repo = ask_text("Which project should Night Shift look at?", repo)
@@ -3332,7 +3349,11 @@ def command_start(args) -> int:
         return 2
 
     root = repo_root(repo)
-    repo_text = str(root or Path(repo).expanduser())
+    repo_check = run_cmd(["git", "-C", root, "rev-parse", "--show-toplevel"], timeout=20) if root else None
+    if not repo_check or repo_check.rc != 0:
+        print(f"NIGHTSHIFT_START: RED | not a Git repository: {Path(repo).expanduser()}")
+        return 2
+    repo_text = str(Path(repo_check.stdout.strip()).resolve())
 
     print("")
     print("Give me a second to check what is ready on this computer...")
@@ -3486,8 +3507,6 @@ def command_start(args) -> int:
         },
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    save_config(config)
-
     if local_url:
         os.environ["MAESTRO_LOCAL_BASE_URL"] = local_url.rstrip("/")
     if local_model:
@@ -3498,6 +3517,14 @@ def command_start(args) -> int:
         os.environ["WINDOWS_WORKER_MODEL"] = windows_model
 
     overall, rows = doctor_checks(repo_text, run_smoke=False, allow_fetch=False)
+    if args.dry_run:
+        print(start_preview(config, rows))
+        print("")
+        print("Dry run complete. Nothing was saved or started.")
+        print("NIGHTSHIFT_START: GREEN | dry run only | no changes saved")
+        return 0
+
+    save_config(config)
     setup_ledger = create_ledger("setup")
     write_startup_gate(setup_ledger, overall, rows)
     write_lab_files(setup_ledger, config, rows)
@@ -3511,11 +3538,6 @@ def command_start(args) -> int:
     if args.setup_only:
         print("All set. I saved setup and did not start a run.")
         print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
-        return 0
-
-    if args.dry_run:
-        print("Dry run complete. Nothing was started.")
-        print("NIGHTSHIFT_START: GREEN | dry run only | no run started")
         return 0
 
     if not args.yes and is_interactive():

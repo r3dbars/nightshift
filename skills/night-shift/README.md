@@ -52,8 +52,8 @@ without letting them become management.
 The simplest version:
 
 1. Run `night-shift start`.
-2. Answer a few plain-English setup questions.
-3. Review the "will / will not" summary.
+2. Review the detected safe defaults.
+3. Answer one question: start now?
 4. Let Night Shift run.
 5. Run `night-shift report --latest` in the morning.
 
@@ -76,16 +76,14 @@ If `night-shift` is not on your `PATH`, run it directly:
 ~/.codex/bin/night-shift start
 ```
 
-`night-shift start` is the setup wizard. It checks what AI tools are available,
-asks what the user wants to allow, saves the answers, shows a clear preview, and
-then starts a safe run.
+`night-shift start` is the setup wizard. It detects the current repo or a recent
+owned GitHub repo, checks available AI tools, chooses safe defaults, shows a
+clear preview, asks once, and starts. Use `--advanced` for custom choices.
 
-When an AI assistant drives setup from chat (using the bundled `SKILL.md`),
-the First Night flow starts with the fun question: what local AI hardware do
-you have? With consent it scans for Apple Silicon unified memory, GPUs,
-LM Studio, and Ollama, celebrates what it finds, and only afterward asks about
-cloud subscriptions. The assistant then saves everything with
-`night-shift start --yes` plus flags, so no keyboard wizard is needed. See
+When an AI assistant drives setup from chat (using the bundled `SKILL.md`), it
+runs the same read-only detection and shows the same safe preview. The assistant
+then saves everything with `night-shift start --yes`, so no keyboard wizard or
+knowledge of model URLs is needed. See
 `SKILL.md` and `references/hardware-scan.md` in this folder.
 
 Need copy-paste recipes? See
@@ -102,22 +100,20 @@ night-shift stop --latest
 
 ## The Mental Model
 
-The wizard starts like a tiny decision brief:
+Normal setup starts like a tiny decision brief:
 
 ```text
 Welcome to Night Shift.
 
-First time here, so I will set up the basics with you.
-We are choosing four things:
-- whether to watch this repo or recently active GitHub repos
-- what would make tomorrow morning useful
-- where your code is allowed to go
-- how hard and how long Night Shift should work
+First time here, so I checked the basics for you.
+I found your project, GitHub account, local AI, and optional LAN worker.
+The safe default watches recent work for eight hours and keeps code local.
 
 Safe default: local, read-only, no pushes, no merges, no releases.
 ```
 
-Then it asks beginner questions in this order:
+Normal setup asks only whether to start. `night-shift start --advanced` exposes
+these optional choices:
 
 1. Which project should Night Shift start from?
 2. Should it watch this project or recently active GitHub repos?
@@ -125,9 +121,8 @@ Then it asks beginner questions in this order:
 4. What should Night Shift aim at first?
 5. Where is repo context allowed to go tonight?
 6. What is Night Shift allowed to prepare?
-7. May tested drafts be created in disposable worktrees?
-8. How much energy should it use?
-9. When should it stop?
+7. How much energy should it use?
+8. When should it stop?
 
 Then it shows a summary before launching:
 
