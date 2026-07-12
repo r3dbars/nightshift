@@ -979,6 +979,15 @@ CONFIDENCE: high
             self.assertIn("review citation must exist at the reviewed revision", night_shift.validate_handoff_review(impossible, repo))
             self.assertEqual(night_shift.validate_handoff_review(valid, repo), [])
 
+    def test_handoff_review_rejects_citation_outside_materialized_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "allowed.py").write_text("allowed\n", encoding="utf-8")
+            (repo / "private.py").write_text("private\n", encoding="utf-8")
+            output = "CONFIRMED\nprivate.py:1 | private\nREADY_FOR_IMPLEMENTATION: yes"
+            reasons = night_shift.validate_handoff_review(output, repo, allowed_files=["allowed.py"])
+            self.assertIn("review citation must be inside the materialized file allowlist", reasons)
+
     def test_inline_code_is_cleaned_for_morning_output(self):
         self.assertEqual(night_shift.clean_inline_code("`bash scripts/check-package.sh`"), "bash scripts/check-package.sh")
 

@@ -123,7 +123,12 @@ def citation_exists(repo: Path, relative: str, line: int, source_ref: str = "") 
         return False
 
 
-def validate_handoff_review(output: str, repo: Path | None = None, source_ref: str = "") -> list[str]:
+def validate_handoff_review(
+    output: str,
+    repo: Path | None = None,
+    source_ref: str = "",
+    allowed_files: list[str] | None = None,
+) -> list[str]:
     reasons: list[str] = []
     verdicts = VERDICT_LINE.findall(output)
     if len(verdicts) != 1:
@@ -131,6 +136,8 @@ def validate_handoff_review(output: str, repo: Path | None = None, source_ref: s
     citations = SOURCE_CITATION.findall(output)
     if not citations:
         reasons.append("review must cite a current repo-relative path and line")
+    elif allowed_files is not None and any(path not in set(allowed_files) for path, _ in citations):
+        reasons.append("review citation must be inside the materialized file allowlist")
     elif repo and not all(citation_exists(repo, path, int(line), source_ref) for path, line in citations):
         reasons.append("review citation must exist at the reviewed revision")
     if not READY_LINE.search(output):
