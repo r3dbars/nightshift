@@ -13,6 +13,7 @@ import subprocess
 import sys
 import textwrap
 import time
+import tempfile
 import ipaddress
 import urllib.parse
 import urllib.error
@@ -33,7 +34,8 @@ from night_shift_sandbox import build_runner_image, detect_sandbox
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import build_handoff_prompt, select_handoff_item, validate_handoff_review
+from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, materialize_review_files, select_handoff_item, validate_handoff_review
+from night_shift_feedback import apply_task_feedback, task_family
 
 
 HOME = Path.home()
@@ -275,7 +277,7 @@ def current_git_repo() -> str:
     result = run_cmd(["git", "rev-parse", "--show-toplevel"], timeout=10)
     if result.rc == 0 and result.stdout.strip():
         return result.stdout.strip()
-    return str(Path.cwd())
+    return ""
 
 
 def ask_text(prompt: str, default: str | None = None) -> str:
@@ -351,10 +353,9 @@ def recommended_start_preferences(saved: dict, rows: list[tuple[str, str, str]])
     """Choose safe, useful defaults so the normal setup needs one consent."""
     by_name = rows_by_name(rows)
     github_ready = by_name.get("gh-auth", ("", ""))[0] == "GREEN"
-    windows_ready = by_name.get("windows-worker", ("", ""))[0] == "GREEN"
     return {
         "wake_goal": config_value(saved, "wake_goal", "chores"),
-        "privacy_route": config_value(saved, "privacy_route", "mac-and-lan" if windows_ready else "mac-only"),
+        "privacy_route": config_value(saved, "privacy_route", "mac-only"),
         "permission": config_value(saved, "permission", "draft-local"),
         "mode": config_value(saved, "mode", "night-shift"),
         "stop": config_value(saved, "stop", "8h"),
@@ -558,10 +559,17 @@ DRAFTS = DraftEngine(run_cmd, WORKTREE_ROOT, now_stamp)
 
 def apply_compute_overrides(args) -> None:
     saved = load_config()
+    privacy_route = getattr(args, "privacy_route", None)
     local_url = getattr(args, "local_url", None) or os.environ.get("MAESTRO_LOCAL_BASE_URL") or config_value(saved, "local_url")
     local_model = getattr(args, "local_model", None) or os.environ.get("MAESTRO_LOCAL_MODEL") or config_value(saved, "local_model")
-    windows_url = getattr(args, "windows_url", None) or os.environ.get("WINDOWS_WORKER_BASE_URL") or config_value(saved, "windows_url")
+    windows_url = (
+        None
+        if privacy_route and privacy_route != "mac-and-lan"
+        else getattr(args, "windows_url", None) or os.environ.get("WINDOWS_WORKER_BASE_URL") or config_value(saved, "windows_url")
+    )
     windows_model = getattr(args, "windows_model", None) or os.environ.get("WINDOWS_WORKER_MODEL") or config_value(saved, "windows_model")
+    if privacy_route and privacy_route != "mac-and-lan":
+        os.environ.pop("WINDOWS_WORKER_BASE_URL", None)
     if local_url:
         os.environ["MAESTRO_LOCAL_BASE_URL"] = local_url.rstrip("/")
     if local_model:
@@ -1133,7 +1141,7 @@ def repo_signal_scan(repo: Path | None) -> dict:
     commands = command_lines(
         repo,
         [
-            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "rev-parse", "HEAD"],
             ["git", "branch", "--show-current"],
             ["git", "status", "--short"],
             ["git", "diff", "--name-only", "HEAD~10..HEAD"],
@@ -1445,6 +1453,42 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         result = run_cmd(["git", "cat-file", "-e", f"{ref}:{relative}"], cwd=repo, timeout=20)
         return result.rc == 0
 
+    def ensure_pr_ref(number: str, ref: str) -> bool:
+        if not repo or not ref or not re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+            return False
+        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
+        if available.rc == 0:
+            return True
+        if not str(number).isdigit():
+            return False
+        fetched = run_cmd(
+            ["git", "fetch", "--quiet", "--no-tags", "origin", f"refs/pull/{number}/head"],
+            cwd=repo,
+            timeout=120,
+        )
+        if fetched.rc != 0:
+            return False
+        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
+        return available.rc == 0
+
+    def ensure_remote_branch_ref(branch: str, ref: str) -> bool:
+        if not repo or not ref or not re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+            return False
+        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
+        if available.rc == 0:
+            return True
+        if not branch or branch.startswith("-") or ".." in branch or not re.fullmatch(r"[A-Za-z0-9._/-]+", branch):
+            return False
+        fetched = run_cmd(
+            ["git", "fetch", "--quiet", "--no-tags", "origin", f"refs/heads/{branch}"],
+            cwd=repo,
+            timeout=120,
+        )
+        if fetched.rc != 0:
+            return False
+        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
+        return available.rc == 0
+
     def log_paths(log_text: str) -> list[str]:
         found = re.findall(
             r"(?<![A-Za-z0-9_.@+-])((?:[A-Za-z0-9_.@+-]+/)+[A-Za-z0-9_.@+-]+\.[A-Za-z0-9]+)",
@@ -1522,6 +1566,11 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             (pr for pr in pull_requests if pr.get("headRefName") == run.get("headBranch")),
             {},
         )
+        if source_ref and repo:
+            if matching_pr.get("number"):
+                ensure_pr_ref(str(matching_pr["number"]), source_ref)
+            else:
+                ensure_remote_branch_ref(str(run.get("headBranch") or ""), source_ref)
         pr_files = [row.get("path", "") for row in matching_pr.get("files") or [] if row.get("path")]
         signal_files = [path for path in log_paths(log_text) if file_exists_at_ref(path, source_ref)][:8]
         workflow_files = [path for path in scan.get("tracked_files") or [] if path.startswith(".github/workflows/")][:4]
@@ -1567,8 +1616,11 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         number = pr.get("number") or "unknown"
         pr_files = [row.get("path", "") for row in pr.get("files") or [] if row.get("path")]
         pr_source_ref = str(pr.get("headRefOid") or "")
-        if pr_source_ref:
+        if pr_source_ref and ensure_pr_ref(str(number), pr_source_ref):
             pr_files = [path for path in pr_files if file_exists_at_ref(path, pr_source_ref)]
+        elif pr_source_ref:
+            pr_files = []
+            pr_source_ref = ""
         checks = pr.get("statusCheckRollup") or []
         failed_check = any(row.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for row in checks)
         state = "requested changes" if pr.get("reviewDecision") == "CHANGES_REQUESTED" else "failed checks" if failed_check else "open draft" if pr.get("isDraft") else "open review"
@@ -1697,6 +1749,13 @@ def model_ready_tasks(queue: list[dict], mode: str) -> tuple[list[dict], list[di
         else:
             ready.append(task)
     return ready, skipped
+
+
+def pin_queue_revision(queue: list[dict], head: str) -> list[dict]:
+    for task in queue:
+        if not task.get("source_ref"):
+            task["source_ref"] = head
+    return queue
 
 
 def build_board(mode: str, queue: list[dict] | None = None, permission: str = "brief") -> str:
@@ -2568,6 +2627,7 @@ def write_outcome_metrics(ledger: Path, results: list[dict], skipped: list[dict]
         "accepted_candidates": accepted,
         "rejected": sum(1 for row in results if row.get("score") == "REJECT"),
         "pre_model_skips": sum(1 for row in skipped if row.get("category") == "pre-model"),
+        "feedback_skips": sum(1 for row in skipped if row.get("category") == "feedback"),
         "cooldown_or_repeat_skips": sum(1 for row in skipped if row.get("category") in {"cooldown", "repeat"}),
         "estimated_tokens": tokens,
         "accepted_per_1000_tokens": round(accepted * 1000 / tokens, 4) if tokens else 0,
@@ -2713,6 +2773,7 @@ def write_morning(
     except OSError:
         task_skips = []
     pre_model_skips = sum(1 for row in task_skips if row.get("category") == "pre-model")
+    feedback_skips = sum(1 for row in task_skips if row.get("category") == "feedback")
     lines = [
         "# Morning Brief",
         "",
@@ -2756,6 +2817,7 @@ def write_morning(
             f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}",
             f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}",
             f"- Weak signals skipped before model calls: {pre_model_skips}",
+            f"- User-rejected task families skipped: {feedback_skips}",
             f"- Evidence-backed candidates awaiting proof: {len([item for item in work_items if item['primary']['score'] == 'MAYBE'])}",
             f"- Unique work queue items: {len(deduped_work_items(results))}",
             "",
@@ -3067,8 +3129,12 @@ def command_run(args) -> int:
     context = repo_context_pack(root if root and root.exists() else None)
     scan = repo_signal_scan(root)
     write_repo_scan(ledger, scan)
-    discovered_queue = build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text)
+    discovered_queue = pin_queue_revision(
+        build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text),
+        str(scan.get("head") or ""),
+    )
     queue, readiness_skips = model_ready_tasks(discovered_queue, args.mode)
+    queue, feedback_skips = apply_task_feedback(queue, load_feedback(), str(root), args.mode)
     grounded_queue_count = len(queue)
     discovered_queue_count = len(discovered_queue)
     repo_name = scan.get("github_slug") or str(root)
@@ -3076,7 +3142,7 @@ def command_run(args) -> int:
     attempts = latest_attempts(TASK_ATTEMPTS_PATH)
     for item in queue:
         item["fingerprint"] = task_fingerprint(repo_name, scan.get("head", ""), item)
-    skipped: list[dict] = list(readiness_skips)
+    skipped: list[dict] = [*readiness_skips, *feedback_skips]
     eligible = []
     for item in queue:
         allowed, reason = may_attempt(attempts.get(item["fingerprint"]), item["fingerprint"], scan.get("head", ""))
@@ -3125,11 +3191,8 @@ def command_run(args) -> int:
     tasks = []
     if not queue:
         if grounded_queue_count:
-            (ledger / "morning.md").write_text(
-                "# Morning Brief\n\nStatus: GREEN\n\nNo new work at this repository revision. "
-                "All grounded task fingerprints were already attempted.\n",
-                encoding="utf-8",
-            )
+            write_outcome_metrics(ledger, [], skipped)
+            write_morning(ledger, args.mode, [], target_tokens, "GREEN", scan)
             print(f"NIGHTSHIFT_RUN: GREEN | no new grounded repo tasks | ledger={ledger}")
             print("Everything at this repo revision was already attempted. Night Shift will wait for new GitHub or code activity.")
             return 0
@@ -3506,11 +3569,31 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
     (ledger / "morning.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def enforce_autopilot_privacy(args) -> str | None:
+    privacy_route = getattr(args, "privacy_route", None)
+    if privacy_route and privacy_route != "mac-and-lan":
+        args.windows_url = ""
+        os.environ.pop("WINDOWS_WORKER_BASE_URL", None)
+    return privacy_route
+
+
+def resolve_autopilot_privacy(args, saved: dict) -> str:
+    route = getattr(args, "privacy_route", None)
+    if not route:
+        route = "mac-and-lan" if getattr(args, "windows_url", None) else config_value(saved, "privacy_route", "mac-only")
+        args.privacy_route = route
+    return route
+
+
 def command_autopilot(args) -> int:
     saved = load_config()
     if not getattr(args, "repo", None):
         args.repo = config_value(saved, "repo")
+    resolve_autopilot_privacy(args, saved)
+    privacy_route = enforce_autopilot_privacy(args)
     for name in ("local_url", "local_model", "windows_url", "windows_model"):
+        if name == "windows_url" and privacy_route and privacy_route != "mac-and-lan":
+            continue
         if not getattr(args, name, None):
             setattr(args, name, config_value(saved, name))
     if getattr(args, "active_days", 14) < 1 or (getattr(args, "max_repos", None) is not None and args.max_repos < 1):
@@ -3940,6 +4023,7 @@ def command_start(args) -> int:
         local_model=local_model,
         windows_url=windows_url,
         windows_model=windows_model,
+        privacy_route=privacy_route,
         timeout=args.timeout,
         skip_smoke=args.skip_smoke,
         stop_after=stop,
@@ -4201,6 +4285,7 @@ def command_nightly(args) -> int:
         local_model=config_value(config, "local_model"),
         windows_url=config_value(config, "windows_url") if config_value(config, "privacy_route") == "mac-and-lan" else None,
         windows_model=config_value(config, "windows_model"),
+        privacy_route=config_value(config, "privacy_route", "mac-only"),
         timeout=900,
         skip_smoke=False,
         stop_after=config_value(config, "stop", "8h") if config_value(config, "stop") != "morning" else "8h",
@@ -4318,6 +4403,10 @@ def command_report(args) -> int:
 
 def command_handoff(args) -> int:
     ledger = select_ledger(args)
+    if ledger and not (ledger / "work-queue.json").exists() and (ledger / "cycles.json").exists():
+        cycles = parse_json_text((ledger / "cycles.json").read_text(encoding="utf-8"), [])
+        child_ledgers = [Path(row.get("ledger", "")) for row in reversed(cycles) if row.get("ledger")]
+        ledger = next((child for child in child_ledgers if (child / "work-queue.json").exists()), ledger)
     queue_path = ledger / "work-queue.json" if ledger else None
     if not ledger or not queue_path or not queue_path.exists():
         print("NIGHTSHIFT_HANDOFF: RED | no ranked work queue found; choose a completed run")
@@ -4353,18 +4442,36 @@ def command_handoff(args) -> int:
         print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
         return 1
 
-    result = run_cmd(
-        [
-            "codex", "exec", "--ephemeral", "--sandbox", "read-only",
-            "--ask-for-approval", "never", "--color", "never", "-C", str(repo), prompt,
-        ],
-        cwd=repo,
-        timeout=args.timeout,
-    )
+    source_ref = str(item.get("source_ref") or "")
+    if source_ref:
+        current = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, timeout=30)
+        pinned = run_cmd(["git", "rev-parse", source_ref], cwd=repo, timeout=30)
+        if current.rc != 0 or pinned.rc != 0 or current.stdout.strip() != pinned.stdout.strip():
+            print("NIGHTSHIFT_HANDOFF: RED | the checked-out revision does not match this pinned candidate")
+            print(f"Review the candidate in a detached checkout of {source_ref[:12]}, then rerun the handoff there.")
+            return 1
+
+    with tempfile.TemporaryDirectory(prefix="night-shift-handoff-") as temporary:
+        review_root = Path(temporary)
+        copied = materialize_review_files(repo, review_root, item.get("files") or [], source_ref)
+        if not copied:
+            print("NIGHTSHIFT_HANDOFF: RED | no safe committed review files could be materialized")
+            return 1
+        result = run_cmd(
+            [
+                "codex", "exec", "--ephemeral", "--sandbox", "read-only",
+                "--ask-for-approval", "never", "--color", "never", "-C", str(review_root), prompt,
+            ],
+            cwd=review_root,
+            timeout=args.timeout,
+        )
     output_path = handoff_dir / f"item-{args.item}-{args.agent}-review.md"
     output_path.write_text(redact(result.stdout or result.stderr).strip() + "\n", encoding="utf-8")
     review_output = redact(result.stdout or result.stderr).strip()
-    review_reasons = validate_handoff_review(review_output) if result.rc == 0 else ["coding agent command failed"]
+    review_reasons = (
+        validate_handoff_review(review_output, repo, source_ref, copied)
+        if result.rc == 0 else ["coding agent command failed"]
+    )
     metadata = {
         "agent": args.agent,
         "cloud_authorized": True,
@@ -4409,12 +4516,16 @@ def command_feedback(args) -> int:
     except Exception:
         mode = {}
     verdict = "useful" if args.useful else "not-useful"
+    labels = item.get("labels") or []
+    family = task_family(labels[0] if labels else str(item.get("key", "")).split(":", 1)[0])
     row = {
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "repo": mode.get("repo", ""),
         "ledger": str(ledger),
         "rank": args.item,
         "key": item.get("key", ""),
+        "family": family,
+        "fingerprint": item.get("fingerprint", ""),
         "summary": item.get("summary", ""),
         "verdict": verdict,
         "note": args.note or "",

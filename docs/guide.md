@@ -44,6 +44,12 @@ and an eight-hour stop are selected automatically. Run
 The promise is not "wake up to merged code." The promise is "keep idle local
 AI doing new useful work until morning, then show a short brief with proof."
 
+Feedback affects the next night before tokens are spent. A useful vote raises
+similar grounded work for the same repo. One not-useful vote downranks it; two
+not-useful votes suppress that task family in Normal mode. Afterburner can still
+inspect suppressed families, and feedback can never make an ungrounded task
+eligible.
+
 The wizard starts like a tiny decision brief:
 
 ```text
