@@ -2017,6 +2017,45 @@ buildThing() { return 1; }
             )
             self.assertIn("CORRECTION: first line must be", prompts[0])
 
+    def test_patch_format_retry_obeys_new_stop_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, ledger, stop_file = root / "repo", root / "ledger", root / "STOP"
+            repo.mkdir()
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+            worker_calls = 0
+
+            def fake_run(args, cwd=None, timeout=60, **kwargs):
+                nonlocal worker_calls
+                parts = [str(part) for part in args]
+                if parts[0] == "git":
+                    result = subprocess.run(parts, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+                    return night_shift.CmdResult("git", result.returncode, result.stdout, result.stderr)
+                if "maestro-delegate" in parts[0]:
+                    worker_calls += 1
+                    stop_file.write_text("stop\n", encoding="utf-8")
+                    return night_shift.CmdResult("worker", 0, "--- a/app.py\n+++ b/app.py\n", "")
+                return night_shift.CmdResult("baseline", 1, "", "failing baseline")
+
+            profile = SimpleNamespace(
+                commands=(("true",),), max_seconds=60,
+                protected_paths=(".night-shift.json",), allowed_paths=("app.py",),
+                max_pids=64, max_cpu=1, max_memory_mb=512, image="sha256:" + "a" * 64,
+            )
+            result = night_shift.DraftEngine(fake_run, root / "worktrees", lambda: "now").run_draft(
+                repo, "owner/repo", {
+                    "key": "repair", "files": ["app.py"], "verification_argv": ["true"],
+                    "summary": "repair", "evidence": "app.py:1", "expected_result": "pass",
+                }, ledger, 60, "http://windows/v1", "coder", stop_file=stop_file, profile=profile,
+            )
+            self.assertEqual(result["status"], "REJECT")
+            self.assertEqual(worker_calls, 1)
+
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
