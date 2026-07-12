@@ -1463,7 +1463,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             r"(?m)^\s*(?:async\s+)?(?:def|class|function)\s+([A-Za-z_][A-Za-z0-9_]*)",
             source_text,
         )
-        missing = next((symbol for symbol in symbols if symbol not in test_corpus), "")
+        missing = next((symbol for symbol in symbols if not symbol.startswith("_") and symbol not in test_corpus), "")
         if missing:
             coverage_gaps.append((path, missing))
 
@@ -1544,7 +1544,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         add(
             "recent-change-test-gap",
             "tests",
-            f"Inspect `{gap_symbol}` in `{gap_path}` and its supplied tests. Determine one narrow deterministic test, or reject the task if existing behavior already proves it.",
+            f"Inspect only `{gap_symbol}` in `{gap_path}` and its supplied tests. Cite that exact source path and symbol plus relevant test evidence. Do not discuss another function; reject if this exact gap is not supported.",
             "This declared symbol has no textual match in the tracked test corpus.",
             [gap_path] + tests[:4],
             ladder="strengthen",
@@ -1662,7 +1662,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         add(
             f"changed-file-proof-{index:02d}-{safe}",
             "tests",
-            f"Inspect `{symbol}` in this recently changed source file and its supplied tests. Identify one concrete deterministic test or reject the task when behavior is already covered.",
+            f"Inspect only `{symbol}` in `{path}` and its supplied tests. Cite that exact source path and symbol plus relevant test evidence. Do not discuss another function; reject when this exact gap is unsupported or already covered.",
             "A declared source symbol with no textual test match is a bounded coverage lead, not proof of a gap.",
             [path] + tests[:5],
             ladder="strengthen",

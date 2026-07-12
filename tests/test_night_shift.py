@@ -452,6 +452,20 @@ CONFIDENCE: high
             self.assertFalse(any(item["slug"].startswith("changed-file-proof") for item in queue))
             self.assertFalse(any(item["slug"] == "recent-change-test-gap" for item in queue))
 
+    def test_private_constructor_does_not_create_coverage_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("class App:\n    def __init__(self):\n        self.value = 1\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"], "test_files": [],
+                "doc_files": [], "todo_sample": [], "tracked_files": ["app.py"], "test_commands": [],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            prompts = "\n".join(item["prompt"] for item in queue)
+            self.assertNotIn("`__init__`", prompts)
+
     def test_failed_ci_queue_starts_with_newest_run(self):
         scan = {
             "recent_files": ["app.py"],
