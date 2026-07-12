@@ -1447,16 +1447,27 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
     )
     failed_logs = parse_json_text(scan.get("github_failed_logs_raw", ""), [])
 
-    def read_current_text(relative: str) -> str:
+    def read_current_text(relative: str, max_bytes: int = 262_144) -> str:
         if not repo:
             return ""
         try:
-            return (repo / relative).read_text(encoding="utf-8", errors="replace")
+            raw = (repo / relative).read_bytes()[: max_bytes + 1]
         except OSError:
             return ""
+        if b"\x00" in raw[:4096]:
+            return ""
+        return raw[:max_bytes].decode("utf-8", errors="replace")
 
     coverage_test_paths = [path for path in tracked_files if is_test_path(path)]
-    test_corpus = "\n".join(read_current_text(path) for path in coverage_test_paths)
+    corpus_parts: list[str] = []
+    corpus_bytes = 0
+    for path in coverage_test_paths:
+        if corpus_bytes >= 8_388_608:
+            break
+        text = read_current_text(path, min(262_144, 8_388_608 - corpus_bytes))
+        corpus_parts.append(text)
+        corpus_bytes += len(text.encode("utf-8", errors="replace"))
+    test_corpus = "\n".join(corpus_parts)
     coverage_gaps: list[tuple[str, str]] = []
     for path in recent_source:
         source_text = read_current_text(path)
@@ -1863,12 +1874,16 @@ def is_test_path(relative: str) -> bool:
     return bool(re.search(r"(^|/)(test|tests|spec|specs)(/|$)|(_test|\.test|\.spec)\.", relative, re.IGNORECASE))
 
 
+def contains_identifier(text: str, term: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(term)}\b", text))
+
+
 def numbered_relevant_excerpt(text: str, terms: set[str], max_lines: int = 180) -> str:
     lines = text.splitlines()
     if len(lines) <= max_lines or not terms:
         selected = range(min(len(lines), max_lines))
     else:
-        matches = [index for index, line in enumerate(lines) if any(term in line for term in terms)]
+        matches = [index for index, line in enumerate(lines) if any(contains_identifier(line, term) for term in terms)]
         if not matches:
             selected = range(max_lines)
         else:
@@ -1884,7 +1899,7 @@ def numbered_symbol_matches(text: str, terms: set[str], max_lines: int = 120) ->
     matches = [
         f"{index + 1:>5} | {line}"
         for index, line in enumerate(lines)
-        if any(term in line for term in terms)
+        if any(contains_identifier(line, term) for term in terms)
     ]
     return "\n".join(matches[:max_lines])
 

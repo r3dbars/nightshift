@@ -482,6 +482,8 @@ CONFIDENCE: high
             }
             queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
             self.assertTrue(any("`run`" in item["prompt"] for item in queue))
+            self.assertFalse(night_shift.contains_identifier("runtime = 1", "run"))
+            self.assertTrue(night_shift.contains_identifier("run()", "run"))
 
     def test_coverage_check_uses_tracked_tests_beyond_display_cap(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -506,6 +508,23 @@ CONFIDENCE: high
             }
             queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
             self.assertFalse(any("`calculate_total`" in item["prompt"] for item in queue))
+
+    def test_coverage_corpus_skips_binary_test_assets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def calculate_total():\n    return 42\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            (tests / "fixture.bin").write_bytes(b"\x00calculate_total" + b"x" * 300_000)
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": [], "tracked_files": ["app.py", "tests/fixture.bin"],
+                "doc_files": [], "todo_sample": [], "test_commands": [],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            self.assertTrue(any("`calculate_total`" in item["prompt"] for item in queue))
 
     def test_failed_ci_queue_starts_with_newest_run(self):
         scan = {
