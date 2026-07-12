@@ -1908,8 +1908,7 @@ buildThing() { return 1; }
         docker = sandbox.runner_build_command("/usr/local/bin/docker", context)
         self.assertIn("--pull=missing", podman)
         self.assertNotIn("--pull", podman)
-        self.assertEqual(docker.count("--pull"), 1)
-        self.assertEqual(docker[docker.index("--pull") + 1], "--tag")
+        self.assertFalse(any(str(part).startswith("--pull") for part in docker))
         self.assertEqual(podman[-1], context)
 
     def test_runner_build_normalizes_podman_bare_image_id(self):

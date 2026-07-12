@@ -30,8 +30,10 @@ def runner_context() -> Path:
 
 
 def runner_build_command(runtime: str, context: Path) -> list[str | Path]:
-    pull = "--pull=missing" if Path(runtime).name == "podman" else "--pull"
-    return [runtime, "build", pull, "--tag", "night-shift-runner:local", "--file", context / "Containerfile", context]
+    args: list[str | Path] = [runtime, "build"]
+    if Path(runtime).name == "podman":
+        args.append("--pull=missing")
+    return [*args, "--tag", "night-shift-runner:local", "--file", context / "Containerfile", context]
 
 
 def build_runner_image(run_cmd: Callable) -> tuple[bool, str]:
