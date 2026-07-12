@@ -1413,6 +1413,28 @@ def declared_symbols(text: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+def task_selection_priority(task: dict) -> int:
+    """Rank evidence strength inside the Repair-to-Index task ladder."""
+    priority = int(task.get("ladder_priority") or 0)
+    evidence = "\n".join(str(value) for value in (task.get("evidence_sources") or {}).values())
+    files = task.get("files") or []
+    commands = task.get("verification_commands") or []
+    complete_index = "scan_complete=true" in evidence and "identifier_matches=0" in evidence
+    pinned_failed_ci = (
+        str(task.get("slug") or "").startswith("failed-ci-")
+        and task.get("proof_kind") == "test"
+        and bool(task.get("source_ref"))
+        and bool(evidence)
+        and bool(files)
+        and bool(commands)
+    )
+    if pinned_failed_ci:
+        priority += 1000
+    elif complete_index and files and commands:
+        priority += 500
+    return priority
+
+
 def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: str, guidance: str = "scan", goal_text: str = "") -> list[dict]:
     queue: list[dict] = []
 
@@ -1480,6 +1502,22 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         if b"\x00" in raw[:4096]:
             return ""
         return raw[:max_bytes].decode("utf-8", errors="replace")
+
+    def relevant_tests_for_source(source_path: str) -> list[str]:
+        ignored = {"app", "api", "src", "lib", "route", "index", "page", "test", "tests", "unit", "id"}
+        source_terms = {
+            term for term in re.findall(r"[a-z0-9]+", source_path.lower())
+            if len(term) > 2 and term not in ignored
+        }
+        ranked = []
+        for index, test_path in enumerate(tests):
+            test_terms = set(re.findall(r"[a-z0-9]+", test_path.lower()))
+            content = read_current_text(test_path, max_bytes=131_072)
+            score = len(source_terms & test_terms) * 10
+            if source_path in content:
+                score += 100
+            ranked.append((-score, index, test_path))
+        return [path for _, _, path in sorted(ranked)]
 
     def read_coverage_text(relative: str, max_bytes: int) -> tuple[str, bool]:
         if not repo:
@@ -1618,7 +1656,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             "tests",
             f"Inspect only `{gap_symbol}` in `{gap_path}`. Cite that exact source line plus the supplied coverage-index evidence. Reject if the index is incomplete or this exact gap is unsupported.",
             "This declared symbol has no textual match in the tracked test corpus.",
-            [gap_path] + tests[:4],
+            [gap_path] + relevant_tests_for_source(gap_path)[:4],
             ladder="strengthen",
             preferred_lane="local",
             evidence_sources=gap_evidence,
@@ -1737,7 +1775,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             "tests",
             f"Inspect only `{symbol}` in `{path}`. Cite that exact source line plus the supplied coverage-index evidence. Do not discuss another function; reject when the index is incomplete or this exact gap is unsupported.",
             "A declared source symbol with no textual test match is a bounded coverage lead, not proof of a gap.",
-            [path] + tests[:5],
+            [path] + relevant_tests_for_source(path)[:5],
             ladder="strengthen",
             preferred_lane="local",
             proof_kind="test",
@@ -1788,9 +1826,11 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         )
 
     limit = {"quiet": 10, "night-shift": 40, "afterburner": 100}.get(mode, 40)
+    for item in queue:
+        item["selection_priority"] = task_selection_priority(item)
     # Python's sort is stable, so equal-priority tasks keep live-signal recency
     # and insertion order instead of being reordered by arbitrary IDs.
-    return sorted(queue, key=lambda item: -item["ladder_priority"])[:limit]
+    return sorted(queue, key=lambda item: -item["selection_priority"])[:limit]
 
 
 def model_task_readiness_reasons(task: dict, mode: str) -> list[str]:
@@ -2203,11 +2243,13 @@ def correction_prompt(
     reasons: list[str],
     candidate_files: list[str] | None = None,
     evidence_sources: dict[str, str] | None = None,
+    verification_commands: list[str] | None = None,
 ) -> str:
     allowed_paths = list(dict.fromkeys((candidate_files or []) + list((evidence_sources or {}).keys())))
     path_lines = "\n".join(f"- {path}" for path in allowed_paths) or "- None"
     citation_examples = coverage_citation_examples(evidence_sources)
     citation_lines = "\n".join(f"- {citation}" for citation in citation_examples) or "- None"
+    command_lines = "\n".join(f"- {command}" for command in (verification_commands or [])) or "- None"
     correction = "; ".join(reasons) or "the response did not follow the schema"
     return (
         prompt
@@ -2220,17 +2262,33 @@ def correction_prompt(
         + path_lines
         + "\nCopy-ready deterministic citations (copy only the relevant one or two exactly):\n"
         + citation_lines
+        + "\nAllowed verification commands (copy at least one exactly):\n"
+        + command_lines
     )
 
 
-def should_retry_local_output(lane: str, rc: int, score: str, output: str) -> bool:
+def should_retry_local_output(
+    lane: str, rc: int, score: str, output: str, evidence_backed: bool = False
+) -> bool:
     return (
-        lane == "local"
+        (lane == "local" or (lane == "windows" and evidence_backed))
         and rc == 0
         and score == "REJECT"
         and action_type(output) != "reject"
         and not UNSAFE_APPROVAL_RE.search(output)
     )
+
+
+def select_best_attempt(attempts: list[dict]) -> dict:
+    rank = {"REJECT": 0, "MAYBE": 1, "KEEP": 2}
+    return max(
+        enumerate(attempts),
+        key=lambda indexed: (
+            rank[indexed[1]["score"]],
+            -indexed[1]["res"].rc,
+            indexed[0],
+        ),
+    )[1]
 
 
 def dispatch_one(
@@ -2299,12 +2357,15 @@ def dispatch_one(
         evidence_sources,
         source_ref,
     )
-    if should_retry_local_output(lane, first["res"].rc, first["score"], first["res"].stdout):
-        retry_prompt = correction_prompt(prompt, reasons, candidate_files, evidence_sources)
+    if should_retry_local_output(
+        lane, first["res"].rc, first["score"], first["res"].stdout, bool(evidence_sources)
+    ):
+        retry_prompt = correction_prompt(
+            prompt, reasons, candidate_files, evidence_sources, verification_commands
+        )
         attempts.append(run_attempt(2, retry_prompt))
 
-    rank = {"REJECT": 0, "MAYBE": 1, "KEEP": 2}
-    selected = max(attempts, key=lambda item: (rank[item["score"]], -item["res"].rc))
+    selected = select_best_attempt(attempts)
     res = selected["res"]
     score = selected["score"]
     artifact = ledger / "artifacts" / f"{safe_label}-{lane}.md"

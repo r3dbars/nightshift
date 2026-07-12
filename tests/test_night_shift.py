@@ -290,6 +290,7 @@ CONFIDENCE: high
             ["evidence path was not supplied to the worker"],
             ["bin/night_shift_drafts.py", "tests/test_night_shift.py"],
             {"coverage-index/bin-night_shift_drafts.py-select_candidate.txt": "identifier_matches=0"},
+            ["python3 -m unittest tests.test_night_shift"],
         )
         self.assertIn("Copy a path below character-for-character", prompt)
         self.assertIn("never invent a path, alter punctuation, or write `path:none`", prompt)
@@ -300,6 +301,7 @@ CONFIDENCE: high
             "coverage-index/bin-night_shift_drafts.py-select_candidate.txt:1 | identifier_matches=0",
             prompt,
         )
+        self.assertIn("- python3 -m unittest tests.test_night_shift", prompt)
 
     def test_task_context_gives_copy_ready_coverage_citations_only(self):
         context = night_shift.task_context_block({
@@ -320,6 +322,7 @@ CONFIDENCE: high
         self.assertFalse(night_shift.should_retry_local_output("local", 0, "KEEP", valid))
         self.assertTrue(night_shift.should_retry_local_output("local", 0, "REJECT", valid))
         self.assertFalse(night_shift.should_retry_local_output("windows", 0, "REJECT", valid))
+        self.assertTrue(night_shift.should_retry_local_output("windows", 0, "REJECT", valid, True))
         self.assertFalse(
             night_shift.should_retry_local_output("local", 0, "REJECT", "ACTION_TYPE: reject")
         )
@@ -1054,6 +1057,62 @@ buildThing() { return 1; }
         self.assertEqual(ranked[0]["feedback_adjustment"], 25)
         self.assertEqual(skipped, [])
 
+    def test_complete_deterministic_evidence_outranks_broad_mission(self):
+        mission = {
+            "kind": "mission", "ladder_priority": 500, "proof_kind": "source",
+            "files": ["src/app.py"], "verification_commands": ["npm test"],
+            "source_ref": "a" * 40, "evidence_sources": {}, "signal": "",
+        }
+        coverage = {
+            "kind": "tests", "ladder_priority": 300, "proof_kind": "source",
+            "files": ["src/app.py", "tests/app.test.py"],
+            "verification_commands": ["npm test"], "source_ref": "",
+            "evidence_sources": {"coverage-index/app.txt": "identifier_matches=0\nscan_complete=true"},
+            "signal": "",
+        }
+        self.assertGreater(
+            night_shift.task_selection_priority(coverage),
+            night_shift.task_selection_priority(mission),
+        )
+
+    def test_incomplete_coverage_does_not_outrank_repair_mission(self):
+        mission = {"kind": "mission", "ladder_priority": 500}
+        incomplete = {
+            "kind": "tests", "ladder_priority": 300,
+            "files": ["src/app.py"], "verification_commands": ["npm test"],
+            "evidence_sources": {"coverage-index/app.txt": "identifier_matches=0\nscan_complete=false"},
+        }
+        self.assertGreater(
+            night_shift.task_selection_priority(mission),
+            night_shift.task_selection_priority(incomplete),
+        )
+
+    def test_pinned_failed_ci_outranks_complete_coverage(self):
+        coverage = {
+            "slug": "changed-file-proof-01", "ladder_priority": 300,
+            "files": ["src/app.py"], "verification_commands": ["npm test"],
+            "evidence_sources": {"coverage-index/app.txt": "identifier_matches=0\nscan_complete=true"},
+        }
+        failed_ci = {
+            "slug": "failed-ci-42", "ladder_priority": 500, "proof_kind": "test",
+            "source_ref": "a" * 40, "files": ["src/app.py"],
+            "verification_commands": ["npm test"],
+            "evidence_sources": {"github-actions/run-42.log": "AssertionError in src/app.py"},
+        }
+        self.assertGreater(
+            night_shift.task_selection_priority(failed_ci),
+            night_shift.task_selection_priority(coverage),
+        )
+
+    def test_retry_tie_prefers_corrected_attempt(self):
+        attempts = [
+            {"score": "REJECT", "res": SimpleNamespace(rc=0), "name": "original"},
+            {"score": "REJECT", "res": SimpleNamespace(rc=0), "name": "corrected"},
+        ]
+        self.assertEqual(night_shift.select_best_attempt(attempts)["name"], "corrected")
+        attempts[0]["score"] = "MAYBE"
+        self.assertEqual(night_shift.select_best_attempt(attempts)["name"], "original")
+
     def test_task_family_normalizes_known_and_numbered_slugs(self):
         self.assertEqual(
             night_shift.task_family("changed-file-proof-01-src-app"),
@@ -1544,6 +1603,35 @@ buildThing() { return 1; }
         self.assertEqual(mission["files"][:2], ["tests/test_night_shift.py", "bin/night-shift"])
         self.assertEqual(mission["preferred_lane"], "local")
         self.assertNotIn("README.md", mission["files"][:2])
+
+    def test_real_queue_orders_complete_coverage_before_broad_mission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "src").mkdir()
+            (repo / "tests").mkdir()
+            (repo / "src" / "app.py").write_text("def uncovered_behavior():\n    return 42\n", encoding="utf-8")
+            (repo / "tests" / "test_other.py").write_text("def test_other():\n    assert True\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["src/app.py"],
+                "source_files": ["src/app.py"],
+                "tracked_files": ["src/app.py", "tests/test_other.py"],
+                "test_files": ["tests/test_other.py"],
+                "coverage_test_files": ["tests/test_other.py"],
+                "doc_files": [], "todo_sample": [],
+                "test_commands": ["python3 -m unittest"],
+                "github_open_prs_raw": "[]", "github_failed_runs_raw": "[]",
+                "github_failed_logs_raw": "[]", "github_open_issues_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(
+                repo, scan, "quiet", "brief", "goal", "Find a small missing test"
+            )
+            slugs = [item["slug"] for item in queue]
+            self.assertLess(slugs.index("recent-change-test-gap"), slugs.index("mission-brief"))
+            self.assertGreater(queue[0]["selection_priority"], next(
+                item["selection_priority"] for item in queue if item["slug"] == "mission-brief"
+            ))
+            coverage = next(item for item in queue if item["slug"] == "recent-change-test-gap")
+            self.assertEqual(coverage["files"][:2], ["tests/test_other.py", "src/app.py"])
 
     def test_windows_prompt_marks_candidate_file_boundary(self):
         prompt = night_shift.windows_prompt(
