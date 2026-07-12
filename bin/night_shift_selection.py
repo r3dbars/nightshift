@@ -19,22 +19,22 @@ def declared_symbols(text: str) -> list[str]:
     if tree is not None:
         found: list[str] = []
 
+        def visit_node(node: ast.AST, class_scope: bool = False) -> None:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if not class_scope or not node.name.startswith("_"):
+                    found.append(node.name)
+                return
+            if isinstance(node, ast.ClassDef):
+                if not class_scope:
+                    found.append(node.name)
+                visit_scope(node.body, class_scope=True)
+                return
+            for child in ast.iter_child_nodes(node):
+                visit_node(child, class_scope=class_scope)
+
         def visit_scope(statements: list[ast.stmt], class_scope: bool = False) -> None:
             for node in statements:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if not class_scope or not node.name.startswith("_"):
-                        found.append(node.name)
-                    continue
-                if isinstance(node, ast.ClassDef):
-                    if not class_scope:
-                        found.append(node.name)
-                    visit_scope(node.body, class_scope=True)
-                    continue
-                for child in ast.iter_child_nodes(node):
-                    if isinstance(child, ast.stmt):
-                        visit_scope([child], class_scope=class_scope)
-                    elif isinstance(child, ast.ExceptHandler):
-                        visit_scope(child.body, class_scope=class_scope)
+                visit_node(node, class_scope=class_scope)
 
         visit_scope(tree.body)
         return list(dict.fromkeys(found))

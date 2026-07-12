@@ -1,6 +1,8 @@
+import ast
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +46,21 @@ class SelectionTests(unittest.TestCase):
             declared_symbols("export function parseThing() { return 1; }"),
             ["parseThing"],
         )
+
+    def test_python_symbols_traverse_non_statement_scope_containers(self):
+        class BranchContainer(ast.AST):
+            _fields = ("body",)
+
+            def __init__(self, body):
+                self.body = body
+
+        function = ast.FunctionDef(
+            name="case_handler", args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
+            body=[ast.Pass()], decorator_list=[], returns=None, type_comment=None,
+        )
+        tree = ast.Module(body=[BranchContainer([function])], type_ignores=[])
+        with patch("night_shift_selection.ast.parse", return_value=tree):
+            self.assertEqual(declared_symbols("match syntax on Python 3.10+"), ["case_handler"])
 
     def test_complete_coverage_outranks_broad_repair(self):
         broad = {"ladder_priority": 500}
