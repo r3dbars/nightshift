@@ -34,6 +34,7 @@ from night_shift_state import append_attempt, exclusive_lock, latest_attempts, l
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import build_handoff_prompt, select_handoff_item, validate_handoff_review
+from night_shift_feedback import apply_task_feedback, task_family
 
 
 HOME = Path.home()
@@ -2568,6 +2569,7 @@ def write_outcome_metrics(ledger: Path, results: list[dict], skipped: list[dict]
         "accepted_candidates": accepted,
         "rejected": sum(1 for row in results if row.get("score") == "REJECT"),
         "pre_model_skips": sum(1 for row in skipped if row.get("category") == "pre-model"),
+        "feedback_skips": sum(1 for row in skipped if row.get("category") == "feedback"),
         "cooldown_or_repeat_skips": sum(1 for row in skipped if row.get("category") in {"cooldown", "repeat"}),
         "estimated_tokens": tokens,
         "accepted_per_1000_tokens": round(accepted * 1000 / tokens, 4) if tokens else 0,
@@ -2713,6 +2715,7 @@ def write_morning(
     except OSError:
         task_skips = []
     pre_model_skips = sum(1 for row in task_skips if row.get("category") == "pre-model")
+    feedback_skips = sum(1 for row in task_skips if row.get("category") == "feedback")
     lines = [
         "# Morning Brief",
         "",
@@ -2756,6 +2759,7 @@ def write_morning(
             f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}",
             f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}",
             f"- Weak signals skipped before model calls: {pre_model_skips}",
+            f"- User-rejected task families skipped: {feedback_skips}",
             f"- Evidence-backed candidates awaiting proof: {len([item for item in work_items if item['primary']['score'] == 'MAYBE'])}",
             f"- Unique work queue items: {len(deduped_work_items(results))}",
             "",
@@ -3069,6 +3073,7 @@ def command_run(args) -> int:
     write_repo_scan(ledger, scan)
     discovered_queue = build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text)
     queue, readiness_skips = model_ready_tasks(discovered_queue, args.mode)
+    queue, feedback_skips = apply_task_feedback(queue, load_feedback(), str(root), args.mode)
     grounded_queue_count = len(queue)
     discovered_queue_count = len(discovered_queue)
     repo_name = scan.get("github_slug") or str(root)
@@ -3076,7 +3081,7 @@ def command_run(args) -> int:
     attempts = latest_attempts(TASK_ATTEMPTS_PATH)
     for item in queue:
         item["fingerprint"] = task_fingerprint(repo_name, scan.get("head", ""), item)
-    skipped: list[dict] = list(readiness_skips)
+    skipped: list[dict] = [*readiness_skips, *feedback_skips]
     eligible = []
     for item in queue:
         allowed, reason = may_attempt(attempts.get(item["fingerprint"]), item["fingerprint"], scan.get("head", ""))
@@ -4409,12 +4414,16 @@ def command_feedback(args) -> int:
     except Exception:
         mode = {}
     verdict = "useful" if args.useful else "not-useful"
+    labels = item.get("labels") or []
+    family = task_family(labels[0] if labels else str(item.get("key", "")).split(":", 1)[0])
     row = {
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "repo": mode.get("repo", ""),
         "ledger": str(ledger),
         "rank": args.item,
         "key": item.get("key", ""),
+        "family": family,
+        "fingerprint": item.get("fingerprint", ""),
         "summary": item.get("summary", ""),
         "verdict": verdict,
         "note": args.note or "",

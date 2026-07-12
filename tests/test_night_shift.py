@@ -539,6 +539,71 @@ CONFIDENCE: high
             finally:
                 night_shift.FEEDBACK_PATH = original
 
+    def test_task_family_feedback_changes_pre_model_selection(self):
+        tasks = [
+            {"slug": "changed-file-proof-01-src-app", "ladder_priority": 300},
+            {"slug": "recent-change-test-gap", "ladder_priority": 300},
+        ]
+        events = [
+            {"repo": "/repo", "family": "changed-file-proof", "verdict": "useful"},
+        ]
+        ranked, skipped = night_shift.apply_task_feedback(tasks, events, "/repo", "night-shift")
+        self.assertEqual(ranked[0]["slug"], "changed-file-proof-01-src-app")
+        self.assertEqual(ranked[0]["feedback_adjustment"], 25)
+        self.assertEqual(skipped, [])
+
+    def test_repeated_negative_feedback_skips_family_before_model_calls(self):
+        task = {"slug": "changed-file-proof-01-src-app", "ladder_priority": 300}
+        events = [
+            {"repo": "/repo", "family": "changed-file-proof", "verdict": "not-useful"},
+            {"repo": "/repo", "family": "changed-file-proof", "verdict": "not-useful"},
+        ]
+        ready, skipped = night_shift.apply_task_feedback([task], events, "/repo", "night-shift")
+        self.assertEqual(ready, [])
+        self.assertEqual(skipped[0]["category"], "feedback")
+        self.assertIn("marked not useful 2 times", skipped[0]["reason"])
+        afterburner, _ = night_shift.apply_task_feedback([task], events, "/repo", "afterburner")
+        self.assertEqual(len(afterburner), 1)
+        self.assertEqual(afterburner[0]["feedback_adjustment"], -40)
+
+    def test_feedback_from_another_repo_cannot_change_selection(self):
+        task = {"slug": "failed-ci-42", "ladder_priority": 500}
+        events = [
+            {"repo": "/other", "family": "failed-ci", "verdict": "not-useful"},
+            {"repo": "/other", "family": "failed-ci", "verdict": "not-useful"},
+        ]
+        ready, skipped = night_shift.apply_task_feedback([task], events, "/repo", "night-shift")
+        self.assertEqual(ready[0]["feedback_adjustment"], 0)
+        self.assertEqual(skipped, [])
+
+    def test_feedback_command_persists_family_and_fingerprint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger"
+            ledger.mkdir()
+            (ledger / "mode.json").write_text(json.dumps({"repo": "/repo"}), encoding="utf-8")
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "key": "changed-file-proof-01:tests:patch-plan",
+                "labels": ["changed-file-proof-01-src-app"],
+                "fingerprint": "abc123",
+                "summary": "Add a regression test",
+            }]), encoding="utf-8")
+            original = night_shift.FEEDBACK_PATH
+            night_shift.FEEDBACK_PATH = root / "feedback.jsonl"
+            try:
+                args = SimpleNamespace(
+                    ledger=str(ledger), latest=False, item=1,
+                    useful=False, not_useful=True, note="too generic",
+                )
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(night_shift.command_feedback(args), 0)
+                event = json.loads(night_shift.FEEDBACK_PATH.read_text(encoding="utf-8"))
+                self.assertEqual(event["family"], "changed-file-proof")
+                self.assertEqual(event["fingerprint"], "abc123")
+                self.assertEqual(event["verdict"], "not-useful")
+            finally:
+                night_shift.FEEDBACK_PATH = original
+
     def test_feedback_rejects_zero_rank(self):
         args = SimpleNamespace(useful=True, not_useful=False, item=0)
         with redirect_stdout(io.StringIO()):
@@ -857,12 +922,14 @@ CONFIDENCE: high
                 json.dumps([
                     {"category": "pre-model", "reason": "weak"},
                     {"category": "cooldown", "reason": "wait"},
+                    {"category": "feedback", "reason": "not useful twice"},
                 ]),
                 encoding="utf-8",
             )
             night_shift.write_morning(ledger, "quiet", [], 0, "GREEN", {"status": "ok"})
             brief = (ledger / "morning.md").read_text(encoding="utf-8")
             self.assertIn("Weak signals skipped before model calls: 1", brief)
+            self.assertIn("User-rejected task families skipped: 1", brief)
 
     def test_active_autopilot_ignores_stale_pid_state(self):
         previous = night_shift.AUTOPILOT_STATE_PATH

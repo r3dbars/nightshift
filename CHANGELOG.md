@@ -7,6 +7,10 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Apply explicit morning feedback before model dispatch: useful task families
+  are prioritized, one negative downranks, and two negatives suppress that
+  family in Normal mode for the same repo. Afterburner may still inspect it,
+  and feedback never bypasses evidence readiness or crosses repo boundaries.
 - Add `night-shift handoff`: package one surviving morning item for independent
   Codex review. Preparation is local-only; sending requires prior or one-time
   cloud consent, runs ephemeral and read-only, and validates the returned

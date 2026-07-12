@@ -171,7 +171,9 @@ night-shift feedback --latest --item 1 --useful
 night-shift feedback --latest --item 1 --not-useful --note "too generic"
 ```
 
-Feedback stays local and helps future prompts and ranking for that repo.
+Feedback stays local and changes future selection for that repo before model
+calls. Useful families rise; repeated not-useful families are skipped in Normal
+mode. Feedback never bypasses evidence requirements.
 
 For a surviving KEEP/MAYBE item, prepare the bounded coding-agent handoff:
 
