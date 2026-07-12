@@ -50,6 +50,8 @@ trap 'rm -rf "$tmp_home"' EXIT
 copied_home="$tmp_home/copied-install"
 ./install.sh --codex-home "$copied_home" >/dev/null
 "$copied_home/bin/night-shift" --version | grep -q "Night Shift $version_file"
+test -s "$copied_home/containers/runner/Containerfile"
+grep -Eq '^FROM [^ ]+@sha256:[0-9a-f]{64}$' "$copied_home/containers/runner/Containerfile"
 
 CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --setup-only --skip-smoke >/dev/null
 test -s "$tmp_home/night-shift/config.json"

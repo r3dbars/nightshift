@@ -58,6 +58,7 @@ codex_home="${codex_home/#\~/$HOME}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bin_dir="$codex_home/bin"
 skill_dir="$codex_home/skills/night-shift"
+runner_dir="$codex_home/containers/runner"
 
 shell_profile=""
 case "${SHELL:-}" in
@@ -75,7 +76,7 @@ for required in git python3 curl rsync; do
   fi
 done
 
-mkdir -p "$bin_dir" "$codex_home/skills"
+mkdir -p "$bin_dir" "$codex_home/skills" "$codex_home/containers"
 
 if [[ "$link_install" -eq 1 ]]; then
   for source in "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift" "$repo_root"/bin/night_shift_*.py; do
@@ -86,12 +87,15 @@ if [[ "$link_install" -eq 1 ]]; then
 
   rm -rf "$skill_dir"
   ln -s "$repo_root/skills/night-shift" "$skill_dir"
+  rm -rf "$runner_dir"
+  ln -s "$repo_root/containers/runner" "$runner_dir"
 else
-  mkdir -p "$skill_dir"
+  mkdir -p "$skill_dir" "$runner_dir"
   cp "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift" "$repo_root"/bin/night_shift_*.py "$bin_dir/"
   chmod +x "$bin_dir"/maestro-* "$bin_dir/night-shift"
 
   rsync -a --delete "$repo_root/skills/night-shift/" "$skill_dir/"
+  rsync -a --delete "$repo_root/containers/runner/" "$runner_dir/"
 fi
 
 echo "Night Shift installed."

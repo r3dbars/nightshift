@@ -304,6 +304,10 @@ class DraftEngine:
             timeout=min(verify_timeout, profile.max_seconds),
             pid_log=parent_ledger / "processes.tsv",
         )
+        (sandbox_dir / "runner.txt").write_text(
+            (verified.stdout + "\n" + verified.stderr).strip() + "\n",
+            encoding="utf-8",
+        )
         changed_path = sandbox_dir / "changed-paths.txt"
         applied_path = sandbox_dir / "applied.patch"
         verification_rc = sandbox_dir / "verification.rc"
@@ -335,6 +339,7 @@ class DraftEngine:
             "proof_level": proof_level,
             "patch_worker_rc": model.rc,
             "sandbox_rc": verified.rc,
+            "sandbox_output": str(sandbox_dir / "runner.txt"),
             "guard_reasons": guards,
             "proof": str(proof_path),
         })

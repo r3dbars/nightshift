@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,11 @@ def runner_context() -> Path:
     return Path(__file__).resolve().parents[1] / "containers" / "runner"
 
 
+def runner_build_command(runtime: str, context: Path) -> list[str | Path]:
+    pull = "--pull=missing" if Path(runtime).name == "podman" else "--pull"
+    return [runtime, "build", pull, "--tag", "night-shift-runner:local", "--file", context / "Containerfile", context]
+
+
 def build_runner_image(run_cmd: Callable) -> tuple[bool, str]:
     """Build the reviewed local runner and return its immutable content ID."""
     status = detect_sandbox(run_cmd)
@@ -35,14 +41,13 @@ def build_runner_image(run_cmd: Callable) -> tuple[bool, str]:
         return False, status.detail
     context = runner_context()
     runtime = status.runtime
-    built = run_cmd(
-        [runtime, "build", "--pull", "never", "--tag", "night-shift-runner:local", "--file", context / "Containerfile", context],
-        timeout=900,
-    )
+    built = run_cmd(runner_build_command(runtime, context), timeout=900)
     if built.rc != 0:
         return False, (built.stderr or built.stdout or "runner build failed").strip()[:600]
     inspected = run_cmd([runtime, "image", "inspect", "night-shift-runner:local", "--format", "{{.Id}}"], timeout=60)
     image = inspected.stdout.strip()
+    if re.fullmatch(r"[a-f0-9]{64}", image):
+        image = f"sha256:{image}"
     if inspected.rc != 0 or not image.startswith("sha256:") or len(image) != 71:
         return False, "runner built but did not return an immutable image ID"
     return True, image
@@ -86,7 +91,9 @@ def detect_sandbox(run_cmd: Callable) -> SandboxStatus:
 def fixed_patch_script() -> str:
     """Controller-owned shell only; no repo or model text is interpolated."""
     return (
-        "set -eu; cp -a /source/. /work/; cd /work; "
+        "set -eu; cp -a /source/. /work/; cd /work; rm -rf .git; git init -q; "
+        "git config user.email night-shift@localhost; git config user.name 'Night Shift'; "
+        "git add -A; git commit -qm baseline; "
         "git apply --whitespace=error /input/candidate.patch; git diff --check; "
         "git diff --name-only > /artifacts/changed-paths.txt; "
         "git diff --binary > /artifacts/applied.patch; set +e; \"$@\" > /artifacts/verification.txt 2>&1; "
@@ -107,11 +114,14 @@ def sandbox_patch_command(
     container tmpfs; the artifact directory receives logs and a candidate diff.
     """
     runtime = sandbox_runtime() or "docker"
+    tmpfs_options = "rw,noexec,nosuid,size=512m,mode=700"
+    if Path(runtime).name != "podman":
+        tmpfs_options += ",uid=65534,gid=65534"
     return [
         runtime, "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
-        "--memory", f"{profile.max_memory_mb}m", "--tmpfs", "/work:rw,noexec,nosuid,size=512m,uid=65534,gid=65534,mode=700",
+        "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"/work:{tmpfs_options}",
         "--volume", f"{source.resolve()}:/source:ro", "--volume", f"{patch.resolve()}:/input/candidate.patch:ro",
         "--volume", f"{artifacts.resolve()}:/artifacts:rw", "--workdir", "/work",
         "--env", "HOME=/tmp", "--env", "GIT_CONFIG_NOSYSTEM=1", profile.image,
