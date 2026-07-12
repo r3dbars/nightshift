@@ -559,10 +559,17 @@ DRAFTS = DraftEngine(run_cmd, WORKTREE_ROOT, now_stamp)
 
 def apply_compute_overrides(args) -> None:
     saved = load_config()
+    privacy_route = getattr(args, "privacy_route", None)
     local_url = getattr(args, "local_url", None) or os.environ.get("MAESTRO_LOCAL_BASE_URL") or config_value(saved, "local_url")
     local_model = getattr(args, "local_model", None) or os.environ.get("MAESTRO_LOCAL_MODEL") or config_value(saved, "local_model")
-    windows_url = getattr(args, "windows_url", None) or os.environ.get("WINDOWS_WORKER_BASE_URL") or config_value(saved, "windows_url")
+    windows_url = (
+        None
+        if privacy_route and privacy_route != "mac-and-lan"
+        else getattr(args, "windows_url", None) or os.environ.get("WINDOWS_WORKER_BASE_URL") or config_value(saved, "windows_url")
+    )
     windows_model = getattr(args, "windows_model", None) or os.environ.get("WINDOWS_WORKER_MODEL") or config_value(saved, "windows_model")
+    if privacy_route and privacy_route != "mac-and-lan":
+        os.environ.pop("WINDOWS_WORKER_BASE_URL", None)
     if local_url:
         os.environ["MAESTRO_LOCAL_BASE_URL"] = local_url.rstrip("/")
     if local_model:

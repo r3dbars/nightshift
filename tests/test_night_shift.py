@@ -80,6 +80,30 @@ class NightShiftQualityTests(unittest.TestCase):
         saved = {"preferences": {"privacy_route": "mac-only"}}
         self.assertEqual(night_shift.resolve_autopilot_privacy(args, saved), "mac-and-lan")
 
+    def test_compute_overrides_cannot_reload_windows_for_mac_only(self):
+        original_path = night_shift.CONFIG_PATH
+        previous = os.environ.get("WINDOWS_WORKER_BASE_URL")
+        with tempfile.TemporaryDirectory() as tmp:
+            night_shift.CONFIG_PATH = Path(tmp) / "config.json"
+            night_shift.CONFIG_PATH.write_text(json.dumps({
+                "preferences": {"privacy_route": "mac-only"},
+                "legacy": {"windows_url": "http://windows.test/v1"},
+            }), encoding="utf-8")
+            os.environ["WINDOWS_WORKER_BASE_URL"] = "http://windows.test/v1"
+            try:
+                args = SimpleNamespace(
+                    privacy_route="mac-only", local_url=None, local_model=None,
+                    windows_url=None, windows_model=None,
+                )
+                night_shift.apply_compute_overrides(args)
+                self.assertNotIn("WINDOWS_WORKER_BASE_URL", os.environ)
+            finally:
+                night_shift.CONFIG_PATH = original_path
+                if previous is None:
+                    os.environ.pop("WINDOWS_WORKER_BASE_URL", None)
+                else:
+                    os.environ["WINDOWS_WORKER_BASE_URL"] = previous
+
     def test_advanced_setup_is_explicit(self):
         parser = night_shift.build_parser()
         simple = parser.parse_args(["start", "--repo", str(ROOT), "--yes", "--dry-run"])
