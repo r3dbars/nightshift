@@ -1849,6 +1849,16 @@ def numbered_relevant_excerpt(text: str, terms: set[str], max_lines: int = 180) 
     return "\n".join(f"{index + 1:>5} | {lines[index]}" for index in selected)
 
 
+def numbered_symbol_matches(text: str, terms: set[str], max_lines: int = 120) -> str:
+    lines = text.splitlines()
+    matches = [
+        f"{index + 1:>5} | {line}"
+        for index, line in enumerate(lines)
+        if any(term in line for term in terms)
+    ]
+    return "\n".join(matches[:max_lines])
+
+
 def task_evidence_pack(
     repo: Path | None,
     task: dict,
@@ -1914,7 +1924,11 @@ def task_evidence_pack(
             continue
         symbols.update(re.findall(r"(?m)^\s*(?:async\s+)?(?:def|class|function)\s+([A-Za-z_][A-Za-z0-9_]*)", text))
     for relative, text in file_texts.items():
-        numbered = numbered_relevant_excerpt(text, symbols if is_test_path(relative) else set())
+        test_terms = symbols if is_test_path(relative) else set()
+        matches = numbered_symbol_matches(text, test_terms)
+        if matches:
+            sections.append(f"## exact source-symbol matches: {relative}\n{matches[:per_file_chars]}")
+        numbered = numbered_relevant_excerpt(text, test_terms)
         sections.append(f"## file-excerpt: {relative}\n{numbered[:per_file_chars]}")
     sections.append("## repo-summary\n" + base_context[: min(1800, max_chars // 8)])
     return redact("\n\n".join(sections))[:max_chars]

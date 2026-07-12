@@ -430,6 +430,7 @@ CONFIDENCE: high
             subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
             task = {"files": ["app.py", "tests/test_app.py"]}
             pack = night_shift.task_evidence_pack(repo, task, "base", max_files=2)
+            self.assertIn("## exact source-symbol matches: tests/test_app.py", pack)
             self.assertIn("  241 | def test_calculate_total():", pack)
             self.assertIn("  242 |     assert calculate_total() == 42", pack)
 
