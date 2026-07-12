@@ -60,7 +60,10 @@ def apply_task_feedback(
         ranked.append(row)
     ranked.sort(
         key=lambda row: (
-            -(int(row.get("ladder_priority") or 0) + int(row.get("feedback_adjustment") or 0)),
+            -(
+                int(row.get("selection_priority") or row.get("ladder_priority") or 0)
+                + int(row.get("feedback_adjustment") or 0)
+            ),
             str(row.get("slug") or ""),
         )
     )
