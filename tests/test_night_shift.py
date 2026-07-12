@@ -1780,6 +1780,26 @@ buildThing() { return 1; }
             self.assertIn("--pull", command)
             self.assertEqual(command[command.index("--pull") + 1], "never")
             self.assertIn(f"{root.resolve()}:/source:ro", command)
+            self.assertIn("rm -rf .git; git init -q", __import__("night_shift_sandbox").fixed_patch_script())
+
+    def test_podman_patch_tmpfs_avoids_docker_only_ownership_options(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_runtime = sandbox.sandbox_runtime
+        sandbox.sandbox_runtime = lambda: "/opt/homebrew/bin/podman"
+        try:
+            profile = SimpleNamespace(
+                max_pids=64, max_cpu=1, max_memory_mb=512,
+                image="sha256:" + "a" * 64,
+            )
+            command = sandbox.sandbox_patch_command(
+                Path("/tmp/source"), Path("/tmp/patch"), Path("/tmp/artifacts"), ("true",), profile,
+            )
+            tmpfs = command[command.index("--tmpfs") + 1]
+            self.assertNotIn("uid=", tmpfs)
+            self.assertNotIn("gid=", tmpfs)
+            self.assertIn("mode=700", tmpfs)
+        finally:
+            sandbox.sandbox_runtime = original_runtime
 
     def test_podman_rootless_is_an_accepted_sandbox_provider(self):
         original_which = night_shift.shutil.which
@@ -1881,6 +1901,29 @@ buildThing() { return 1; }
         finally:
             sandbox.detect_sandbox = original_detect
 
+    def test_runner_build_uses_runtime_compatible_pull_syntax(self):
+        sandbox = __import__("night_shift_sandbox")
+        context = Path("/tmp/runner")
+        podman = sandbox.runner_build_command("/opt/homebrew/bin/podman", context)
+        docker = sandbox.runner_build_command("/usr/local/bin/docker", context)
+        self.assertIn("--pull=missing", podman)
+        self.assertNotIn("--pull", podman)
+        self.assertFalse(any(str(part).startswith("--pull") for part in docker))
+        self.assertEqual(podman[-1], context)
+
+    def test_runner_build_normalizes_podman_bare_image_id(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_detect = sandbox.detect_sandbox
+        sandbox.detect_sandbox = lambda _run: sandbox.SandboxStatus(True, "ready", "podman")
+        try:
+            def fake_run(args, **_kwargs):
+                output = "a" * 64 + "\n" if args[1:3] == ["image", "inspect"] else "built\n"
+                return night_shift.CmdResult("podman", 0, output, "")
+
+            self.assertEqual(sandbox.build_runner_image(fake_run), (True, "sha256:" + "a" * 64))
+        finally:
+            sandbox.detect_sandbox = original_detect
+
     def test_doctor_marks_unready_installed_sandbox_provider_yellow(self):
         original_detect = night_shift.detect_sandbox
         original_checks = night_shift.check_storage_permissions
@@ -1948,6 +1991,7 @@ buildThing() { return 1; }
             self.assertEqual(result["baseline_rc"], 1)
             self.assertEqual(result["after_rc"], 0)
             self.assertTrue(Path(result["patch"]).is_file())
+            self.assertTrue(Path(result["sandbox_output"]).is_file())
             lifecycle = night_shift.latest_states(ledger / "task-lifecycle.jsonl")
             self.assertEqual(lifecycle["repair"]["state"], "VERIFIED")
 

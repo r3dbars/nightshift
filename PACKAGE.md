@@ -11,6 +11,7 @@ install and release surface boring and explicit.
 bin/night-shift
 bin/night_shift_portfolio.py
 bin/night_shift_drafts.py
+containers/runner/Containerfile
 bin/maestro-delegate
 bin/maestro-local
 bin/maestro-windows

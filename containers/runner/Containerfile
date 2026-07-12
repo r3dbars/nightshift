@@ -1,5 +1,7 @@
-FROM alpine:3.21
+FROM docker.io/library/debian@sha256:675b032d19e294c9eb2525b24ee63e6dc718854a481c6fd6f5e0aefcaf8208a1
 
-RUN apk add --no-cache bash git python3
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends bash git python3 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
