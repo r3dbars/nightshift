@@ -24,6 +24,11 @@ def iso_datetime(value: str) -> datetime | None:
 
 
 class PortfolioEngine:
+    GITHUB_SLUG_RE = re.compile(
+        r"(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)/"
+        r"(?P<repo>[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?)"
+    )
+
     def __init__(
         self,
         run_cmd: Callable,
@@ -43,8 +48,24 @@ class PortfolioEngine:
         value = remote.stdout.strip()
         if remote.rc != 0 or not value:
             return ""
-        match = re.search(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$", value)
+        match = re.fullmatch(
+            r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
+            r"([^/]+/[^/]+?)(?:\.git)?/?",
+            value,
+        )
         return match.group(1) if match else ""
+
+    def authenticated_owner(self) -> str:
+        if not shutil.which("gh"):
+            return ""
+        user = self.run_cmd(["gh", "api", "user", "--jq", ".login"], timeout=30)
+        return user.stdout.strip() if user.rc == 0 else ""
+
+    def owned_slug(self, slug: str, owner: str) -> tuple[str, str] | None:
+        match = self.GITHUB_SLUG_RE.fullmatch(slug or "")
+        if not match or not owner or match.group("owner").casefold() != owner.casefold():
+            return None
+        return match.group("owner"), match.group("repo")
 
     def github_repo_signals(self, slug: str) -> dict:
         empty = {"prs": [], "issues": [], "failed_runs": [], "score": 0}
@@ -116,14 +137,14 @@ class PortfolioEngine:
         primary_slug = self.repo_slug(primary_repo)
         rows: list[dict] = []
         if shutil.which("gh"):
-            user = self.run_cmd(["gh", "api", "user", "--jq", ".login"], timeout=30)
-            if user.rc == 0 and user.stdout.strip():
+            owner = self.authenticated_owner()
+            if owner:
                 listed = self.run_cmd(
                     [
                         "gh",
                         "repo",
                         "list",
-                        user.stdout.strip(),
+                        owner,
                         "--limit",
                         "100",
                         "--json",
@@ -139,6 +160,8 @@ class PortfolioEngine:
                         if item.get("isArchived") or item.get("isFork") or not pushed or pushed < cutoff:
                             continue
                         slug = item.get("nameWithOwner", "")
+                        if not self.owned_slug(slug, owner):
+                            continue
                         branch = (item.get("defaultBranchRef") or {}).get("name") or "main"
                         age_hours = max(0, (datetime.now(timezone.utc) - pushed).total_seconds() / 3600)
                         candidates.append(
@@ -189,14 +212,27 @@ class PortfolioEngine:
         if item.get("primary") and primary_repo:
             return primary_repo, "primary checkout (read only)"
         slug = item.get("slug", "")
-        if not slug or "/" not in slug or not shutil.which("gh"):
-            return None, "GitHub checkout unavailable"
+        owner = self.authenticated_owner()
+        parts = self.owned_slug(slug, owner)
+        if not parts:
+            return None, "GitHub checkout rejected: repo is not strictly owned by the authenticated user"
         self.repo_cache_root.mkdir(parents=True, exist_ok=True)
-        target = self.repo_cache_root / re.sub(r"[^A-Za-z0-9._-]+", "--", slug)
+        cache_root = self.repo_cache_root.resolve()
+        cache_name = f"{parts[0]}--{parts[1]}-{hashlib.sha256(slug.encode()).hexdigest()[:12]}"
+        target = self.repo_cache_root / cache_name
+        if target.is_symlink():
+            return None, "GitHub checkout rejected: cache target is a symlink"
+        if target.resolve(strict=False).parent != cache_root:
+            return None, "GitHub checkout rejected: cache path escapes its root"
         if not target.exists():
             cloned = self.run_cmd(["gh", "repo", "clone", slug, target, "--", "--filter=blob:none"], timeout=600)
             if cloned.rc != 0:
                 return None, (cloned.stderr or cloned.stdout or "clone failed")[:240]
+        if target.is_symlink() or not target.is_dir():
+            return None, "GitHub checkout rejected: cache target is not a real directory"
+        cached_slug = self.repo_slug(target)
+        if not self.owned_slug(cached_slug, owner) or cached_slug.casefold() != slug.casefold():
+            return None, "GitHub checkout rejected: cached origin does not match the expected repo"
         dirty = self.run_cmd(["git", "status", "--porcelain"], cwd=target, timeout=30)
         if dirty.rc != 0 or dirty.stdout.strip():
             quarantine = target.with_name(f"{target.name}-quarantine-{self.now_stamp()}")
@@ -207,6 +243,11 @@ class PortfolioEngine:
             cloned = self.run_cmd(["gh", "repo", "clone", slug, target, "--", "--filter=blob:none"], timeout=600)
             if cloned.rc != 0:
                 return None, (cloned.stderr or cloned.stdout or "clean re-clone failed")[:240]
+            if target.is_symlink() or not target.is_dir():
+                return None, "GitHub checkout rejected: cache target is not a real directory"
+            cached_slug = self.repo_slug(target)
+            if not self.owned_slug(cached_slug, owner) or cached_slug.casefold() != slug.casefold():
+                return None, "GitHub checkout rejected: re-cloned origin does not match the expected repo"
         fetched = self.run_cmd(["git", "fetch", "--prune", "origin"], cwd=target, timeout=180)
         if fetched.rc != 0:
             return None, (fetched.stderr or fetched.stdout or "fetch failed")[:240]
