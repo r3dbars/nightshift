@@ -35,6 +35,22 @@ def remaining_draft_timeout(
     return max(0, min(timeout, int(deadline - time.time())))
 
 
+def patch_format_correction(files: list[str]) -> str:
+    if len(files) == 1:
+        header = f"The first line must be exactly `diff --git a/{files[0]} b/{files[0]}`."
+    else:
+        approved = ", ".join(files)
+        header = (
+            "The first line must be `diff --git a/<path> b/<path>` using the same path on both sides. "
+            f"Choose only from these approved paths: {approved}."
+        )
+    return (
+        "CORRECTION: Return the complete patch again with no markdown fence or prose. "
+        + header
+        + " Include the matching `--- a/...`, `+++ b/...`, and `@@` lines."
+    )
+
+
 class DraftEngine:
     def __init__(self, run_cmd: Callable, worktree_root: Path, now_stamp: Callable[[], str]) -> None:
         self.run_cmd = run_cmd
@@ -288,12 +304,7 @@ class DraftEngine:
         if model.rc == 0 and not proposed.valid and model.stdout.strip():
             retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
             if retry_timeout > 0:
-                first_path = candidate["files"][0]
-                correction = (
-                    "CORRECTION: Return the complete patch again with no markdown fence or prose. "
-                    f"The first line must be exactly `diff --git a/{first_path} b/{first_path}`. "
-                    "Include the `--- a/...`, `+++ b/...`, and `@@` lines."
-                )
+                correction = patch_format_correction(candidate["files"])
                 retry = self.ask_for_patch(
                     worktree, source_ref, candidate, verification_argv, retry_timeout,
                     windows_url, windows_model, parent_ledger, f"{safe_task}-retry", correction,

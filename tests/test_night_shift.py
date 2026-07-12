@@ -1750,6 +1750,16 @@ buildThing() { return 1; }
             )
             self.assertFalse(rename.valid)
 
+    def test_patch_protocol_rejects_header_without_complete_hunk(self):
+        profile = SimpleNamespace(protected_paths=(), allowed_paths=("src",))
+        check = night_shift.validate_patch(
+            "diff --git a/src/app.py b/src/app.py\nthis is prose\n",
+            ["src/app.py"], profile,
+        )
+        self.assertFalse(check.valid)
+        self.assertIn("patch needs matching --- and +++ file headers", check.reasons)
+        self.assertIn("patch has no hunk header", check.reasons)
+
     def test_patch_protocol_rejects_binary_added_and_deleted_files(self):
         profile = SimpleNamespace(protected_paths=(), allowed_paths=("src",))
         base = "diff --git a/src/app.py b/src/app.py\n--- a/src/app.py\n+++ b/src/app.py\n"
@@ -2016,6 +2026,13 @@ buildThing() { return 1; }
                 "CORRECTION: first line must be diff --git a/app.py b/app.py",
             )
             self.assertIn("CORRECTION: first line must be", prompts[0])
+
+    def test_patch_correction_allows_any_approved_file(self):
+        correction = __import__("night_shift_drafts").patch_format_correction(
+            ["src/first.py", "src/actual.py"]
+        )
+        self.assertIn("src/first.py, src/actual.py", correction)
+        self.assertNotIn("exactly `diff --git a/src/first.py", correction)
 
     def test_patch_format_retry_obeys_new_stop_request(self):
         with tempfile.TemporaryDirectory() as tmp:

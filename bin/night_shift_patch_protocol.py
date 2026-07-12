@@ -52,6 +52,9 @@ def validate_patch(
     if "GIT binary patch" in patch or "new file mode" in patch or "deleted file mode" in patch:
         reasons.append("binary, added, and deleted files are not permitted overnight")
     paths: list[str] = []
+    before_paths: list[str] = []
+    after_paths: list[str] = []
+    has_hunk = False
     for line in patch.splitlines():
         match = DIFF_HEADER.match(line)
         if match:
@@ -61,11 +64,20 @@ def validate_patch(
             else:
                 paths.append(before)
         path_match = PATH_LINE.match(line)
-        if path_match and not _safe_path(path_match.group(2)):
-            reasons.append("patch contains an unsafe file header")
+        if path_match:
+            marker, path = path_match.groups()
+            if not _safe_path(path):
+                reasons.append("patch contains an unsafe file header")
+            (before_paths if marker == "---" else after_paths).append(path)
+        if line.startswith("@@"):
+            has_hunk = True
     paths = list(dict.fromkeys(paths))
     if not paths:
         reasons.append("patch has no file headers")
+    if not before_paths or not after_paths or before_paths != after_paths:
+        reasons.append("patch needs matching --- and +++ file headers")
+    if not has_hunk:
+        reasons.append("patch has no hunk header")
     if len(paths) > 6:
         reasons.append("patch touches more than six files")
     allowed = set(allowed_files)
