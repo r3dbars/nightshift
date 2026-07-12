@@ -173,6 +173,17 @@ night-shift feedback --latest --item 1 --not-useful --note "too generic"
 
 Feedback stays local and helps future prompts and ranking for that repo.
 
+For a surviving KEEP/MAYBE item, prepare the bounded coding-agent handoff:
+
+```bash
+night-shift handoff --latest --item 1
+```
+
+This writes a redacted local review pack and sends nothing. Run it with
+`--run` only when cloud reasoning was approved during setup, or after the user
+explicitly asks for the one-time `--allow-cloud` path. The coding agent must
+run read-only and return a validated verdict before implementation begins.
+
 End with one choice: verify and implement the best item, rerun with a narrower
 mission, or stop. Do not turn the brief into homework.
 

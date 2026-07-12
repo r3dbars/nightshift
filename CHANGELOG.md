@@ -7,6 +7,10 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Add `night-shift handoff`: package one surviving morning item for independent
+  Codex review. Preparation is local-only; sending requires prior or one-time
+  cloud consent, runs ephemeral and read-only, and validates the returned
+  verdict, current source citation, and implementation-readiness decision.
 - Add a deterministic pre-model readiness gate: unusable CI logs, unpinned or
   healthy PRs, source-unlinked issues, and broad Normal-mode scans are recorded
   without spending model tokens. Morning metrics now separate these free skips

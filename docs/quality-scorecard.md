@@ -35,12 +35,12 @@ findings, 0 accepted findings, and about 181,159 estimated tokens.
 | Brief safety | 92 | No host repo execution; restricted actions and redaction. | Continue adversarial prompt-injection testing. |
 | Execute-draft safety | 92 | Fail-closed profile, pinned runner, owned trust, no-network temporary workspace, and independent verifier. | Prove the protocol on a real runner image before widening access. |
 | Prompt and secret security | 88 | Redaction, protected paths, code-first context selection, and explicit untrusted-data boundaries. | Add a prompt-injection corpus and real-run measurements. |
-| Morning UX | 58 | The report is factual but exposes activity even when no useful outcome survived. | Lead with 1-3 verified outcomes, touched files, PRs, and one review action. |
-| Cloud-agent handoff | 15 | No first-class morning verification handoff exists. | One action sends only selected evidence to Codex/Claude for independent review. |
+| Morning UX | 65 | The brief leads with ranked items and now offers one bounded handoff command for the best survivor. | Validate morning comprehension and review effort across varied real overnight outcomes. |
+| Cloud-agent handoff | 35 | A real morning item produced a redacted local pack; the real no-consent run was denied, while 70-test coverage proves read-only invocation and response validation. | Obtain explicit consent and prove a live Codex review, then repeat across varied items without privacy leaks. |
 | Reliability | 82 | Stop deadlines, process cancellation, single-controller lock, migration tests, and validated task-state transitions. | Crash-recovery and concurrent-scheduler integration tests. |
 | Observability | 91 | Ledgers, task attempts, cooldown skips, outcome metrics, health, review-preserving retention, and explicit sandbox-capability health. | Confirm retention behavior in a real 10-hour soak. |
 | Learning loop | 45 | Local feedback is retained but has no demonstrated outcome lift. | Prove feedback changes ranking and accepted outcomes across later runs. |
-| Test coverage | 84 | 65 focused tests cover first-run defaults, pre-model readiness, skip accounting, morning visibility, and the simulated patch chain. | Real provider, interrupted-controller, scheduler, and GitHub-write integration tests. |
+| Test coverage | 86 | 70 focused tests cover first-run defaults, task readiness, skip accounting, handoff privacy/consent/schema, morning visibility, and the simulated patch chain. | Real provider, interrupted-controller, scheduler, and GitHub-write integration tests. |
 | Maintainability | 42 | Policy helpers exist, but the main controller remains about 4,550 lines. | Split setup, scanning, queueing, dispatch, reporting, and lifecycle into tested modules. |
 | Portability | 78 | Local-first defaults with Linux/macOS scheduling and Docker-rootless/Podman-rootless sandbox providers. | Prove both providers on real supported hosts. |
 | Ten-hour readiness | 86 | Fixed stop limits, lock, cooldown, unattended pause, retention controls, and a per-revision rejection circuit breaker. | A clean 10-hour soak with resource and disk evidence. |
