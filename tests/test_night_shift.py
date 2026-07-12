@@ -69,6 +69,17 @@ class NightShiftQualityTests(unittest.TestCase):
             else:
                 os.environ.pop("WINDOWS_WORKER_BASE_URL", None)
 
+    def test_direct_autopilot_inherits_saved_mac_only_privacy(self):
+        args = SimpleNamespace(windows_url=None)
+        saved = {"preferences": {"privacy_route": "mac-only"}}
+        self.assertEqual(night_shift.resolve_autopilot_privacy(args, saved), "mac-only")
+        self.assertEqual(args.privacy_route, "mac-only")
+
+    def test_explicit_autopilot_windows_url_is_lan_consent(self):
+        args = SimpleNamespace(windows_url="http://windows.test/v1")
+        saved = {"preferences": {"privacy_route": "mac-only"}}
+        self.assertEqual(night_shift.resolve_autopilot_privacy(args, saved), "mac-and-lan")
+
     def test_advanced_setup_is_explicit(self):
         parser = night_shift.build_parser()
         simple = parser.parse_args(["start", "--repo", str(ROOT), "--yes", "--dry-run"])

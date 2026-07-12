@@ -3560,10 +3560,19 @@ def enforce_autopilot_privacy(args) -> str | None:
     return privacy_route
 
 
+def resolve_autopilot_privacy(args, saved: dict) -> str:
+    route = getattr(args, "privacy_route", None)
+    if not route:
+        route = "mac-and-lan" if getattr(args, "windows_url", None) else config_value(saved, "privacy_route", "mac-only")
+        args.privacy_route = route
+    return route
+
+
 def command_autopilot(args) -> int:
     saved = load_config()
     if not getattr(args, "repo", None):
         args.repo = config_value(saved, "repo")
+    resolve_autopilot_privacy(args, saved)
     privacy_route = enforce_autopilot_privacy(args)
     for name in ("local_url", "local_model", "windows_url", "windows_model"):
         if name == "windows_url" and privacy_route and privacy_route != "mac-and-lan":
