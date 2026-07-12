@@ -31,6 +31,7 @@ def runner_context() -> Path:
 
 def runner_build_command(runtime: str, context: Path) -> list[str | Path]:
     args: list[str | Path] = [runtime, "build"]
+    # Explicit setup may fetch the digest-pinned base; overnight runs never pull.
     if Path(runtime).name == "podman":
         args.append("--pull=missing")
     return [*args, "--tag", "night-shift-runner:local", "--file", context / "Containerfile", context]
