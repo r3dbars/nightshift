@@ -87,6 +87,14 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertFalse(simple.advanced)
         self.assertTrue(advanced.advanced)
 
+    def test_start_outside_git_does_not_invent_a_repo_path(self):
+        original_run = night_shift.run_cmd
+        night_shift.run_cmd = lambda *args, **kwargs: night_shift.CmdResult("git", 128, "", "not a repo")
+        try:
+            self.assertEqual(night_shift.current_git_repo(), "")
+        finally:
+            night_shift.run_cmd = original_run
+
     def test_ten_hour_stop_option(self):
         self.assertEqual(night_shift.STOP_SECONDS["10h"], 10 * 60 * 60)
         self.assertEqual(night_shift.stop_label("10h"), "Stop after 10 hours")

@@ -277,7 +277,7 @@ def current_git_repo() -> str:
     result = run_cmd(["git", "rev-parse", "--show-toplevel"], timeout=10)
     if result.rc == 0 and result.stdout.strip():
         return result.stdout.strip()
-    return str(Path.cwd())
+    return ""
 
 
 def ask_text(prompt: str, default: str | None = None) -> str:
@@ -1134,7 +1134,7 @@ def repo_signal_scan(repo: Path | None) -> dict:
     commands = command_lines(
         repo,
         [
-            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "rev-parse", "HEAD"],
             ["git", "branch", "--show-current"],
             ["git", "status", "--short"],
             ["git", "diff", "--name-only", "HEAD~10..HEAD"],
