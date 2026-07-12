@@ -942,6 +942,15 @@ buildThing() { return 1; }
         self.assertEqual(ranked[0]["feedback_adjustment"], 25)
         self.assertEqual(skipped, [])
 
+    def test_task_family_normalizes_known_and_numbered_slugs(self):
+        self.assertEqual(
+            night_shift.task_family("changed-file-proof-01-src-app"),
+            "changed-file-proof",
+        )
+        self.assertEqual(night_shift.task_family("custom-maintenance-12"), "custom-maintenance")
+        self.assertEqual(night_shift.task_family("  PR-42-Review  "), "pr")
+        self.assertEqual(night_shift.task_family(""), "task")
+
     def test_repeated_negative_feedback_skips_family_before_model_calls(self):
         task = {"slug": "changed-file-proof-01-src-app", "ladder_priority": 300}
         events = [
