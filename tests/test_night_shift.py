@@ -466,6 +466,47 @@ CONFIDENCE: high
             prompts = "\n".join(item["prompt"] for item in queue)
             self.assertNotIn("`__init__`", prompts)
 
+    def test_symbol_substrings_do_not_count_as_test_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def run():\n    return True\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            (tests / "test_app.py").write_text("runtime = 1\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": ["tests/test_app.py"], "tracked_files": ["app.py", "tests/test_app.py"],
+                "doc_files": [], "todo_sample": [], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            self.assertTrue(any("`run`" in item["prompt"] for item in queue))
+
+    def test_coverage_check_uses_tracked_tests_beyond_display_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def calculate_total():\n    return 42\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            tracked = ["app.py"]
+            for index in range(81):
+                relative = f"tests/test_{index:02d}.py"
+                (repo / relative).write_text(
+                    "calculate_total()\n" if index == 80 else f"# test {index}\n",
+                    encoding="utf-8",
+                )
+                tracked.append(relative)
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": tracked[1:81], "tracked_files": tracked,
+                "doc_files": [], "todo_sample": [], "test_commands": ["python -m pytest"],
+                "github_open_prs_raw": "[]", "github_open_issues_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            self.assertFalse(any("`calculate_total`" in item["prompt"] for item in queue))
+
     def test_failed_ci_queue_starts_with_newest_run(self):
         scan = {
             "recent_files": ["app.py"],

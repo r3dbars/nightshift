@@ -1455,7 +1455,8 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         except OSError:
             return ""
 
-    test_corpus = "\n".join(read_current_text(path) for path in tests)
+    coverage_test_paths = [path for path in tracked_files if is_test_path(path)]
+    test_corpus = "\n".join(read_current_text(path) for path in coverage_test_paths)
     coverage_gaps: list[tuple[str, str]] = []
     for path in recent_source:
         source_text = read_current_text(path)
@@ -1463,7 +1464,15 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             r"(?m)^\s*(?:async\s+)?(?:def|class|function)\s+([A-Za-z_][A-Za-z0-9_]*)",
             source_text,
         )
-        missing = next((symbol for symbol in symbols if not symbol.startswith("_") and symbol not in test_corpus), "")
+        missing = next(
+            (
+                symbol
+                for symbol in symbols
+                if not symbol.startswith("_")
+                and not re.search(rf"\b{re.escape(symbol)}\b", test_corpus)
+            ),
+            "",
+        )
         if missing:
             coverage_gaps.append((path, missing))
 
