@@ -76,6 +76,8 @@ def validate_patch(
         reasons.append("patch has no file headers")
     if not before_paths or not after_paths or before_paths != after_paths:
         reasons.append("patch needs matching --- and +++ file headers")
+    if before_paths != paths or after_paths != paths:
+        reasons.append("patch file headers must match diff --git paths")
     if not has_hunk:
         reasons.append("patch has no hunk header")
     if len(paths) > 6:

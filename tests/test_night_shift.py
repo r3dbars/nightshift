@@ -1760,6 +1760,17 @@ buildThing() { return 1; }
         self.assertIn("patch needs matching --- and +++ file headers", check.reasons)
         self.assertIn("patch has no hunk header", check.reasons)
 
+    def test_patch_protocol_binds_file_headers_to_approved_diff_path(self):
+        profile = SimpleNamespace(protected_paths=(), allowed_paths=("src", "private"))
+        check = night_shift.validate_patch(
+            "diff --git a/src/app.py b/src/app.py\n"
+            "--- a/private/secret.py\n+++ b/private/secret.py\n"
+            "@@ -1 +1 @@\n-old\n+new\n",
+            ["src/app.py"], profile,
+        )
+        self.assertFalse(check.valid)
+        self.assertIn("patch file headers must match diff --git paths", check.reasons)
+
     def test_patch_protocol_rejects_binary_added_and_deleted_files(self):
         profile = SimpleNamespace(protected_paths=(), allowed_paths=("src",))
         base = "diff --git a/src/app.py b/src/app.py\n--- a/src/app.py\n+++ b/src/app.py\n"
