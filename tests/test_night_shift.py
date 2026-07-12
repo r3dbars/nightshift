@@ -565,6 +565,15 @@ CONFIDENCE: high
         self.assertEqual(ready, [task])
         self.assertEqual(skipped, [])
 
+    def test_every_discovered_task_is_pinned_to_scan_revision(self):
+        tasks = [
+            {"slug": "normal", "source_ref": ""},
+            {"slug": "pr", "source_ref": "a" * 40},
+        ]
+        pinned = night_shift.pin_queue_revision(tasks, "b" * 40)
+        self.assertEqual(pinned[0]["source_ref"], "b" * 40)
+        self.assertEqual(pinned[1]["source_ref"], "a" * 40)
+
     def test_pre_model_gate_requires_actionable_pr_state_and_pinned_head(self):
         healthy = {
             "slug": "pr-12-review",

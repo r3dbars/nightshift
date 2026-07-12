@@ -1744,6 +1744,13 @@ def model_ready_tasks(queue: list[dict], mode: str) -> tuple[list[dict], list[di
     return ready, skipped
 
 
+def pin_queue_revision(queue: list[dict], head: str) -> list[dict]:
+    for task in queue:
+        if not task.get("source_ref"):
+            task["source_ref"] = head
+    return queue
+
+
 def build_board(mode: str, queue: list[dict] | None = None, permission: str = "brief") -> str:
     lines = [f"# Night Shift Board", "", f"Mode: {mode}", f"Autonomy: {autonomy_copy(permission)}", ""]
     lines.append("| item | safe lane | artifact |")
@@ -3115,7 +3122,10 @@ def command_run(args) -> int:
     context = repo_context_pack(root if root and root.exists() else None)
     scan = repo_signal_scan(root)
     write_repo_scan(ledger, scan)
-    discovered_queue = build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text)
+    discovered_queue = pin_queue_revision(
+        build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text),
+        str(scan.get("head") or ""),
+    )
     queue, readiness_skips = model_ready_tasks(discovered_queue, args.mode)
     queue, feedback_skips = apply_task_feedback(queue, load_feedback(), str(root), args.mode)
     grounded_queue_count = len(queue)
