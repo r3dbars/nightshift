@@ -317,15 +317,11 @@ def ask_yes_no(prompt: str, default=True) -> bool:
 def print_first_run_intro() -> None:
     print("Welcome to Night Shift.")
     print("")
-    print("First time here, so I will set up the basics with you.")
-    print("We are choosing four things:")
-    print("- whether to watch this repo or your recently active GitHub repos")
-    print("- what would make tomorrow morning useful")
-    print("- where your code is allowed to go")
-    print("- how hard and how long Night Shift should work")
+    print("I will detect this project, GitHub, and the AI already available on your machines.")
+    print("Then I will show one safe plan for tonight. You only need to approve starting it.")
     print("")
-    print("Safe default: local, read-only, no pushes, no merges, no releases.")
-    print("You can change this later.")
+    print("Safe default: eight hours, local-first, no pushes, merges, releases, or deploys.")
+    print("Use `night-shift start --advanced` whenever you want to customize the plan.")
 
 
 def rows_by_name(rows: list[tuple[str, str, str]]) -> dict[str, tuple[str, str]]:
@@ -346,6 +342,21 @@ def detected_tools(rows: list[tuple[str, str, str]]) -> list[str]:
     if by_name.get("gh-auth", ("", ""))[0] == "GREEN":
         tools.append("GitHub CLI for repo context")
     return tools
+
+
+def recommended_start_preferences(saved: dict, rows: list[tuple[str, str, str]]) -> dict:
+    """Choose safe, useful defaults so the normal setup needs one consent."""
+    by_name = rows_by_name(rows)
+    github_ready = by_name.get("gh-auth", ("", ""))[0] == "GREEN"
+    windows_ready = by_name.get("windows-worker", ("", ""))[0] == "GREEN"
+    return {
+        "wake_goal": config_value(saved, "wake_goal", "chores"),
+        "privacy_route": config_value(saved, "privacy_route", "mac-and-lan" if windows_ready else "mac-only"),
+        "permission": config_value(saved, "permission", "draft-local"),
+        "mode": config_value(saved, "mode", "night-shift"),
+        "stop": config_value(saved, "stop", "8h"),
+        "scope": configured_scope(saved) if saved else ("github-recent" if github_ready else "current"),
+    }
 
 
 def mode_label(mode: str) -> str:
@@ -3608,6 +3619,8 @@ def command_autopilot(args) -> int:
 
 def command_start(args) -> int:
     saved = {} if args.reset else load_config()
+    first_run = not bool(saved)
+    advanced = bool(getattr(args, "advanced", False))
     apply_compute_overrides(args)
 
     if not is_interactive() and not args.yes and not args.dry_run and not args.setup_only:
@@ -3622,6 +3635,7 @@ def command_start(args) -> int:
 
     if not args.yes and is_interactive():
         print_first_run_intro()
+    if advanced and not args.yes and is_interactive():
         repo = ask_text("Which project should Night Shift look at?", repo)
     elif not repo:
         print("NIGHTSHIFT_START: RED | pass --repo /path/to/project or run from inside a git repo")
@@ -3641,27 +3655,39 @@ def command_start(args) -> int:
                 print(f"- {friendly}")
                 shown.add(friendly)
 
-    local_url = args.local_url or os.environ.get("MAESTRO_LOCAL_BASE_URL") or config_value(saved, "local_url", DEFAULT_LOCAL_URL)
-    local_model = args.local_model or os.environ.get("MAESTRO_LOCAL_MODEL") or config_value(saved, "local_model", DEFAULT_LOCAL_MODEL)
+    detected_local = autodetect_local_server() if first_run and not args.local_url and not args.local_model else None
+    local_url = (
+        args.local_url
+        or os.environ.get("MAESTRO_LOCAL_BASE_URL")
+        or config_value(saved, "local_url")
+        or (detected_local[0] if detected_local else DEFAULT_LOCAL_URL)
+    )
+    local_model = (
+        args.local_model
+        or os.environ.get("MAESTRO_LOCAL_MODEL")
+        or config_value(saved, "local_model")
+        or (detected_local[1] if detected_local and detected_local[1] else DEFAULT_LOCAL_MODEL)
+    )
     windows_url = args.windows_url or os.environ.get("WINDOWS_WORKER_BASE_URL") or config_value(saved, "windows_url", "")
     windows_model = args.windows_model or os.environ.get("WINDOWS_WORKER_MODEL") or config_value(saved, "windows_model", DEFAULT_WINDOWS_MODEL)
 
-    wake_goal = args.wake_goal or config_value(saved, "wake_goal", "brief")
-    privacy_route = args.privacy or config_value(saved, "privacy_route", "mac-only")
+    recommended = recommended_start_preferences(saved, rows)
+    wake_goal = args.wake_goal or recommended["wake_goal"]
+    privacy_route = args.privacy or recommended["privacy_route"]
     guidance = args.guidance or config_value(saved, "guidance", "scan")
     goal_text = args.goal if args.goal is not None else config_value(saved, "goal_text", "")
     if args.goal and not args.guidance:
         guidance = "goal"
-    permission = args.permission or config_value(saved, "permission", "brief")
-    mode = args.mode or config_value(saved, "mode", "night-shift")
-    stop = args.stop_after or config_value(saved, "stop", "morning")
-    scope = args.scope or configured_scope(saved)
+    permission = args.permission or recommended["permission"]
+    mode = args.mode or recommended["mode"]
+    stop = args.stop_after or recommended["stop"]
+    scope = args.scope or recommended["scope"]
     active_days = args.active_days or config_value(saved, "active_days", 14)
     max_repos = args.max_repos or config_value(saved, "max_repos", AUTOPILOT_DEFAULTS[mode]["repo_limit"])
     execute_drafts = False
     project_private = "normal" if privacy_route == "cloud-ok" else "private"
 
-    if not args.yes and is_interactive():
+    if advanced and not args.yes and is_interactive():
         scope = ask_choice(
             "Where should Night Shift look for useful work?",
             [
@@ -4343,6 +4369,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--setup-only", action="store_true", help="save setup answers and stop before launching")
     start.add_argument("--dry-run", action="store_true", help="show what would happen without launching")
     start.add_argument("--reset", action="store_true", help="ignore saved setup and ask again")
+    start.add_argument("--advanced", action="store_true", help="customize scope, privacy, permissions, models, mode, and runtime")
     start.add_argument("--yes", action="store_true", help="use saved/default answers and start without prompting")
     start.set_defaults(func=command_start)
 

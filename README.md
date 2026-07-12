@@ -66,6 +66,10 @@ cd nightshift
 night-shift start        # friendly guided setup, then the overnight run
 ```
 
+Normal setup detects the current project, GitHub, local AI, and a configured
+LAN worker, then asks one question: start the safe eight-hour plan? Use
+`night-shift start --advanced` only when you want to customize the defaults.
+
 Next morning:
 
 ```bash
