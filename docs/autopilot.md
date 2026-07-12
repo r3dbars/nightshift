@@ -148,9 +148,12 @@ whatever was asked. Your assistant becomes the morning courier.
 
 ### 7. The safety envelope does not bend at 3 a.m.
 
-Nothing about automation loosens the rules: no pushes, no merges, no releases,
-no credential or visibility changes, workers propose, tests prove, and humans
-decide. An unattended night has *less* authority than an attended one.
+Nothing about automation loosens the rules: no merges, releases, credential or
+visibility changes. Without explicit saved authorization, there are no code
+pushes. With it, Night Shift may push one unique isolated branch and open a
+draft PR only after the approved sandbox check passes again. Humans still
+decide what merges. An unattended night has *less* authority than an attended
+one.
 
 ## What This Adds Up To
 

@@ -131,9 +131,10 @@ night-shift autopilot --repo /path/to/project \
 
 - `brief`: read-only repo scan, artifacts, and a ranked queue.
 - `draft-local`: exact patch plans, issue candidates, files, and tests.
-- `draft-prs`: review-ready candidates, plus optional uncommitted patches in
-  disposable worktrees when `--execute-drafts` is enabled. Night Shift still
-  does not push, merge, release, or deploy.
+- `draft-prs`: review-ready candidates, plus optional isolated patches when
+  `--execute-drafts` is enabled. With one-time explicit authorization, a patch
+  that passes the approved sandbox check again may become a GitHub draft PR.
+  Night Shift never merges, releases, or deploys.
 
 Autopilot works down the same usefulness ladder in every repository:
 

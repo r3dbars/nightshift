@@ -29,6 +29,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from night_shift_portfolio import PortfolioEngine, parse_json_text
 from night_shift_drafts import DraftEngine, draft_proof_status, remaining_draft_timeout
+from night_shift_publish import PublishEngine
 from night_shift_policy import PROFILE_NAME, command_display, load_repo_profile
 from night_shift_sandbox import build_runner_image, detect_sandbox
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
@@ -260,6 +261,7 @@ def config_value(config: dict, key: str, default=None):
         "execute_drafts",
         "allow_cloud_reasoning",
         "allow_remote_lan_worker",
+        "allow_draft_prs",
     }:
         return config.get("preferences", {}).get(key, default)
     if key in {"local_url", "local_model", "windows_url", "windows_model"}:
@@ -444,6 +446,7 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
     mode = prefs.get("mode", "night-shift")
     permission = prefs.get("permission", "brief")
     execute_drafts = bool(prefs.get("execute_drafts", False))
+    allow_draft_prs = bool(prefs.get("allow_draft_prs", False))
     stop = prefs.get("stop", "morning")
     wake_goal = prefs.get("wake_goal", "brief")
     privacy_route = prefs.get("privacy_route", "mac-only")
@@ -463,12 +466,13 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
         f"- {permission_label(permission)}",
         f"- Autonomy: {autonomy_copy(permission)}",
         "- Make test-gated patches only in disposable worktrees" if execute_drafts else "- Keep code changes as analysis candidates",
+        "- Open test-passed changes as GitHub draft PRs for review" if allow_draft_prs else "- Keep every code change local",
         f"- {stop_label(stop)}",
         "- Save a repo scan, deduped work queue, morning brief, and artifacts",
         "",
         "Tonight it WILL NOT:",
-        "- Push commits",
-        "- Open PRs without a separate Codex or human review step",
+        "- Push branches or open PRs unless you saved explicit draft-PR consent",
+        "- Open a non-draft PR",
         "- Merge PRs",
         "- Release, deploy, publish, tag, or notarize",
         "- Delete or reorganize user files",
@@ -2985,6 +2989,10 @@ def draft_engine() -> DraftEngine:
     return DRAFTS
 
 
+def publish_engine() -> PublishEngine:
+    return PublishEngine(run_cmd, WORKTREE_ROOT / "publish", now_stamp)
+
+
 def select_draft_candidate(child_ledger: Path, repo: Path) -> dict | None:
     return draft_engine().select_candidate(child_ledger, repo, repo_signal_scan, TASK_LADDER)
 
@@ -3099,6 +3107,9 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
         draft = row.get("draft") or {}
         if draft:
             lines.append(f"  Draft: {draft.get('status', 'unknown')} | {draft.get('patch') or draft.get('reason', '')}")
+        publish = row.get("publish") or {}
+        if publish:
+            lines.append(f"  Draft PR: {publish.get('pr_url') or publish.get('reason', 'not opened')}")
     lines.extend(
         [
             "",
@@ -3109,7 +3120,8 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
             "",
             "Safety:",
             "- Repository checkouts were read-only unless isolated draft execution was explicitly enabled.",
-            "- Nothing was pushed, merged, released, deployed, or published.",
+            "- Tested draft PRs may be opened only when one-time GitHub authorization is saved.",
+            "- Nothing was merged, released, deployed, or published.",
         ]
     )
     (ledger / "morning.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -3137,6 +3149,8 @@ def command_autopilot(args) -> int:
         args.repo = config_value(saved, "repo")
     resolve_autopilot_privacy(args, saved)
     privacy_route = enforce_autopilot_privacy(args)
+    if not getattr(args, "allow_draft_prs", False):
+        args.allow_draft_prs = bool(config_value(saved, "allow_draft_prs", False))
     for name in ("local_url", "local_model", "windows_url", "windows_model"):
         if name == "windows_url" and privacy_route and privacy_route != "mac-and-lan":
             continue
@@ -3295,6 +3309,18 @@ def command_autopilot(args) -> int:
                             deadline,
                             stop_file,
                         )
+                        draft = cycle_row["draft"]
+                        if (
+                            getattr(args, "allow_draft_prs", False)
+                            and draft.get("status") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
+                        ):
+                            profile, _ = load_repo_profile(checkout)
+                            proof_path = Path(str(draft.get("proof") or ""))
+                            if profile and proof_path.parent.exists():
+                                publish_dir = proof_path.parent / f"{proof_path.stem}-publish"
+                                cycle_row["publish"] = publish_engine().publish(
+                                    checkout, cycle_row["repo"], draft, profile, publish_dir
+                                )
                         drafted_repos.add(cycle_row["repo"])
                 cycle_rows.append(cycle_row)
                 (ledger / "cycles.json").write_text(json.dumps(cycle_rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -3416,7 +3442,10 @@ def command_start(args) -> int:
     scope = args.scope or recommended["scope"]
     active_days = args.active_days or config_value(saved, "active_days", 14)
     max_repos = args.max_repos or config_value(saved, "max_repos", AUTOPILOT_DEFAULTS[mode]["repo_limit"])
-    execute_drafts = False
+    execute_drafts = bool(getattr(args, "execute_drafts", False) or config_value(saved, "execute_drafts", False))
+    allow_draft_prs = bool(getattr(args, "allow_draft_prs", False) or config_value(saved, "allow_draft_prs", False))
+    if permission != "draft-prs":
+        allow_draft_prs = False
     project_private = "normal" if privacy_route == "cloud-ok" else "private"
 
     if advanced and not args.yes and is_interactive():
@@ -3478,6 +3507,10 @@ def command_start(args) -> int:
         )
         if permission == "draft-prs":
             print(f"Patch execution starts off. Add {PROFILE_NAME} to a repo and set up the rootless sandbox after morning review.")
+            allow_draft_prs = ask_yes_no(
+                "After a patch passes isolated tests, may Night Shift open it as a GitHub draft PR for review?",
+                default=False,
+            )
         mode = ask_choice(
             "How much energy should it use?",
             [
@@ -3518,7 +3551,8 @@ def command_start(args) -> int:
             "scope": scope,
             "active_days": active_days,
             "max_repos": max_repos,
-            "execute_drafts": False,
+            "execute_drafts": execute_drafts,
+            "allow_draft_prs": allow_draft_prs,
         },
         "legacy": {
             "local_url": local_url,
@@ -3605,6 +3639,7 @@ def command_start(args) -> int:
         task_limit=None,
         poll_minutes=None,
         execute_drafts=execute_drafts,
+        allow_draft_prs=allow_draft_prs,
         once=getattr(args, "once", False),
         unattended=False,
     )
@@ -3905,7 +3940,7 @@ def command_deliver(args) -> int:
         return 1
     title = "🌙 Night Shift morning brief"
     body = (ledger / "morning.md").read_text(encoding="utf-8", errors="replace")
-    body += f"\n\n---\n_Updated {datetime.now(timezone.utc).isoformat(timespec='seconds')} from ledger `{ledger.name}`. This digest issue is the only thing Night Shift writes to this repo; it never pushes code._\n"
+    body += f"\n\n---\n_Updated {datetime.now(timezone.utc).isoformat(timespec='seconds')} from ledger `{ledger.name}`. Without separately saved draft-PR consent, this digest is the only remote write._\n"
     body_file = ledger / "deliver-github-issue.md"
     body_file.write_text(body, encoding="utf-8")
     listing = run_cmd(
@@ -4183,13 +4218,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--permission",
         choices=["brief", "draft-local", "draft-prs"],
         default=None,
-        help="skip the autonomy question; the run still never pushes or merges",
+        help="skip the autonomy question; pushing a tested draft still needs separate saved consent",
     )
     start.add_argument("--stop-after", choices=sorted(STOP_SECONDS), default=None, help="skip the stop question")
     start.add_argument("--scope", choices=["current", "github-recent"], default=None, help="watch one repo or recently active GitHub repos")
     start.add_argument("--active-days", type=int, default=None, help="GitHub activity window for portfolio discovery")
     start.add_argument("--max-repos", type=int, default=None, help="maximum recently active repos to work on")
     start.add_argument("--execute-drafts", action="store_true", help="allow isolated, unpushed draft patches when deterministic checks exist")
+    start.add_argument("--allow-draft-prs", action="store_true", help="save one-time consent to open only tested changes as GitHub draft PRs")
     start.add_argument("--once", action="store_true", help=argparse.SUPPRESS)
     start.add_argument("--local-url", required=False, help="override MAESTRO_LOCAL_BASE_URL")
     start.add_argument("--local-model", required=False, help="override MAESTRO_LOCAL_MODEL")
@@ -4273,7 +4309,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--permission",
         choices=["brief", "draft-local", "draft-prs"],
         default="brief",
-        help="how much autonomous preparation is allowed; run still never pushes or merges",
+        help="how much autonomous preparation is allowed; draft pushes need separate saved consent and never merge",
     )
     run.add_argument(
         "--guidance",
@@ -4316,6 +4352,7 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot.add_argument("--windows-model", required=False)
     autopilot.add_argument("--skip-smoke", action="store_true")
     autopilot.add_argument("--execute-drafts", action="store_true", help=argparse.SUPPRESS)
+    autopilot.add_argument("--allow-draft-prs", action="store_true", help=argparse.SUPPRESS)
     autopilot.add_argument("--once", action="store_true", help="run one portfolio cycle and stop")
     autopilot.set_defaults(func=command_autopilot)
 

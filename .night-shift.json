@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "trust": "owned",
+  "execution": "sandbox-only",
+  "commands": [
+    ["scripts/check-package.sh"]
+  ],
+  "allowed_paths": [
+    "bin",
+    "docs",
+    "skills",
+    "tests"
+  ],
+  "protected_paths": [
+    ".github",
+    ".gitignore",
+    ".night-shift.json",
+    "runner",
+    "scripts"
+  ],
+  "limits": {
+    "cpu": 2,
+    "memory_mb": 2048,
+    "pids": 128,
+    "seconds": 900
+  },
+  "image": "sha256:0114e0e853cf2f76a858f95fdf3b705cd7b366b1af07cd2a85d7de42a73c8023"
+}

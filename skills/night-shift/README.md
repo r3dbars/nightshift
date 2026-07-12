@@ -109,7 +109,8 @@ First time here, so I checked the basics for you.
 I found your project, GitHub account, local AI, and optional LAN worker.
 The safe default watches recent work for eight hours and keeps code local.
 
-Safe default: local, read-only, no pushes, no merges, no releases.
+Safe default: local, read-only, no pushes, no merges, no releases. Advanced
+setup can separately authorize test-passed GitHub draft PRs for review.
 ```
 
 Normal setup asks only whether to start. `night-shift start --advanced` exposes
@@ -175,8 +176,9 @@ Autonomy levels:
 
 - `brief`: read-only repo scan, artifacts, and a ranked queue.
 - `draft-local`: exact patch plans, issue candidates, files, and tests.
-- `draft-prs`: review-ready candidates and optional test-gated patches in
-  disposable worktrees. The run still does not push, merge, release, or deploy.
+- `draft-prs`: review-ready candidates and optional isolated patches. Saved
+  draft-PR consent allows only test-passed draft branches; Night Shift never
+  merges, releases, or deploys.
 
 ```mermaid
 flowchart LR
