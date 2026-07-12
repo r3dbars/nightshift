@@ -67,7 +67,7 @@ class PublishTests(unittest.TestCase):
                 if args[:3] == ["gh", "api", "user"]:
                     return result(stdout="owner\n")
                 if args[:3] == ["gh", "repo", "view"]:
-                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False}))
+                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
                 if args[:3] == ["git", "diff", "--name-only"]:
                     return result(stdout="src/app.py\n")
                 if args[:3] == ["gh", "pr", "create"]:
@@ -109,7 +109,7 @@ class PublishTests(unittest.TestCase):
                 if args[:3] == ["gh", "api", "user"]:
                     return result(stdout="someone-else\n")
                 if args[:3] == ["gh", "repo", "view"]:
-                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False}))
+                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
                 return result()
 
             published = PublishEngine(fake, root / "worktrees", lambda: "now").publish(
@@ -131,7 +131,7 @@ class PublishTests(unittest.TestCase):
                 if args[:3] == ["gh", "api", "user"]:
                     return result(stdout="owner\n")
                 if args[:3] == ["gh", "repo", "view"]:
-                    return result(stdout=json.dumps({"nameWithOwner": "owner/different", "isFork": False}))
+                    return result(stdout=json.dumps({"nameWithOwner": "owner/different", "isFork": False, "defaultBranchRef": {"name": "main"}}))
                 return result()
 
             published = PublishEngine(fake, root / "worktrees", lambda: "now").publish(
@@ -153,7 +153,7 @@ class PublishTests(unittest.TestCase):
                 if args[:3] == ["gh", "api", "user"]:
                     return result(stdout="owner\n")
                 if args[:3] == ["gh", "repo", "view"]:
-                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False}))
+                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
                 if args[:3] == ["git", "diff", "--name-only"]:
                     return result(stdout="src/app.py\n")
                 if args[:3] == ["gh", "pr", "create"]:
@@ -167,6 +167,62 @@ class PublishTests(unittest.TestCase):
             )
             self.assertEqual(published["status"], "REJECT")
             self.assertTrue(any(args[:3] == ["gh", "pr", "close"] for args in calls))
+
+    def test_refuses_source_commit_outside_default_branch_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            patch_path = root / "repair.patch"
+            patch_path.write_text(PATCH, encoding="utf-8")
+            calls = []
+
+            def fake(command, **kwargs):
+                args = [str(item) for item in command]
+                calls.append(args)
+                if args[:3] == ["gh", "api", "user"]:
+                    return result(stdout="owner\n")
+                if args[:3] == ["gh", "repo", "view"]:
+                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
+                if args[:3] == ["git", "merge-base", "--is-ancestor"]:
+                    return result(rc=1)
+                return result()
+
+            published = PublishEngine(fake, root / "worktrees", lambda: "now").publish(
+                root, "owner/repo", self.proof(patch_path), profile(), root / "proof"
+            )
+            self.assertEqual(published["status"], "REJECT")
+            self.assertIn("default branch", published["reason"])
+            self.assertFalse(any(args[:3] == ["git", "worktree", "add"] for args in calls))
+
+    def test_reports_remote_cleanup_failure_instead_of_claiming_rejection_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            patch_path = root / "repair.patch"
+            patch_path.write_text(PATCH, encoding="utf-8")
+
+            def fake(command, **kwargs):
+                args = [str(item) for item in command]
+                if args[:3] == ["gh", "api", "user"]:
+                    return result(stdout="owner\n")
+                if args[:3] == ["gh", "repo", "view"]:
+                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
+                if args[:3] == ["git", "diff", "--name-only"]:
+                    return result(stdout="src/app.py\n")
+                if args[:3] == ["gh", "pr", "create"]:
+                    return result(stdout="https://github.com/owner/repo/pull/9\n")
+                if args[:3] == ["gh", "pr", "view"]:
+                    return result(stdout="false\n")
+                if args[:3] == ["gh", "pr", "close"]:
+                    return result(rc=1)
+                if args[:4] == ["git", "push", "origin", "--delete"]:
+                    return result(rc=1)
+                return result()
+
+            published = PublishEngine(fake, root / "worktrees", lambda: "now").publish(
+                root, "owner/repo", self.proof(patch_path), profile(), root / "proof"
+            )
+            self.assertEqual(published["status"], "REMOTE_CLEANUP_REQUIRED")
+            self.assertTrue(published["remote_branch_created"])
+            self.assertFalse(published["pr_closed"])
 
 
 if __name__ == "__main__":

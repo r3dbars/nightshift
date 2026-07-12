@@ -56,8 +56,9 @@ class PublishEngine:
         self.run_cmd(["git", "worktree", "prune"], cwd=repo, timeout=60)
         return removed.rc == 0
 
-    def _remove_remote_branch(self, worktree: Path, branch: str) -> None:
-        self.run_cmd(["git", "push", "origin", "--delete", branch], cwd=worktree, timeout=120)
+    def _remove_remote_branch(self, worktree: Path, branch: str) -> bool:
+        removed = self.run_cmd(["git", "push", "origin", "--delete", branch], cwd=worktree, timeout=120)
+        return removed.rc == 0
 
     def publish(
         self,
@@ -102,14 +103,25 @@ class PublishEngine:
         except (TypeError, ValueError):
             metadata = {}
         owner = str(metadata.get("nameWithOwner") or "").split("/", 1)[0]
+        default_branch = str((metadata.get("defaultBranchRef") or {}).get("name") or "")
         if (
             who.rc != 0
             or view.rc != 0
             or str(metadata.get("nameWithOwner") or "").casefold() != repo_name.casefold()
             or who.stdout.strip().casefold() != owner.casefold()
             or metadata.get("isFork")
+            or not default_branch
         ):
             return finish({"status": "REJECT", "reason": "authenticated GitHub user must own this non-fork repository"})
+
+        default_ref = f"origin/{default_branch}"
+        default_exists = self.run_cmd(["git", "rev-parse", "--verify", default_ref], cwd=repo, timeout=30)
+        ancestry = self.run_cmd(["git", "merge-base", "--is-ancestor", source_ref, default_ref], cwd=repo, timeout=30)
+        if default_exists.rc != 0 or ancestry.rc != 0:
+            return finish({
+                "status": "REJECT",
+                "reason": "source commit is not on the fetched default branch; PR-head repairs stay local",
+            })
 
         fingerprint = hashlib.sha256((repo_name + source_ref + patch).encode("utf-8")).hexdigest()[:12]
         if self._already_published(fingerprint):
@@ -169,15 +181,26 @@ class PublishEngine:
             )
             pr_url = created.stdout.strip().splitlines()[-1] if created.rc == 0 and created.stdout.strip() else ""
             if created.rc != 0 or not pr_url:
-                self._remove_remote_branch(worktree, branch)
-                pushed = False
-                return finish({"status": "REJECT", "reason": "GitHub did not create the draft PR"})
+                removed_remote = self._remove_remote_branch(worktree, branch)
+                pushed = not removed_remote
+                return finish({
+                    "status": "REJECT" if removed_remote else "REMOTE_CLEANUP_REQUIRED",
+                    "reason": "GitHub did not create the draft PR" if removed_remote else "draft PR creation failed and remote branch cleanup also failed",
+                    "remote_branch_created": pushed,
+                })
             draft = self.run_cmd(["gh", "pr", "view", pr_url, "--json", "isDraft", "--jq", ".isDraft"], cwd=worktree, timeout=30)
             if draft.rc != 0 or draft.stdout.strip().lower() != "true":
-                self.run_cmd(["gh", "pr", "close", pr_url], cwd=worktree, timeout=60)
-                self._remove_remote_branch(worktree, branch)
-                pushed = False
-                return finish({"status": "REJECT", "reason": "GitHub did not preserve draft status", "pr_url": pr_url})
+                closed = self.run_cmd(["gh", "pr", "close", pr_url], cwd=worktree, timeout=60)
+                removed_remote = self._remove_remote_branch(worktree, branch)
+                pushed = not removed_remote
+                cleaned = closed.rc == 0 and removed_remote
+                return finish({
+                    "status": "REJECT" if cleaned else "REMOTE_CLEANUP_REQUIRED",
+                    "reason": "GitHub did not preserve draft status" if cleaned else "non-draft PR or remote branch may still need manual cleanup",
+                    "pr_url": pr_url,
+                    "remote_branch_created": pushed,
+                    "pr_closed": closed.rc == 0,
+                })
             self._record_publication(fingerprint, repo_name, pr_url, branch)
             return finish({
                 "status": "DRAFT_PR_OPENED",
