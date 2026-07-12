@@ -28,6 +28,13 @@ Codex still reviews, commits, pushes, and opens any PR.
 Codex or a human must review worker output before it becomes a real code
 change, PR, merge, release, or public claim.
 
+`night-shift handoff` prepares one redacted KEEP/MAYBE item locally. It sends
+nothing unless the user previously approved cloud reasoning or supplies a
+one-time `--allow-cloud` consent with `--run`. The Codex handoff is ephemeral,
+read-only, cannot edit or push, treats candidate text as untrusted data, and is
+accepted only with one structured verdict, a current source citation, and an
+explicit implementation-readiness decision.
+
 ## Manual Approval Boundaries
 
 Require explicit approval after the morning review before any of these actions:

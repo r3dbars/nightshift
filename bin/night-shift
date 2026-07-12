@@ -33,6 +33,7 @@ from night_shift_sandbox import build_runner_image, detect_sandbox
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
+from night_shift_handoff import build_handoff_prompt, select_handoff_item, validate_handoff_review
 
 
 HOME = Path.home()
@@ -248,6 +249,8 @@ def config_value(config: dict, key: str, default=None):
         "active_days",
         "max_repos",
         "execute_drafts",
+        "allow_cloud_reasoning",
+        "allow_remote_lan_worker",
     }:
         return config.get("preferences", {}).get(key, default)
     if key in {"local_url", "local_model", "windows_url", "windows_model"}:
@@ -4313,6 +4316,76 @@ def command_report(args) -> int:
     return 0
 
 
+def command_handoff(args) -> int:
+    ledger = select_ledger(args)
+    queue_path = ledger / "work-queue.json" if ledger else None
+    if not ledger or not queue_path or not queue_path.exists():
+        print("NIGHTSHIFT_HANDOFF: RED | no ranked work queue found; choose a completed run")
+        return 1
+    try:
+        items = json.loads(queue_path.read_text(encoding="utf-8"))
+        item = select_handoff_item(items, args.item)
+        mode = json.loads((ledger / "mode.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(f"NIGHTSHIFT_HANDOFF: RED | {str(exc)[:200]}")
+        return 1
+    repo = repo_root(str(mode.get("repo") or ""))
+    if not repo or not repo.is_dir():
+        print("NIGHTSHIFT_HANDOFF: RED | the handoff repository is unavailable")
+        return 1
+
+    handoff_dir = ledger / "handoff"
+    handoff_dir.mkdir(parents=True, exist_ok=True)
+    prompt = redact(build_handoff_prompt(item, repo, ledger.name))
+    prompt_path = handoff_dir / f"item-{args.item}-{args.agent}-prompt.md"
+    prompt_path.write_text(prompt, encoding="utf-8")
+    print(f"NIGHTSHIFT_HANDOFF: GREEN | prepared item={args.item} | agent={args.agent} | prompt={prompt_path}")
+    if not args.run:
+        print("Nothing was sent. Add --run after reviewing the local handoff pack.")
+        return 0
+
+    config = load_config()
+    cloud_allowed = bool(config_value(config, "allow_cloud_reasoning", False) or args.allow_cloud)
+    if not cloud_allowed:
+        print("NIGHTSHIFT_HANDOFF: RED | cloud use was not approved; rerun with --allow-cloud for this one review")
+        return 2
+    if args.agent != "codex" or not shutil.which("codex"):
+        print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
+        return 1
+
+    result = run_cmd(
+        [
+            "codex", "exec", "--ephemeral", "--sandbox", "read-only",
+            "--ask-for-approval", "never", "--color", "never", "-C", str(repo), prompt,
+        ],
+        cwd=repo,
+        timeout=args.timeout,
+    )
+    output_path = handoff_dir / f"item-{args.item}-{args.agent}-review.md"
+    output_path.write_text(redact(result.stdout or result.stderr).strip() + "\n", encoding="utf-8")
+    review_output = redact(result.stdout or result.stderr).strip()
+    review_reasons = validate_handoff_review(review_output) if result.rc == 0 else ["coding agent command failed"]
+    metadata = {
+        "agent": args.agent,
+        "cloud_authorized": True,
+        "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "item": args.item,
+        "read_only": True,
+        "return_code": result.rc,
+        "valid_review": not review_reasons,
+        "validation_reasons": review_reasons,
+    }
+    (handoff_dir / f"item-{args.item}-{args.agent}.json").write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    if result.rc != 0 or review_reasons:
+        detail = "; ".join(review_reasons)[:240]
+        print(f"NIGHTSHIFT_HANDOFF: YELLOW | coding-agent review was not usable: {detail} | output={output_path}")
+        return 1
+    print(f"NIGHTSHIFT_HANDOFF: GREEN | independent read-only review complete | output={output_path}")
+    return 0
+
+
 def command_feedback(args) -> int:
     if args.useful == args.not_useful:
         print("NIGHTSHIFT_FEEDBACK: RED | choose exactly one of --useful or --not-useful")
@@ -4572,6 +4645,21 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--latest", action="store_true", help="use the newest Night Shift ledger")
     report.add_argument("--ledger", required=False, help="specific ledger path; cannot be combined with --latest")
     report.set_defaults(func=command_report)
+
+    handoff = sub.add_parser(
+        "handoff",
+        help="send one surviving morning item for independent coding-agent review",
+        description="Prepare a bounded review pack locally. --run sends it read-only only after cloud consent.",
+        epilog="Example: night-shift handoff --latest --item 1 --agent codex",
+    )
+    handoff.add_argument("--latest", action="store_true", help="use the newest Night Shift ledger")
+    handoff.add_argument("--ledger", required=False, help="specific ledger path")
+    handoff.add_argument("--item", type=int, default=1, help="ranked KEEP/MAYBE item to review")
+    handoff.add_argument("--agent", choices=["codex"], default="codex")
+    handoff.add_argument("--run", action="store_true", help="send the prepared pack to the selected coding agent")
+    handoff.add_argument("--allow-cloud", action="store_true", help="one-time consent to send this bounded pack to the cloud agent")
+    handoff.add_argument("--timeout", type=int, default=900)
+    handoff.set_defaults(func=command_handoff)
 
     feedback = sub.add_parser(
         "feedback",

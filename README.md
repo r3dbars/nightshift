@@ -74,7 +74,11 @@ Next morning:
 
 ```bash
 night-shift report --latest
+night-shift handoff --latest --item 1   # prepare the best item for independent review
 ```
+
+The handoff stays local by default. Sending it to Codex requires cloud consent
+from setup or a one-time `--allow-cloud`, and the review runs read-only.
 
 At any point, get the small operational readout instead of hunting through
 ledgers:
