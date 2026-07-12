@@ -1883,7 +1883,11 @@ def feedback_context(repo: Path | None) -> str:
 
 
 def is_test_path(relative: str) -> bool:
-    return bool(re.search(r"(^|/)(test|tests|spec|specs)(/|$)|(_test|\.test|\.spec)\.", relative, re.IGNORECASE))
+    return bool(re.search(
+        r"(^|/)(test|tests|spec|specs)(/|$)|(^|/)(test|spec)_[^/]+\.|(_test|_spec|\.test|\.spec)\.",
+        relative,
+        re.IGNORECASE,
+    ))
 
 
 def contains_identifier(text: str, term: str) -> bool:

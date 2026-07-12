@@ -502,6 +502,12 @@ buildThing() { return 1; }
         ):
             self.assertIn(expected, symbols)
 
+    def test_root_level_pytest_and_spec_files_are_tests(self):
+        self.assertTrue(night_shift.is_test_path("test_app.py"))
+        self.assertTrue(night_shift.is_test_path("spec_app.rb"))
+        self.assertTrue(night_shift.is_test_path("src/test_app.py"))
+        self.assertFalse(night_shift.is_test_path("contest_app.py"))
+
     def test_coverage_check_uses_tracked_tests_beyond_display_cap(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
