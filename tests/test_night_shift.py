@@ -2038,6 +2038,56 @@ buildThing() { return 1; }
             )
             self.assertIn("CORRECTION: first line must be", prompts[0])
 
+    def test_patch_worker_can_use_mac_local_lane(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            calls = []
+
+            def fake_run(args, **kwargs):
+                if args[:2] == ["git", "show"]:
+                    return night_shift.CmdResult("git show", 0, "value = 1\n", "")
+                calls.append((args, kwargs["env"]))
+                return night_shift.CmdResult("worker", 0, "", "")
+
+            night_shift.DraftEngine(fake_run, Path(tmp) / "worktrees", lambda: "now").ask_for_patch(
+                repo, "HEAD", {"summary": "fix", "evidence": "app.py:1", "files": ["app.py"]},
+                ("true",), 10, "http://localhost:1234/v1", "local-coder", Path(tmp), "task",
+                patch_lane="local",
+            )
+            self.assertEqual(calls[0][0][1], "local")
+            self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MODEL"], "local-coder")
+
+    def test_isolated_draft_falls_back_to_mac_when_windows_is_absent(self):
+        original_profile = night_shift.load_repo_profile
+        original_sandbox = night_shift.detect_sandbox
+        original_engine = night_shift.draft_engine
+        captured = {}
+        profile = SimpleNamespace(may_execute=True, commands=(("true",),))
+
+        class FakeEngine:
+            def run_draft(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return {"status": "PROVEN_REPAIR"}
+
+        try:
+            night_shift.load_repo_profile = lambda _repo: (profile, "loaded")
+            night_shift.detect_sandbox = lambda _run: SimpleNamespace(available=True, detail="ready")
+            night_shift.draft_engine = lambda: FakeEngine()
+            result = night_shift.run_isolated_draft(
+                Path("/tmp/repo"), "owner/repo", {"files": ["app.py"]}, Path("/tmp/ledger"), 60,
+                "http://localhost:1234/v1", "mac-coder", "", "windows-coder",
+            )
+            self.assertEqual(result["status"], "PROVEN_REPAIR")
+            self.assertEqual(captured["args"][5:7], ("http://localhost:1234/v1", "mac-coder"))
+            self.assertEqual(captured["kwargs"]["patch_lane"], "local")
+        finally:
+            night_shift.load_repo_profile = original_profile
+            night_shift.detect_sandbox = original_sandbox
+            night_shift.draft_engine = original_engine
+
     def test_patch_correction_allows_any_approved_file(self):
         correction = __import__("night_shift_drafts").patch_format_correction(
             ["src/first.py", "src/actual.py"]
