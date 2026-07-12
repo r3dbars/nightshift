@@ -2541,6 +2541,27 @@ def token_totals_by_lane(results: list[dict]) -> dict[str, dict[str, int]]:
     return totals
 
 
+def correction_prompt(
+    prompt: str,
+    reasons: list[str],
+    candidate_files: list[str] | None = None,
+    evidence_sources: dict[str, str] | None = None,
+) -> str:
+    allowed_paths = list(dict.fromkeys((candidate_files or []) + list((evidence_sources or {}).keys())))
+    path_lines = "\n".join(f"- {path}" for path in allowed_paths) or "- None"
+    correction = "; ".join(reasons) or "the response did not follow the schema"
+    return (
+        prompt
+        + "\n\nCORRECTION PASS: Your previous answer was rejected because: "
+        + correction
+        + ". Return the complete requested schema once. Use only supplied evidence; reject the task if evidence is insufficient.\n"
+        + "Every EVIDENCE entry must use `path:line | exact source line`. Copy a path below character-for-character; "
+        + "never invent a path, alter punctuation, or write `path:none`. Do not add prose-only evidence bullets.\n"
+        + "Allowed evidence paths:\n"
+        + path_lines
+    )
+
+
 def dispatch_one(
     lane: str,
     label: str,
@@ -2614,13 +2635,7 @@ def dispatch_one(
         and action_type(first["res"].stdout) != "reject"
         and not UNSAFE_APPROVAL_RE.search(first["res"].stdout)
     ):
-        correction = "; ".join(reasons) or "the response did not follow the schema"
-        retry_prompt = (
-            prompt
-            + "\n\nCORRECTION PASS: Your previous answer was rejected because: "
-            + correction
-            + ". Return the complete requested schema once. Use only supplied evidence; reject the task if evidence is insufficient."
-        )
+        retry_prompt = correction_prompt(prompt, reasons, candidate_files, evidence_sources)
         attempts.append(run_attempt(2, retry_prompt))
 
     rank = {"REJECT": 0, "MAYBE": 1, "KEEP": 2}

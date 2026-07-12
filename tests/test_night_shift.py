@@ -172,6 +172,19 @@ CONFIDENCE: high
                 "MAYBE",
             )
 
+    def test_correction_prompt_lists_exact_evidence_paths(self):
+        prompt = night_shift.correction_prompt(
+            "Inspect the gap.",
+            ["evidence path was not supplied to the worker"],
+            ["bin/night_shift_drafts.py", "tests/test_night_shift.py"],
+            {"coverage-index/bin-night_shift_drafts.py-select_candidate.txt": "identifier_matches=0"},
+        )
+        self.assertIn("Copy a path below character-for-character", prompt)
+        self.assertIn("never invent a path, alter punctuation, or write `path:none`", prompt)
+        self.assertIn("- bin/night_shift_drafts.py", prompt)
+        self.assertIn("- tests/test_night_shift.py", prompt)
+        self.assertIn("- coverage-index/bin-night_shift_drafts.py-select_candidate.txt", prompt)
+
     def test_old_observed_fact_evidence_format_is_rejected(self):
         output = """CLAIM: A grounded-looking claim
 EVIDENCE: app.py:2 - an interpretation rather than an exact quote
