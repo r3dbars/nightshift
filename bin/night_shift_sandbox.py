@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,11 +75,11 @@ def detect_sandbox(run_cmd: Callable) -> SandboxStatus:
             else:
                 detail = f"Podman machine '{name}' is stopped; run `podman machine start {name}`"
             return SandboxStatus(False, detail + "; execution is disabled", "podman")
-        return SandboxStatus(
-            False,
-            "Podman is installed but no machine is ready; run `podman machine init --now`; execution is disabled",
-            "podman",
-        )
+        if platform.system() == "Darwin":
+            detail = "Podman is installed but no machine is ready; run `podman machine init --now`"
+        else:
+            detail = "Podman is installed but its rootless engine is unreachable; start the user Podman service"
+        return SandboxStatus(False, detail + "; execution is disabled", "podman")
     return SandboxStatus(False, "No supported container runtime is installed; execution is disabled")
 
 

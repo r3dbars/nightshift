@@ -1636,14 +1636,33 @@ buildThing() { return 1; }
     def test_podman_without_machine_gets_init_command(self):
         sandbox = __import__("night_shift_sandbox")
         original_which = sandbox.shutil.which
+        original_system = sandbox.platform.system
         try:
             sandbox.shutil.which = lambda name: "/usr/local/bin/podman" if name == "podman" else None
+            sandbox.platform.system = lambda: "Darwin"
             status = sandbox.detect_sandbox(
                 lambda args, **kwargs: night_shift.CmdResult("podman", 125, "[]" if "machine" in args else "", "")
             )
             self.assertIn("`podman machine init --now`", status.detail)
         finally:
             sandbox.shutil.which = original_which
+            sandbox.platform.system = original_system
+
+    def test_linux_podman_failure_does_not_suggest_machine_init(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_which = sandbox.shutil.which
+        original_system = sandbox.platform.system
+        try:
+            sandbox.shutil.which = lambda name: "/usr/bin/podman" if name == "podman" else None
+            sandbox.platform.system = lambda: "Linux"
+            status = sandbox.detect_sandbox(
+                lambda args, **kwargs: night_shift.CmdResult("podman", 125, "[]" if "machine" in args else "", "")
+            )
+            self.assertIn("rootless engine is unreachable", status.detail)
+            self.assertNotIn("machine init", status.detail)
+        finally:
+            sandbox.shutil.which = original_which
+            sandbox.platform.system = original_system
 
     def test_runner_build_returns_immutable_local_image_id(self):
         sandbox = __import__("night_shift_sandbox")
