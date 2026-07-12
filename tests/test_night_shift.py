@@ -414,6 +414,25 @@ CONFIDENCE: high
             )
             self.assertEqual(score, "MAYBE")
 
+    def test_large_test_excerpt_follows_candidate_source_symbols(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            (repo / "app.py").write_text("def calculate_total():\n    return 42\n", encoding="utf-8")
+            tests = repo / "tests"
+            tests.mkdir()
+            lines = [f"# filler {index}" for index in range(240)]
+            lines.extend(["def test_calculate_total():", "    assert calculate_total() == 42"])
+            (tests / "test_app.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
+            task = {"files": ["app.py", "tests/test_app.py"]}
+            pack = night_shift.task_evidence_pack(repo, task, "base", max_files=2)
+            self.assertIn("  241 | def test_calculate_total():", pack)
+            self.assertIn("  242 |     assert calculate_total() == 42", pack)
+
     def test_failed_ci_queue_starts_with_newest_run(self):
         scan = {
             "recent_files": ["app.py"],
