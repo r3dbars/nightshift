@@ -49,10 +49,12 @@ if [[ -z "$prompt" ]]; then
   exit 2
 fi
 
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+
 case "$lane" in
-  local) command_path="${MAESTRO_LOCAL_CMD:-$HOME/.codex/bin/maestro-local}" ;;
-  windows) command_path="${MAESTRO_WINDOWS_CMD:-$HOME/.codex/bin/maestro-windows}" ;;
-  claude) command_path="${MAESTRO_CLAUDE_CMD:-$HOME/.codex/bin/maestro-claude}" ;;
+  local) command_path="${MAESTRO_LOCAL_CMD:-$codex_home/bin/maestro-local}" ;;
+  windows) command_path="${MAESTRO_WINDOWS_CMD:-$codex_home/bin/maestro-windows}" ;;
+  claude) command_path="${MAESTRO_CLAUDE_CMD:-$codex_home/bin/maestro-claude}" ;;
   *)
     echo "unknown lane: $lane" >&2
     usage
@@ -71,7 +73,7 @@ if [[ -z "$safe_label" ]]; then
 fi
 
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
-run_dir="$HOME/.codex/maestro/runs/${ts}-${safe_label}-${lane}"
+run_dir="$codex_home/maestro/runs/${ts}-${safe_label}-${lane}"
 mkdir -p "$run_dir"
 
 prompt_hash="$(printf '%s' "$prompt" | shasum -a 256 | awk '{print $1}')"
@@ -104,6 +106,7 @@ PY
 
 python3 - "$run_dir" "$lane" "$label" "$command_path" "$prompt_hash" "$prompt_bytes" "$prompt_tokens_estimate" "$rc" "$start_epoch" "$end_epoch" <<'PY'
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -137,7 +140,8 @@ meta = {
 }
 (run_dir / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-event_path = Path.home() / ".codex" / "maestro-sidecar" / "events.jsonl"
+codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+event_path = codex_home / "maestro-sidecar" / "events.jsonl"
 event_path.parent.mkdir(parents=True, exist_ok=True)
 event = {
     "ts": meta["ts"],

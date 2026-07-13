@@ -29,7 +29,8 @@ def run(argv: list[str], cwd: Path | None = None) -> None:
 
 def main() -> int:
     corpus = json.loads((ROOT / "tests" / "fixtures" / "prompt-injection-corpus.json").read_text())
-    delegate = Path.home() / ".codex" / "bin" / "maestro-delegate"
+    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+    delegate = codex_home / "bin" / "maestro-delegate"
     if not delegate.exists():
         print(f"PROMPT_INJECTION_PROOF: RED | missing {delegate}")
         return 1

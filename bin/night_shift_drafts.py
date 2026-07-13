@@ -339,7 +339,8 @@ class DraftEngine:
         correction: str = "",
         patch_lane: str = "windows",
     ):
-        delegate = shutil.which("maestro-delegate") or str(Path.home() / ".codex" / "bin" / "maestro-delegate")
+        codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+        delegate = shutil.which("maestro-delegate") or str(codex_home / "bin" / "maestro-delegate")
         context_files = candidate.get("context_files") or candidate["files"]
         source = self.source_excerpt(repo, source_ref, context_files)
         prompt = patch_prompt(candidate, source, command)

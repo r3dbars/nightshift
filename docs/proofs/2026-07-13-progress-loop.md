@@ -59,6 +59,11 @@ run evidence separate from model claims and from human/manual proof.
 - The live LAN discovery proof found the real private Windows Ollama worker at
   `192.168.7.201:11434` and selected `qwen3-coder:30b-32k`; no repo context was
   sent. Proof: `docs/proofs/2026-07-13-lan-discovery.md`.
+- The custom `CODEX_HOME` wrapper proof now passes when `HOME` points
+  elsewhere. A fresh mixed-TypeScript BetterFeedback clone then completed
+  three local calls and produced exact grounded candidates, but correctly
+  rejected them because dependencies were not installed. Proof:
+  `docs/proofs/2026-07-13-custom-codex-home.md`.
 
 ## Remaining Proof Gaps
 
