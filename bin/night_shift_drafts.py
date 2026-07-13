@@ -235,9 +235,9 @@ class DraftEngine:
             if shown.rc == 0:
                 text = shown.stdout
                 if is_test_path(path) and len(text) > 10_000:
-                    text = text[:3500] + "\n# ... pinned middle omitted ...\n" + text[-6500:]
+                    text = text[:2000] + "\n# ... pinned middle omitted ...\n" + text[-4000:]
                 else:
-                    text = text[:10_000]
+                    text = text[:6000]
                 sections.append(f"## {path}\n{text}")
         return "\n\n".join(sections)
 
@@ -264,11 +264,11 @@ class DraftEngine:
         if patch_lane == "local":
             env["MAESTRO_LOCAL_BASE_URL"] = worker_url.rstrip("/")
             env["MAESTRO_LOCAL_MODEL"] = worker_model
-            env["MAESTRO_LOCAL_MAX_TOKENS"] = "8192"
+            env["MAESTRO_LOCAL_MAX_TOKENS"] = "4096"
         else:
             env["WINDOWS_WORKER_BASE_URL"] = worker_url.rstrip("/")
             env["WINDOWS_WORKER_MODEL"] = worker_model
-            env["MAESTRO_WINDOWS_MAX_TOKENS"] = "8192"
+            env["MAESTRO_WINDOWS_MAX_TOKENS"] = "4096"
         return self.run_cmd(
             [delegate, patch_lane, "--label", f"{safe_task}-patch", "--", prompt],
             cwd=repo,

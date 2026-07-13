@@ -2900,7 +2900,7 @@ buildThing() { return 1; }
             )
             self.assertEqual(calls[0][0][1], "local")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MODEL"], "local-coder")
-            self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MAX_TOKENS"], "8192")
+            self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MAX_TOKENS"], "4096")
 
     def test_test_source_excerpt_includes_pinned_imports_and_tail_anchor(self):
         class Result:
