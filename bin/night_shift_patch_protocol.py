@@ -41,7 +41,10 @@ def extract_unified_diff(output: str) -> str:
     return patch + "\n"
 
 
-def materialize_test_method_patch(output: str, original: str, relative: str) -> str:
+def materialize_test_method_patch(
+    output: str, original: str, relative: str,
+    allowed_import_modules: set[str] | None = None,
+) -> str:
     added = [line[1:] for line in output.splitlines() if line.startswith("+") and not line.startswith("+++")]
     start = next((index for index, line in enumerate(added) if re.match(r"^    def test_[A-Za-z0-9_]+\(self[^)]*\):$", line)), None)
     if start is None:
@@ -49,7 +52,7 @@ def materialize_test_method_patch(output: str, original: str, relative: str) -> 
     method = added[start:]
     while method and not method[-1].strip():
         method.pop()
-    if not method or len(method) > 80 or any(re.match(r"^\s*(?:from\s+\S+\s+)?import\s+", line) for line in method):
+    if not method or len(method) > 80:
         return ""
     try:
         tree = ast.parse("class _Generated:\n" + "\n".join(method) + "\n")
@@ -58,6 +61,34 @@ def materialize_test_method_patch(output: str, original: str, relative: str) -> 
     body = tree.body[0].body if tree.body and isinstance(tree.body[0], ast.ClassDef) else []
     if len(body) != 1 or not isinstance(body[0], ast.FunctionDef) or not body[0].name.startswith("test_"):
         return ""
+    allowed = set(allowed_import_modules or ())
+    dynamic_names = {
+        "__builtins__", "__import__", "builtins", "compile", "eval", "exec",
+        "getattr", "globals", "locals", "vars",
+    }
+    for node in ast.walk(body[0]):
+        if isinstance(node, ast.Name) and node.id in dynamic_names:
+            return ""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in dynamic_names:
+            return ""
+        if isinstance(node, ast.Import):
+            return ""
+        if isinstance(node, ast.ImportFrom) and (
+            node.level != 0
+            or node.module not in allowed
+            or any(alias.name == "*" for alias in node.names)
+        ):
+            return ""
+        if isinstance(node, ast.Call):
+            function = node.func
+            if isinstance(function, ast.Name) and function.id in {
+                "__import__", "compile", "eval", "exec"
+            }:
+                return ""
+            if isinstance(function, ast.Attribute) and function.attr in {
+                "__import__", "import_module"
+            }:
+                return ""
     marker = original.rfind('\nif __name__ == "__main__":')
     if marker < 0:
         return ""

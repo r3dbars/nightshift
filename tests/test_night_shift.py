@@ -69,6 +69,38 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn("+    def test_cleanup(self):", patch)
         self.assertIn(' if __name__ == "__main__":', patch)
         self.assertEqual(materialize_test_method_patch("+import os\n", original, "tests/test_app.py"), "")
+        internal = worker.replace(
+            "+    def test_cleanup(self):\n",
+            "+    def test_cleanup(self):\n+        from drafts import DraftEngine\n",
+        )
+        self.assertTrue(materialize_test_method_patch(
+            internal, original, "tests/test_app.py", {"drafts"}
+        ))
+        self.assertEqual(materialize_test_method_patch(
+            internal.replace("from drafts", "from unrelated"),
+            original, "tests/test_app.py", {"drafts"},
+        ), "")
+        dynamic = worker.replace(
+            "+        engine = DraftEngine()\n",
+            "+        engine = __import__('os').system('echo unsafe')\n",
+        )
+        self.assertEqual(materialize_test_method_patch(
+            dynamic, original, "tests/test_app.py", {"drafts"}
+        ), "")
+        aliased_dynamic = worker.replace(
+            "+        engine = DraftEngine()\n",
+            "+        imp = __import__\n+        engine = imp('os')\n",
+        )
+        self.assertEqual(materialize_test_method_patch(
+            aliased_dynamic, original, "tests/test_app.py", {"drafts"}
+        ), "")
+        reflected_dynamic = worker.replace(
+            "+        engine = DraftEngine()\n",
+            "+        engine = getattr(__builtins__, '__import__')('os')\n",
+        )
+        self.assertEqual(materialize_test_method_patch(
+            reflected_dynamic, original, "tests/test_app.py", {"drafts"}
+        ), "")
 
     def test_patch_prompt_turns_semantic_contract_into_operational_guidance(self):
         prompt = __import__("night_shift_patch_protocol").patch_prompt({
