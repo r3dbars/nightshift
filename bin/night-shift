@@ -78,6 +78,15 @@ from night_shift_setup import (
 )
 from night_shift_setup import mode_counts as setup_mode_counts
 from night_shift_setup import start_preview as setup_start_preview
+from night_shift_lifecycle import (
+    cancel_pending_workers,
+    cleanup_candidates,
+    deadline_reached,
+    directory_size,
+    stop_deadline,
+    stop_recorded_processes,
+)
+from night_shift_lifecycle import active_autopilot as _active_autopilot
 from night_shift_evidence import (
     FORBIDDEN_ACTION_RE,
     UNSAFE_APPROVAL_RE,
@@ -131,20 +140,6 @@ AUTOPILOT_DEFAULTS = {
 
 REJECTION_BUDGET = {"quiet": 2, "night-shift": 4, "afterburner": 6}
 
-
-def stop_deadline(stop_after: str | None) -> float | None:
-    seconds = STOP_SECONDS.get(stop_after) if stop_after else None
-    return time.time() + seconds if seconds is not None else None
-
-
-def deadline_reached(deadline: float | None, stop_file: Path | None = None) -> bool:
-    reached = deadline is not None and time.time() >= deadline
-    if reached and stop_file and not stop_file.exists():
-        stop_file.write_text(
-            f"automatic stop limit reached at {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n",
-            encoding="utf-8",
-        )
-    return reached
 
 MODE_DEFAULTS = {
     "quiet": {
@@ -1704,38 +1699,6 @@ def dispatch_one(
     )
 
 
-def stop_recorded_processes(ledger: Path, force: bool = False) -> tuple[int, int]:
-    process_file = ledger / "processes.tsv"
-    if not process_file.exists():
-        return 0, 0
-    stopped = 0
-    missing = 0
-    for line in process_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        parts = line.split("\t", 2)
-        if not parts or not parts[0].isdigit():
-            continue
-        pid = int(parts[0])
-        try:
-            os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
-            stopped += 1
-        except ProcessLookupError:
-            missing += 1
-        except PermissionError:
-            missing += 1
-    return stopped, missing
-
-
-def cancel_pending_workers(ledger: Path, pending) -> None:
-    stopped, _ = stop_recorded_processes(ledger)
-    if stopped:
-        time.sleep(0.25)
-        stop_recorded_processes(ledger, force=True)
-    for future in pending:
-        future.cancel()
-    if pending:
-        concurrent.futures.wait(list(pending), timeout=2)
-
-
 def write_harvest(ledger: Path, results: list[dict]) -> None:
     report_engine().write_harvest(ledger, results)
 
@@ -1787,46 +1750,8 @@ def command_doctor(args) -> int:
     return 0
 
 
-def directory_size(path: Path) -> int:
-    total = 0
-    try:
-        for item in path.rglob("*"):
-            if item.is_file():
-                total += item.stat().st_size
-    except OSError:
-        pass
-    return total
-
-
-def cleanup_candidates(root: Path, days: int, now: float | None = None) -> list[Path]:
-    """Only completed, reviewed Night Shift ledgers may be reclaimed."""
-    if not root.exists():
-        return []
-    threshold = (time.time() if now is None else now) - days * 24 * 3600
-    candidates = []
-    for path in root.iterdir():
-        if not path.is_dir() or not path.name.startswith("night-shift-"):
-            continue
-        if not (path / "morning.md").exists() or not (path / "REVIEWED").exists():
-            continue
-        try:
-            if path.stat().st_mtime < threshold:
-                candidates.append(path)
-        except OSError:
-            continue
-    return sorted(candidates, key=lambda path: path.stat().st_mtime)
-
-
 def active_autopilot() -> dict:
-    try:
-        active = parse_json_text(AUTOPILOT_STATE_PATH.read_text(encoding="utf-8"), {})
-    except OSError:
-        return {}
-    try:
-        os.kill(int(active.get("pid", 0)), 0)
-        return active
-    except (OSError, ValueError, TypeError):
-        return {}
+    return _active_autopilot(AUTOPILOT_STATE_PATH)
 
 
 def command_health(args) -> int:
