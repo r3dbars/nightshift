@@ -29,6 +29,8 @@ run evidence separate from model claims and from human/manual proof.
   the exact head merged into `main`.
 - PR #154 merged the Swift-capable multi-architecture runner after both hosted
   Ubuntu and macOS package gates passed.
+- PR #155 merged the friendlier rejected-suggestion explanation after hosted
+  Ubuntu and macOS package gates passed.
 
 ## Live Evidence
 
@@ -120,6 +122,10 @@ run evidence separate from model claims and from human/manual proof.
   failing when captured, so it remains unmerged and does not count as a green
   hosted outcome. Proof:
   `docs/proofs/2026-07-13-windows-draft-pr.md`.
+- A fresh Astro/Node portfolio run rejected a worker's false missing-export
+  claim after the pinned source and `npm run check` disproved it. No patch or
+  PR was created, and the morning brief now explains the rejection reason.
+  Proof: `docs/proofs/2026-07-13-rejected-false-positive.md`.
 - PR #151 now strips the exact bundled-worker `MAESTRO_PROOF` footer before
   validating a returned diff. PR #152 filters non-draftable side-effecting
   TypeScript test gaps before model calls. PR #153 safely materializes one
