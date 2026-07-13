@@ -500,7 +500,7 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
         semantic_guidance.append(
             f"Record calls and assert {first} occurs before {second} using separate ordered assertions."
         )
-    if candidate.get("draft_intent") == "test-strengthening":
+    if candidate.get("draft_intent") in {"test-strengthening", "explicit-test-mission"}:
         if is_typescript:
             edit_policy = (
                 "You may modify only one existing allowed TypeScript or JavaScript TEST file. Add exactly one focused "
