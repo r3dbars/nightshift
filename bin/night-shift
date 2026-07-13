@@ -32,7 +32,14 @@ from night_shift_portfolio import PortfolioEngine, parse_json_text
 from night_shift_drafts import DraftEngine, draft_proof_status, remaining_draft_timeout
 from night_shift_publish import PublishEngine
 from night_shift_policy import PROFILE_NAME, PROTECTED_PATHS, command_display, parse_repo_profile, validate_command
-from night_shift_sandbox import build_runner_image, detect_sandbox, sandbox_command
+from night_shift_sandbox import (
+    build_runner_image,
+    dependency_cache_path,
+    dependency_source_for_repo,
+    detect_sandbox,
+    prepare_node_dependencies,
+    sandbox_command,
+)
 from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
@@ -116,6 +123,7 @@ OVERNIGHT_ROOT = CODEX_HOME / "maestro" / "overnight"
 CONFIG_DIR = CODEX_HOME / "night-shift"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 REPO_APPROVALS_ROOT = CONFIG_DIR / "repo-approvals"
+DEPENDENCY_CACHE_ROOT = CONFIG_DIR / "dependency-cache"
 FEEDBACK_PATH = CONFIG_DIR / "feedback.jsonl"
 REVIEW_OUTCOMES_PATH = CONFIG_DIR / "review-outcomes.jsonl"
 TASK_HISTORY_PATH = CONFIG_DIR / "task-history.jsonl"
@@ -518,6 +526,16 @@ def remote_advertises_current_revision(repo: Path, remote: str) -> bool:
 
 def load_repo_profile(repo: Path):
     return load_effective_profile(repo, REPO_APPROVALS_ROOT, repo_remote, remote_advertises_current_revision)
+
+
+def repo_dependency_source(repo: Path, profile) -> Path | None:
+    """Use a runner-native external cache when one was prepared for this approval."""
+    return dependency_source_for_repo(
+        repo,
+        DEPENDENCY_CACHE_ROOT,
+        str(getattr(profile, "approved_remote", "")),
+        str(getattr(profile, "image", "")),
+    )
 
 
 PORTFOLIO = PortfolioEngine(
@@ -2052,6 +2070,7 @@ def verification_preflight(result: CmdResult, command: tuple[str, ...] = ()) -> 
         "command not found",
         "executable file not found",
         "cannot stat '/source/.'",
+        "source mount is empty",
         "permission denied",
         "no such image",
     )
@@ -2155,8 +2174,24 @@ def command_trust_repo(args) -> int:
     if not parsed_profile:
         print(f"NIGHTSHIFT_TRUST_REPO: RED | generated approval is invalid: {profile_detail}")
         return 1
+    dependency_source = dependency_source_for_repo(
+        repo, DEPENDENCY_CACHE_ROOT, remote, image,
+    )
+    if dependency_source is None and (repo / "node_modules").is_dir():
+        dependency_source = repo / "node_modules"
+    if getattr(args, "prepare_dependencies", False):
+        cache_dir = dependency_cache_path(DEPENDENCY_CACHE_ROOT, remote, image, repo / "package-lock.json")
+        prepared, dependency_detail = prepare_node_dependencies(
+            repo, cache_dir, remote, image, run_cmd,
+        )
+        if not prepared:
+            print(f"NIGHTSHIFT_TRUST_REPO: YELLOW | runner-native dependency setup failed: {dependency_detail}")
+            print("Nothing was saved. Night Shift stays analysis-only for this repo.")
+            return 1
+        dependency_source = cache_dir / "node_modules"
+        print(f"- Runner-native dependencies: prepared at {dependency_source}")
     preflight = run_cmd(
-        sandbox_command(repo, tuple(commands[0]), parsed_profile),
+        sandbox_command(repo, tuple(commands[0]), parsed_profile, dependency_source),
         cwd=repo,
         timeout=parsed_profile.max_seconds,
     )
@@ -2730,6 +2765,7 @@ def run_isolated_draft(
         stop_file,
         profile=profile,
         patch_lane=patch_lane,
+        dependency_source=repo_dependency_source(repo, profile),
     )
 
 
@@ -2976,7 +3012,8 @@ def command_autopilot(args) -> int:
                             if profile and proof_path.parent.exists():
                                 publish_dir = proof_path.parent / f"{proof_path.stem}-publish"
                                 publish = publish_engine().publish(
-                                    checkout, cycle_row["repo"], draft, profile, publish_dir
+                                    checkout, cycle_row["repo"], draft, profile, publish_dir,
+                                    repo_dependency_source(checkout, profile),
                                 )
                                 controller.attach_publish(cycle_row, publish)
                     else:
@@ -4112,6 +4149,11 @@ def build_parser() -> argparse.ArgumentParser:
     trust_repo.add_argument("--repo", required=True, help="owned GitHub repo to approve")
     trust_repo.add_argument("--apply", action="store_true", help="save approval after review; preview only by default")
     trust_repo.add_argument("--yes", action="store_true", help="confirm non-interactively when --apply is supplied")
+    trust_repo.add_argument(
+        "--prepare-dependencies",
+        action="store_true",
+        help="prepare runner-native npm dependencies in a disposable networked container before verification",
+    )
     trust_repo.set_defaults(func=command_trust_repo)
 
     plan = sub.add_parser(

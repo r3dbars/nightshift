@@ -130,6 +130,7 @@ class PublishEngine:
         proof: dict,
         profile: RepoProfile,
         proof_dir: Path,
+        dependency_source: Path | None = None,
     ) -> dict:
         proof_dir.mkdir(parents=True, exist_ok=True)
         result_path = proof_dir / "publish.json"
@@ -222,7 +223,7 @@ class PublishEngine:
             if set(paths) != set(validated.paths):
                 return finish({"status": "REJECT", "reason": "fresh worktree changed a different file set"})
             verified = self.run_cmd(
-                sandbox_command(worktree, verification_argv, profile),
+                sandbox_command(worktree, verification_argv, profile, dependency_source or repo / "node_modules"),
                 cwd=worktree,
                 timeout=profile.max_seconds,
             )
