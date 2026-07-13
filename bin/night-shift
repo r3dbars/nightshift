@@ -161,6 +161,18 @@ def runtime_tool(name: str) -> Path:
         return bundled
     return installed
 
+
+def shared_worktree_root() -> Path:
+    """Keep disposable worktrees on a macOS path that Colima can mount."""
+    root = WORKTREE_ROOT
+    if platform.system() != "Darwin" or str(root).startswith("/Users/"):
+        return root
+    user = os.environ.get("USER", "")
+    real_home = Path("/Users") / user if user else Path()
+    if user and real_home.is_dir():
+        return real_home / ".codex" / "night-shift" / "worktrees"
+    return root
+
 AUTOPILOT_DEFAULTS = {
     "quiet": {"repo_limit": 1, "task_limit": 8, "poll_minutes": 60},
     "night-shift": {"repo_limit": 3, "task_limit": 24, "poll_minutes": 30},
@@ -2722,11 +2734,12 @@ AUTOPILOT_STATE_PATH = CONFIG_DIR / "active-autopilot.json"
 
 def draft_engine() -> DraftEngine:
     DRAFTS.run_cmd = run_cmd
+    DRAFTS.worktree_root = shared_worktree_root()
     return DRAFTS
 
 
 def publish_engine() -> PublishEngine:
-    return PublishEngine(run_cmd, WORKTREE_ROOT / "publish", now_stamp)
+    return PublishEngine(run_cmd, shared_worktree_root() / "publish", now_stamp)
 
 
 def select_draft_candidate(child_ledger: Path, repo: Path) -> dict | None:
