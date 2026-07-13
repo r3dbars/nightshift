@@ -49,7 +49,7 @@ from night_shift_selection import (
     task_selection_priority,
     unchecked_issue_actions,
 )
-from night_shift_queue import QueueEvidenceIndex, contains_identifier, is_test_path
+from night_shift_queue import QueueEvidenceIndex, RepoRevisionAdapter, contains_identifier, is_test_path
 from night_shift_setup import (
     autonomy_copy,
     detected_tools,
@@ -1391,59 +1391,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
     read_current_text = evidence_index.read_current_text
     issue_candidate_files = evidence_index.issue_candidate_files
     coverage_gaps = evidence_index.coverage_gaps(recent_source)
-
-    def file_exists_at_ref(relative: str, ref: str) -> bool:
-        if not repo or not ref or not relative or relative.startswith(("/", ".git/")):
-            return False
-        result = run_cmd(["git", "cat-file", "-e", f"{ref}:{relative}"], cwd=repo, timeout=20)
-        return result.rc == 0
-
-    def ensure_pr_ref(number: str, ref: str) -> bool:
-        if not repo or not ref or not re.fullmatch(r"[0-9a-fA-F]{40}", ref):
-            return False
-        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
-        if available.rc == 0:
-            return True
-        if not str(number).isdigit():
-            return False
-        fetched = run_cmd(
-            ["git", "fetch", "--quiet", "--no-tags", "origin", f"refs/pull/{number}/head"],
-            cwd=repo,
-            timeout=120,
-        )
-        if fetched.rc != 0:
-            return False
-        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
-        return available.rc == 0
-
-    def ensure_remote_branch_ref(branch: str, ref: str) -> bool:
-        if not repo or not ref or not re.fullmatch(r"[0-9a-fA-F]{40}", ref):
-            return False
-        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
-        if available.rc == 0:
-            return True
-        if not branch or branch.startswith("-") or ".." in branch or not re.fullmatch(r"[A-Za-z0-9._/-]+", branch):
-            return False
-        fetched = run_cmd(
-            ["git", "fetch", "--quiet", "--no-tags", "origin", f"refs/heads/{branch}"],
-            cwd=repo,
-            timeout=120,
-        )
-        if fetched.rc != 0:
-            return False
-        available = run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=repo, timeout=20)
-        return available.rc == 0
-
-    def log_paths(log_text: str) -> list[str]:
-        found = re.findall(
-            r"(?<![A-Za-z0-9_.@+-])((?:[A-Za-z0-9_.@+-]+/)+[A-Za-z0-9_.@+-]+\.[A-Za-z0-9]+)",
-            log_text,
-        )
-        suffixes: list[str] = []
-        for value in found:
-            parts = value.lstrip("/").split("/")
-            suffixes.extend("/".join(parts[index:]) for index in range(len(parts)))
-        return list(dict.fromkeys(suffixes))
+    revisions = RepoRevisionAdapter(repo, run_cmd)
     todo_files = []
     for line in todos:
         match = re.match(r"^(.+?):\d+:", line)
@@ -1515,21 +1463,21 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         )
         if source_ref and repo:
             if matching_pr.get("number"):
-                ensure_pr_ref(str(matching_pr["number"]), source_ref)
+                revisions.ensure_pr_ref(str(matching_pr["number"]), source_ref)
             else:
-                ensure_remote_branch_ref(str(run.get("headBranch") or ""), source_ref)
+                revisions.ensure_branch_ref(str(run.get("headBranch") or ""), source_ref)
         pr_files = [row.get("path", "") for row in matching_pr.get("files") or [] if row.get("path")]
-        signal_files = [path for path in log_paths(log_text) if file_exists_at_ref(path, source_ref)][:8]
+        signal_files = [path for path in revisions.log_paths(log_text) if revisions.file_exists(path, source_ref)][:8]
         workflow_files = [path for path in scan.get("tracked_files") or [] if path.startswith(".github/workflows/")][:4]
         candidate_files = list(dict.fromkeys(signal_files + pr_files + workflow_files + recent[:8]))
         if source_ref:
-            candidate_files = [path for path in candidate_files if file_exists_at_ref(path, source_ref)]
+            candidate_files = [path for path in candidate_files if revisions.file_exists(path, source_ref)]
         candidate_files = candidate_files[:32]
         branch_commands = test_commands
         if repo and source_ref:
-            ref_files = run_cmd(["git", "ls-tree", "-r", "--name-only", source_ref], cwd=repo, timeout=60)
-            if ref_files.rc == 0:
-                branch_commands = detect_test_commands(repo, ref_files.stdout.splitlines(), source_ref) or test_commands
+            ref_files = revisions.list_files(source_ref)
+            if ref_files is not None:
+                branch_commands = detect_test_commands(repo, ref_files, source_ref) or test_commands
         add(
             f"failed-ci-{database_id}",
             "tests",
@@ -1572,8 +1520,8 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         number = pr.get("number") or "unknown"
         pr_files = [row.get("path", "") for row in pr.get("files") or [] if row.get("path")]
         pr_source_ref = str(pr.get("headRefOid") or "")
-        if pr_source_ref and ensure_pr_ref(str(number), pr_source_ref):
-            pr_files = [path for path in pr_files if file_exists_at_ref(path, pr_source_ref)]
+        if pr_source_ref and revisions.ensure_pr_ref(str(number), pr_source_ref):
+            pr_files = [path for path in pr_files if revisions.file_exists(path, pr_source_ref)]
         elif pr_source_ref:
             pr_files = []
             pr_source_ref = ""
