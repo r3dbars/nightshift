@@ -3959,6 +3959,36 @@ buildThing() { return 1; }
             "",
         )
 
+    def test_typescript_materializer_extracts_bounded_raw_worker_test(self):
+        original = (
+            "import { describe, expect, it } from 'vitest';\n\n"
+            "describe('metrics', () => {\n"
+            "  it('keeps existing behavior', () => { expect(true).toBe(true); });\n"
+            "});\n"
+        )
+        worker = (
+            "Here is the proposed test:\n"
+            "it('rounds a percent', () => {\n"
+            "  expect(formatPercent(12.5)).toBe('13%');\n"
+            "});\n"
+            "This is the only change needed.\n"
+        )
+
+        patch = materialize_ts_test_case_patch(
+            worker,
+            original,
+            "tests/metrics.test.ts",
+            "formatPercent",
+            "../app/analytics/analytics-metrics",
+        )
+
+        self.assertIn("+  it('rounds a percent', async () =>", patch)
+        self.assertIn(
+            "+    const { formatPercent } = await import('../app/analytics/analytics-metrics');",
+            patch,
+        )
+        self.assertNotIn("Here is the proposed test", patch)
+
     def test_typescript_evidence_and_pure_source_gate_are_conservative(self):
         self.assertEqual(
             js_symbol_call_count_text("expect(formatPercent(42)).toBe('42%');", "formatPercent"),
