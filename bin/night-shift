@@ -3008,7 +3008,7 @@ def command_autopilot(args) -> int:
                 controller.no_prepared_repositories()
                 break
             per_repo_limit = max(1, task_limit // len(prepared))
-            for item, checkout in prepared:
+            for portfolio_rank, (item, checkout) in enumerate(prepared, start=1):
                 if stop_file.exists() or deadline_reached(deadline, stop_file):
                     break
                 remaining_seconds = int(deadline - time.time()) if deadline else getattr(args, "timeout", 900)
@@ -3048,6 +3048,29 @@ def command_autopilot(args) -> int:
                     child_is_green=morning_status(child_morning) == "GREEN",
                     planned_count=len(planned),
                 )
+                signals = item.get("signals") or {}
+                if item.get("primary"):
+                    portfolio_reason = "your current project"
+                elif item.get("priority"):
+                    portfolio_reason = "saved priority"
+                elif signals.get("failed_runs"):
+                    portfolio_reason = "recent failing checks"
+                elif signals.get("prs") or signals.get("issues"):
+                    portfolio_reason = "active GitHub work"
+                else:
+                    portfolio_reason = "recent activity"
+                cycle_row.update({
+                    "portfolio_rank": portfolio_rank,
+                    "portfolio_score": int(item.get("score") or 0),
+                    "portfolio_primary": bool(item.get("primary")),
+                    "portfolio_priority": bool(item.get("priority")),
+                    "portfolio_reason": portfolio_reason,
+                    "portfolio_signals": {
+                        "failed_runs": len(signals.get("failed_runs") or []),
+                        "issues": len(signals.get("issues") or []),
+                        "prs": len(signals.get("prs") or []),
+                    },
+                })
                 if controller.may_draft(
                     cycle_row["repo"], getattr(args, "execute_drafts", False),
                     args.permission,
