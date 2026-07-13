@@ -2459,6 +2459,73 @@ buildThing() { return 1; }
             night_shift.detect_sandbox = original_sandbox
             night_shift.draft_engine = original_engine
 
+    def test_verification_preflight_distinguishes_tests_from_runner_failures(self):
+        passed = night_shift.CmdResult("verify", 0, "ok", "")
+        failing = night_shift.CmdResult("verify", 1, "1 test failed; secret=abcd1234", "")
+        unknown = night_shift.CmdResult("verify", 2, "unexpected runtime exit", "")
+        zero_failures = night_shift.CmdResult("verify", 1, "failures=0; runtime wrapper exited", "")
+        missing = night_shift.CmdResult("verify", 127, "", "xcodebuild: command not found")
+        mount = night_shift.CmdResult("verify", 1, "", "cp: cannot stat '/source/.': Permission denied")
+        self.assertEqual(night_shift.verification_preflight(passed)[0], "PASS")
+        self.assertEqual(night_shift.verification_preflight(failing)[0], "FAILING")
+        self.assertNotIn("abcd1234", night_shift.verification_preflight(failing)[1])
+        self.assertEqual(night_shift.verification_preflight(unknown)[0], "BLOCKED")
+        self.assertEqual(night_shift.verification_preflight(zero_failures)[0], "BLOCKED")
+        self.assertEqual(night_shift.verification_preflight(missing)[0], "BLOCKED")
+        self.assertEqual(night_shift.verification_preflight(mount)[0], "BLOCKED")
+
+    def test_trust_repo_preflight_controls_approval_save(self):
+        originals = {
+            name: getattr(night_shift, name)
+            for name in (
+                "require_git_repo", "repo_remote", "repo_slug", "run_cmd", "repo_signal_scan",
+                "build_runner_image", "save_approval", "load_repo_profile",
+            )
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            saved = []
+            preflight_result = night_shift.CmdResult("verify", 127, "", "tool: command not found")
+
+            def fake_run(args, **_kwargs):
+                if args[:3] == ["gh", "api", "user"]:
+                    return night_shift.CmdResult("gh", 0, "owner\n", "")
+                if args[:3] == ["gh", "repo", "view"]:
+                    return night_shift.CmdResult("gh", 0, "owner/repo\n", "")
+                return preflight_result
+
+            def fake_save(_root, _remote, _slug, _profile):
+                path = Path(tmp) / "approval.json"
+                path.write_text("saved", encoding="utf-8")
+                saved.append(path)
+                return path
+
+            try:
+                night_shift.require_git_repo = lambda _repo: repo
+                night_shift.repo_remote = lambda _repo: "git@github.com:owner/repo.git"
+                night_shift.repo_slug = lambda _repo: "owner/repo"
+                night_shift.run_cmd = fake_run
+                night_shift.repo_signal_scan = lambda _repo: {
+                    "test_commands": ["python3 -m unittest"],
+                    "source_files": ["src/app.py"], "test_files": ["tests/test_app.py"],
+                }
+                night_shift.build_runner_image = lambda _run: (True, "sha256:" + "a" * 64)
+                night_shift.save_approval = fake_save
+                night_shift.load_repo_profile = lambda _repo: (
+                    SimpleNamespace(may_execute=True), "external repo approval loaded"
+                )
+                args = SimpleNamespace(repo=str(repo), apply=True, yes=True)
+                self.assertEqual(night_shift.command_trust_repo(args), 1)
+                self.assertEqual(saved, [])
+
+                preflight_result = night_shift.CmdResult("verify", 1, "FAILED (failures=1)", "")
+                self.assertEqual(night_shift.command_trust_repo(args), 0)
+                self.assertEqual(len(saved), 1)
+            finally:
+                for name, value in originals.items():
+                    setattr(night_shift, name, value)
+
     def test_patch_correction_allows_any_approved_file(self):
         correction = __import__("night_shift_drafts").patch_format_correction(
             ["src/first.py", "src/actual.py"]

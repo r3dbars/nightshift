@@ -31,8 +31,8 @@ if str(SCRIPT_DIR) not in sys.path:
 from night_shift_portfolio import PortfolioEngine, parse_json_text
 from night_shift_drafts import DraftEngine, draft_proof_status, remaining_draft_timeout
 from night_shift_publish import PublishEngine
-from night_shift_policy import PROFILE_NAME, PROTECTED_PATHS, command_display, validate_command
-from night_shift_sandbox import build_runner_image, detect_sandbox
+from night_shift_policy import PROFILE_NAME, PROTECTED_PATHS, command_display, parse_repo_profile, validate_command
+from night_shift_sandbox import build_runner_image, detect_sandbox, sandbox_command
 from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import redact
@@ -2641,6 +2641,38 @@ def command_sandbox(args) -> int:
     return 0
 
 
+def verification_preflight(result: CmdResult, command: tuple[str, ...] = ()) -> tuple[str, str]:
+    output = (result.stdout + "\n" + result.stderr).strip()
+    low = output.lower()
+    infrastructure_markers = (
+        "command not found",
+        "executable file not found",
+        "cannot stat '/source/.'",
+        "permission denied",
+        "no such image",
+    )
+    if result.rc == 0:
+        return "PASS", "verification passed in the isolated runner"
+    detail = redact(output or f"runner exited {result.rc}")[:500]
+    if result.rc in {125, 126, 127, 137} or any(marker in low for marker in infrastructure_markers):
+        return "BLOCKED", detail
+    known_runner = bool(command) and (
+        command[0] in {"pytest", "cargo", "go", "swift", "npm", "pnpm", "yarn"}
+        or command[:3] == ("python3", "-m", "unittest")
+        or command[:3] == ("python", "-m", "unittest")
+        or command[:3] == ("python3", "-m", "pytest")
+        or command[:3] == ("python", "-m", "pytest")
+    )
+    test_failure = bool(re.search(
+        r"\b(?:assertionerror|[1-9]\d*\s+(?:tests?\s+)?failed|failures?=[1-9]\d*|[1-9]\d*\s+failing)\b|^FAIL:|^FAILED ",
+        output,
+        re.IGNORECASE | re.MULTILINE,
+    ))
+    if result.rc == 1 and (known_runner or test_failure):
+        return "FAILING", detail
+    return "BLOCKED", detail
+
+
 def command_trust_repo(args) -> int:
     repo = require_git_repo(args.repo)
     if not repo:
@@ -2715,6 +2747,20 @@ def command_trust_repo(args) -> int:
         "protected_paths": sorted(PROTECTED_PATHS),
         "limits": {"cpu": 2, "memory_mb": 2048, "pids": 128, "seconds": 900},
     }
+    parsed_profile, profile_detail = parse_repo_profile(profile)
+    if not parsed_profile:
+        print(f"NIGHTSHIFT_TRUST_REPO: RED | generated approval is invalid: {profile_detail}")
+        return 1
+    preflight = run_cmd(
+        sandbox_command(repo, tuple(commands[0]), parsed_profile),
+        cwd=repo,
+        timeout=parsed_profile.max_seconds,
+    )
+    preflight_state, preflight_detail = verification_preflight(preflight, tuple(commands[0]))
+    if preflight_state == "BLOCKED":
+        print(f"NIGHTSHIFT_TRUST_REPO: YELLOW | verification cannot run in the isolated runner: {preflight_detail}")
+        print("Nothing was saved. Night Shift stays analysis-only for this repo.")
+        return 1
     try:
         path = save_approval(REPO_APPROVALS_ROOT, remote, slug, profile)
     except OSError as exc:
@@ -2725,7 +2771,8 @@ def command_trust_repo(args) -> int:
         path.unlink(missing_ok=True)
         print(f"NIGHTSHIFT_TRUST_REPO: RED | saved approval failed validation: {detail}")
         return 1
-    print(f"NIGHTSHIFT_TRUST_REPO: GREEN | approval saved outside the repo at {path}")
+    suffix = "verification passed" if preflight_state == "PASS" else f"reproducible verification failure detected (rc={preflight.rc})"
+    print(f"NIGHTSHIFT_TRUST_REPO: GREEN | approval saved outside the repo at {path}; {suffix}")
     return 0
 
 
