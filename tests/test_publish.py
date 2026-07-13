@@ -300,6 +300,36 @@ class PublishTests(unittest.TestCase):
             pushes = [args for args in calls if args[:2] == ["git", "push"]]
             self.assertEqual(pushes, [])
 
+    def test_recovers_draft_pr_created_before_cli_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            patch_path = root / "repair.patch"
+            patch_path.write_text(PATCH, encoding="utf-8")
+
+            def fake(command, **kwargs):
+                args = [str(item) for item in command]
+                if args[:3] == ["gh", "api", "user"]:
+                    return result(stdout="owner\n")
+                if args[:3] == ["gh", "repo", "view"]:
+                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
+                if args[:3] == ["git", "diff", "--name-only"]:
+                    return result(stdout="src/app.py\n")
+                if args[:3] == ["git", "rev-parse", "HEAD"]:
+                    return result(stdout=COMMIT_SHA + "\n")
+                if args[:3] == ["gh", "pr", "create"]:
+                    return result(rc=124, stderr="timeout")
+                if args[:3] == ["gh", "pr", "list"]:
+                    return result(stdout=json.dumps([{"url": "https://github.com/owner/repo/pull/10"}]))
+                if args[:3] == ["gh", "pr", "view"]:
+                    return result(stdout="true\n")
+                return result()
+
+            published = PublishEngine(fake, root / "worktrees", lambda: "now").publish(
+                root, "owner/repo", self.proof(patch_path), profile(), root / "proof"
+            )
+            self.assertEqual(published["status"], "DRAFT_PR_OPENED")
+            self.assertEqual(published["pr_url"], "https://github.com/owner/repo/pull/10")
+
 
 if __name__ == "__main__":
     unittest.main()

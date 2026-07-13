@@ -79,6 +79,23 @@ class PublishEngine:
         checked, _ = self._remote_branch_sha(worktree, branch)
         return "removed" if checked == "absent" else "unknown"
 
+    def _find_open_pr(self, worktree: Path, repo_name: str, branch: str) -> tuple[str, str]:
+        found = self.run_cmd(
+            ["gh", "pr", "list", "--repo", repo_name, "--head", branch, "--state", "open", "--json", "url", "--limit", "1"],
+            cwd=worktree,
+            timeout=60,
+        )
+        if found.rc != 0:
+            return "unknown", ""
+        try:
+            rows = json.loads(found.stdout)
+        except (TypeError, ValueError):
+            return "unknown", ""
+        if not rows:
+            return "absent", ""
+        url = str(rows[0].get("url") or "")
+        return ("present", url) if url else ("unknown", "")
+
     def publish(
         self,
         repo: Path,
@@ -221,14 +238,19 @@ class PublishEngine:
             )
             pr_url = created.stdout.strip().splitlines()[-1] if created.rc == 0 and created.stdout.strip() else ""
             if created.rc != 0 or not pr_url:
-                cleanup = self._cleanup_owned_remote_branch(worktree, branch, local_sha)
-                removed_remote = cleanup in {"absent", "removed"}
-                pushed = not removed_remote
-                return finish({
-                    "status": "REJECT" if removed_remote else "REMOTE_CLEANUP_REQUIRED",
-                    "reason": "GitHub did not create the draft PR" if removed_remote else "draft PR creation failed and remote branch cleanup also failed",
-                    "remote_branch_created": pushed,
-                })
+                pr_state, recovered_url = self._find_open_pr(worktree, repo_name, branch)
+                if pr_state == "present":
+                    pr_url = recovered_url
+                else:
+                    cleanup = self._cleanup_owned_remote_branch(worktree, branch, local_sha)
+                    removed_remote = cleanup in {"absent", "removed"}
+                    pushed = not removed_remote
+                    uncertain = pr_state == "unknown" or not removed_remote
+                    return finish({
+                        "status": "REMOTE_CLEANUP_REQUIRED" if uncertain else "REJECT",
+                        "reason": "draft PR creation outcome could not be proven" if uncertain else "GitHub did not create the draft PR",
+                        "remote_branch_created": pushed,
+                    })
             draft = self.run_cmd(["gh", "pr", "view", pr_url, "--json", "isDraft", "--jq", ".isDraft"], cwd=worktree, timeout=30)
             if draft.rc != 0 or draft.stdout.strip().lower() != "true":
                 closed = self.run_cmd(["gh", "pr", "close", pr_url], cwd=worktree, timeout=60)
