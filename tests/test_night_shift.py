@@ -76,6 +76,15 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertTrue(materialize_test_method_patch(
             internal, original, "tests/test_app.py", {"drafts"}
         ))
+        repeated_anchor = internal + (
+            "+    def test_existing(self):\n+        pass\n"
+        )
+        recovered = materialize_test_method_patch(
+            repeated_anchor, original, "tests/test_app.py", {"drafts"}
+        )
+        self.assertTrue(recovered)
+        self.assertEqual(recovered.count("+    def test_cleanup(self):"), 1)
+        self.assertNotIn("+    def test_existing(self):", recovered)
         self.assertEqual(materialize_test_method_patch(
             internal.replace("from drafts", "from unrelated"),
             original, "tests/test_app.py", {"drafts"},
