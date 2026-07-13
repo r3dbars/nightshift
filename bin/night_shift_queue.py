@@ -631,10 +631,27 @@ def build_repo_work_queue(
         for path in mission_sources:
             mission_tests.extend(relevant_tests_for_source(path, tests, read_current_text)[:2])
         mission_files = list(dict.fromkeys(mission_sources + mission_tests + recent_source[:6]))
+        mission_semantic_contract = goal_semantic_contract(goal_text)
+        mission_executable = bool(
+            dotted_symbols
+            and mission_evidence
+            and test_commands
+            and any(
+                key.startswith("invocation-index/")
+                and complete_invocation_evidence(value)
+                for key, value in mission_evidence.items()
+            )
+        )
+        mission_prompt = f"Turn this user mission into the smallest safe repo task: {goal_text.strip()}"
+        if mission_executable and mission_semantic_contract:
+            mission_prompt += (
+                " Return ACTION_TYPE: draft-pr-candidate only if the requested behavior is safe and can be "
+                "proved in the approved test file; otherwise return ACTION_TYPE: reject."
+            )
         add(
             "mission-brief",
             "mission",
-            f"Turn this user mission into the smallest safe repo task: {goal_text.strip()}",
+            mission_prompt,
             "User supplied a specific mission.",
             mission_files,
             ladder="repair",
@@ -642,17 +659,8 @@ def build_repo_work_queue(
             proof_kind="test" if mission_evidence else "source",
             signal=goal_text.strip(),
             evidence_sources=mission_evidence,
-            executable=bool(
-                dotted_symbols
-                and mission_evidence
-                and test_commands
-                and any(
-                    key.startswith("invocation-index/")
-                    and complete_invocation_evidence(value)
-                    for key, value in mission_evidence.items()
-                )
-            ),
-            semantic_contract=goal_semantic_contract(goal_text),
+            executable=mission_executable,
+            semantic_contract=mission_semantic_contract,
         )
     if coverage_gaps:
         gap_path, gap_symbol, gap_evidence = coverage_gaps[0]

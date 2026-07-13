@@ -440,6 +440,8 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
             self.assertIn("def cleanup(self):", evidence)
             self.assertIn("return True", evidence)
             self.assertTrue(mission["executable"])
+            self.assertIn("ACTION_TYPE: draft-pr-candidate", mission["prompt"])
+            self.assertEqual(mission["semantic_contract"], {"minimum_target_invocations": 1})
             self.assertEqual(
                 mission["signal"], "Add a behavioral test for DraftEngine.cleanup return value"
             )
