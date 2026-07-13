@@ -139,7 +139,7 @@ class ReportingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)
             feedback = [
-                {"repo": "/repo", "family": "tests", "fingerprint": "one", "verdict": "useful"},
+                {"repo": "/repo", "family": "tests", "fingerprint": "one", "verdict": "useful", "feedback_delay_seconds": 4.0},
                 {"repo": "/repo", "family": "docs", "fingerprint": "two", "verdict": "not-useful"},
                 {"repo": "/other", "family": "tests", "fingerprint": "three", "verdict": "useful"},
             ]
@@ -151,6 +151,7 @@ class ReportingTests(unittest.TestCase):
                 "Learning signals for this repo: useful=1 not useful=1 history events=2",
                 brief,
             )
+            self.assertIn("Review timing signals: 1 vote(s), average 4 seconds", brief)
 
     def test_morning_falls_back_to_factual_scan(self):
         with tempfile.TemporaryDirectory() as tmp:

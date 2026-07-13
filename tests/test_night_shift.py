@@ -2456,6 +2456,9 @@ buildThing() { return 1; }
             ledger = root / "ledger"
             ledger.mkdir()
             (ledger / "mode.json").write_text(json.dumps({"repo": "/repo"}), encoding="utf-8")
+            reviewed = night_shift.datetime.now(night_shift.timezone.utc).timestamp() - 5
+            reviewed_at = night_shift.datetime.fromtimestamp(reviewed, night_shift.timezone.utc).isoformat(timespec="seconds")
+            (ledger / "REVIEWED").write_text(reviewed_at + "\n", encoding="utf-8")
             (ledger / "work-queue.json").write_text(json.dumps([{
                 "key": "changed-file-proof-01:tests:patch-plan",
                 "labels": ["changed-file-proof-01-src-app"],
@@ -2475,8 +2478,17 @@ buildThing() { return 1; }
                 self.assertEqual(event["family"], "changed-file-proof")
                 self.assertEqual(event["fingerprint"], "abc123")
                 self.assertEqual(event["verdict"], "not-useful")
+                self.assertGreaterEqual(event["feedback_delay_seconds"], 4)
             finally:
                 night_shift.FEEDBACK_PATH = original
+
+    def test_feedback_delay_seconds_ignores_invalid_and_future_times(self):
+        now = night_shift.datetime.now(night_shift.timezone.utc)
+        viewed = (now - night_shift.timedelta(seconds=12)).isoformat()
+        voted = now.isoformat()
+        self.assertGreaterEqual(night_shift.feedback_delay_seconds(viewed, voted), 11)
+        self.assertIsNone(night_shift.feedback_delay_seconds("not-a-time", voted))
+        self.assertIsNone(night_shift.feedback_delay_seconds(voted, viewed))
 
     def test_feedback_rejects_zero_rank(self):
         args = SimpleNamespace(useful=True, not_useful=False, item=0)

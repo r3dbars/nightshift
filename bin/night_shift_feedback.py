@@ -1,6 +1,7 @@
 """Turn explicit morning feedback into bounded pre-model task preferences."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import re
 
 
@@ -36,6 +37,25 @@ def latest_feedback_events(events: list[dict]) -> list[dict]:
         )
         latest[identity] = event
     return list(latest.values())
+
+
+def feedback_delay_seconds(reviewed_at: str, feedback_at: str) -> float | None:
+    """Return elapsed seconds between viewing a brief and voting, when valid."""
+    try:
+        def parse(value: str) -> datetime:
+            parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+
+        viewed = parse(reviewed_at)
+        voted = parse(feedback_at)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    delay = (voted - viewed).total_seconds()
+    if delay < 0:
+        return None
+    return round(delay, 3)
 
 
 def feedback_score(events: list[dict], repo: str, family: str) -> tuple[int, int, int]:
