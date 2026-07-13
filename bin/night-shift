@@ -150,6 +150,17 @@ STOP_SECONDS = {
     "10h": 10 * 60 * 60,
 }
 
+
+def runtime_tool(name: str) -> Path:
+    """Use the installed helper, or the matching helper beside a checkout run."""
+    installed = BIN / name
+    if installed.exists() and os.access(installed, os.X_OK):
+        return installed
+    bundled = SCRIPT_DIR / name
+    if bundled.exists() and os.access(bundled, os.X_OK):
+        return bundled
+    return installed
+
 AUTOPILOT_DEFAULTS = {
     "quiet": {"repo_limit": 1, "task_limit": 8, "poll_minutes": 60},
     "night-shift": {"repo_limit": 3, "task_limit": 24, "poll_minutes": 30},
@@ -1005,10 +1016,10 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
     rows.append(("path", path_state, f"{BIN} is {'on' if path_state == 'GREEN' else 'not on'} PATH"))
 
     for label, path in [
-        ("night-shift", BIN / "night-shift"),
-        ("maestro-delegate", BIN / "maestro-delegate"),
-        ("maestro-token-report", BIN / "maestro-token-report"),
-        ("maestro-smoke", BIN / "maestro-smoke.sh"),
+        ("night-shift", runtime_tool("night-shift")),
+        ("maestro-delegate", runtime_tool("maestro-delegate")),
+        ("maestro-token-report", runtime_tool("maestro-token-report")),
+        ("maestro-smoke", runtime_tool("maestro-smoke.sh")),
     ]:
         if path.exists() and os.access(path, os.X_OK):
             rows.append((label, "GREEN", str(path)))
@@ -1108,7 +1119,7 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
             rows.append(("sandbox", "GREEN" if provider.available else "YELLOW", provider.detail))
 
     if run_smoke:
-        smoke = run_cmd([BIN / "maestro-smoke.sh"], timeout=180)
+        smoke = run_cmd([runtime_tool("maestro-smoke.sh")], timeout=180)
         state = "GREEN" if smoke.rc == 0 else "YELLOW"
         msg = (smoke.stdout + smoke.stderr).strip().replace("\n", " | ")
         rows.append(("lane-smoke", state, msg[:1200]))
@@ -1878,7 +1889,7 @@ def report_engine() -> ReportEngine:
     return ReportEngine(
         load_feedback=load_feedback,
         run_cmd=run_cmd,
-        token_reporter=BIN / "maestro-token-report",
+        token_reporter=runtime_tool("maestro-token-report"),
         narrow_task_files=narrow_task_files,
         latest_states=latest_states,
     )
@@ -1942,7 +1953,7 @@ def dispatch_one(
         source_ref=source_ref,
         pinned_issue=pinned_issue,
         run_cmd=run_cmd,
-        delegate=BIN / "maestro-delegate",
+        delegate=runtime_tool("maestro-delegate"),
         mode_defaults=MODE_DEFAULTS,
         env=os.environ.copy(),
         parse_proof=parse_proof,
@@ -3487,7 +3498,7 @@ def parse_nightly_time(raw: str) -> tuple[int, int] | None:
 
 
 def nightly_command_line() -> str:
-    return f"{BIN / 'night-shift'} nightly"
+    return f"{runtime_tool('night-shift')} nightly"
 
 
 def launchd_plist_body(hour: int, minute: int) -> str:
@@ -3499,7 +3510,7 @@ def launchd_plist_body(hour: int, minute: int) -> str:
     <key>Label</key><string>{LAUNCHD_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{BIN / 'night-shift'}</string>
+        <string>{runtime_tool('night-shift')}</string>
         <string>nightly</string>
     </array>
     <key>StartCalendarInterval</key>

@@ -31,6 +31,22 @@ from night_shift_python_evidence import semantic_test_contract_reasons
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_direct_checkout_uses_bundled_tools_when_install_home_is_empty(self):
+        original_bin = night_shift.BIN
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                night_shift.BIN = Path(tmp) / "missing-codex-home" / "bin"
+                self.assertEqual(
+                    night_shift.runtime_tool("maestro-delegate"),
+                    night_shift.SCRIPT_DIR / "maestro-delegate",
+                )
+                self.assertEqual(
+                    night_shift.runtime_tool("maestro-token-report"),
+                    night_shift.SCRIPT_DIR / "maestro-token-report",
+                )
+        finally:
+            night_shift.BIN = original_bin
+
     def test_semantic_contract_rejects_partial_test_and_accepts_complete_test(self):
         contract = {
             "minimum_target_invocations": 2,
