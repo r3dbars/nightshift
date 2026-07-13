@@ -3519,7 +3519,7 @@ def command_handoff(args) -> int:
         result = run_cmd(
             [
                 "codex", "exec", "--ephemeral", "--sandbox", "read-only",
-                "--ask-for-approval", "never", "--color", "never", "-C", str(review_root), prompt,
+                "--skip-git-repo-check", "--color", "never", "-C", str(review_root), prompt,
             ],
             cwd=review_root,
             timeout=args.timeout,
