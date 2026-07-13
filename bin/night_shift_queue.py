@@ -703,6 +703,7 @@ def build_repo_work_queue(
         for path in mission_sources:
             mission_tests.extend(relevant_tests_for_source(path, tests, read_current_text)[:2])
         mission_files = list(dict.fromkeys(mission_sources + mission_tests + recent_source[:6]))
+        approved_test_files = [path for path in mission_files if is_test_path(path)]
         mission_semantic_contract = goal_semantic_contract(goal_text)
         mission_draftable = True
         if mission_sources and Path(mission_sources[0]).suffix.lower() in JS_EXTENSIONS:
@@ -721,6 +722,11 @@ def build_repo_work_queue(
             )
         )
         mission_prompt = f"Turn this user mission into the smallest safe repo task: {goal_text.strip()}"
+        if approved_test_files:
+            mission_prompt += (
+                f" Use the existing approved test file `{approved_test_files[0]}`. "
+                "Do not create a new test file; FILES_TO_TOUCH may contain only the listed candidate files."
+            )
         if mission_executable and mission_semantic_contract:
             mission_prompt += (
                 " Return ACTION_TYPE: draft-pr-candidate only if the requested behavior is safe and can be "

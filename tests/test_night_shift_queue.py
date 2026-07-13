@@ -529,6 +529,8 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
             self.assertIn("call_matches=1", evidence)
             self.assertIn("scan_complete=true", evidence)
             self.assertTrue(mission["executable"])
+            self.assertIn("Use the existing approved test file `tests/test_night_shift.py`", mission["prompt"])
+            self.assertIn("Do not create a new test file", mission["prompt"])
             ready, skipped = model_ready_tasks(
                 [mission], "afterburner", goal, "draft-local"
             )
