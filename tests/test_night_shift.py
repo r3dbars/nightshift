@@ -78,6 +78,26 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertTrue(materialize_test_method_patch(
             internal, original, "tests/test_app.py", {"drafts"}
         ))
+        module_import = worker.replace(
+            "+    def test_cleanup(self):\n",
+            "+from unittest.mock import Mock\n+    def test_cleanup(self):\n",
+        )
+        materialized_module_import = materialize_test_method_patch(
+            module_import, original, "tests/test_app.py", {"drafts"}
+        )
+        self.assertTrue(materialized_module_import)
+        self.assertNotIn("unittest.mock", materialized_module_import)
+        used_module_import = worker.replace(
+            "+    def test_cleanup(self):\n",
+            "+from types import SimpleNamespace\n+    def test_cleanup(self):\n",
+        ).replace(
+            "+        engine = DraftEngine()\n",
+            "+        result = SimpleNamespace()\n+        engine = DraftEngine()\n",
+        )
+        materialized_used_import = materialize_test_method_patch(
+            used_module_import, original, "tests/test_app.py", {"drafts"}
+        )
+        self.assertIn("+        from types import SimpleNamespace", materialized_used_import)
         repeated_anchor = internal + (
             "+    def test_existing(self):\n+        pass\n"
         )
