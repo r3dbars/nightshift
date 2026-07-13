@@ -62,6 +62,26 @@ def live_colima_docker(run_cmd: Callable, docker: str) -> str:
     """Return a verified Colima profile name for this Docker context."""
     if platform.system() != "Darwin" or not shutil.which("colima"):
         return ""
+    if not os.environ.get("DOCKER_CONFIG"):
+        docker_homes: list[Path] = []
+        if os.environ.get("USER"):
+            docker_homes.append(Path("/Users") / os.environ["USER"] / ".docker")
+        docker_homes.append(Path.home() / ".docker")
+        existing_config = next((path for path in docker_homes if path.is_dir()), None)
+        if existing_config:
+            # A clean proof HOME should not hide the user's existing local
+            # Docker context metadata from sandbox discovery.
+            os.environ["DOCKER_CONFIG"] = str(existing_config)
+    if not os.environ.get("COLIMA_HOME"):
+        colima_homes: list[Path] = []
+        if os.environ.get("USER"):
+            colima_homes.append(Path("/Users") / os.environ["USER"] / ".colima")
+        colima_homes.append(Path.home() / ".colima")
+        existing_home = next((path for path in colima_homes if path.is_dir()), None)
+        if existing_home:
+            # Keep clean proof homes isolated while allowing discovery of the
+            # user's already-running Colima VM.
+            os.environ["COLIMA_HOME"] = str(existing_home)
     context = run_cmd([docker, "context", "show"], timeout=20)
     name = context.stdout.strip() if context.rc == 0 else ""
     if name == "colima":
@@ -69,7 +89,40 @@ def live_colima_docker(run_cmd: Callable, docker: str) -> str:
     elif name.startswith("colima-"):
         profile = name.removeprefix("colima-")
     else:
-        return ""
+        listed = run_cmd([shutil.which("colima"), "list", "--json"], timeout=20)
+        rows: list[dict] = []
+        try:
+            parsed = json.loads(listed.stdout) if listed.rc == 0 else []
+            rows = parsed if isinstance(parsed, list) else [parsed] if isinstance(parsed, dict) else []
+        except (TypeError, json.JSONDecodeError):
+            for line in listed.stdout.splitlines():
+                try:
+                    parsed = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, dict):
+                    rows.append(parsed)
+        running = next(
+            (
+                row for row in rows
+                if str(row.get("status") or "").lower() == "running"
+                and str(row.get("runtime") or "").lower() == "docker"
+            ),
+            None,
+        )
+        if not running:
+            return ""
+        profile = str(running.get("name") or "")
+        context_name = "colima" if profile == "default" else f"colima-{profile}"
+        context_info = run_cmd(
+            [docker, "--context", context_name, "info", "--format", "{{json .SecurityOptions}}"],
+            timeout=20,
+        )
+        if context_info.rc != 0:
+            return ""
+        # The context is process-local. It lets a clean proof HOME use the
+        # already-running Colima VM without changing the user's Docker config.
+        os.environ.setdefault("DOCKER_CONTEXT", context_name)
     status = run_cmd([shutil.which("colima"), "status", "--profile", profile, "--json"], timeout=20)
     try:
         detail = json.loads(status.stdout) if status.rc == 0 else {}
@@ -99,7 +152,7 @@ def detect_sandbox(run_cmd: Callable) -> SandboxStatus:
         info = run_cmd([docker, "info", "--format", "{{json .SecurityOptions}}"], timeout=20)
         if info.rc == 0 and "rootless" in (info.stdout or "").lower():
             return SandboxStatus(True, "Docker rootless sandbox is ready", "docker")
-        colima_profile = live_colima_docker(run_cmd, docker) if info.rc == 0 else ""
+        colima_profile = live_colima_docker(run_cmd, docker)
         if colima_profile:
             return SandboxStatus(True, f"Docker is isolated in Colima profile '{colima_profile}'", "docker")
     podman = shutil.which("podman")

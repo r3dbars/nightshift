@@ -3612,8 +3612,13 @@ buildThing() { return 1; }
             sandbox.shutil.which = lambda name: f"/usr/local/bin/{name}" if name in {"docker", "colima"} else None
             sandbox.platform.system = lambda: "Darwin"
             with patch.dict(os.environ, {"HOME": "/tmp/night-shift-proof-home", "USER": "redbars"}):
+                os.environ.pop("DOCKER_CONTEXT", None)
                 def fake_run(args, **kwargs):
                     if Path(args[0]).name == "colima":
+                        if args[1:2] == ["list"]:
+                            return night_shift.CmdResult(
+                                "colima list", 0, json.dumps({"name": "night-shift", "status": "Running", "runtime": "docker"}), "",
+                            )
                         return night_shift.CmdResult(
                             "colima status", 0, json.dumps({
                                 "runtime": "docker",
@@ -3622,7 +3627,9 @@ buildThing() { return 1; }
                             }), "",
                         )
                     if args[1:3] == ["context", "show"]:
-                        return night_shift.CmdResult("docker context show", 0, "colima-night-shift\n", "")
+                        return night_shift.CmdResult("docker context show", 0, "default\n", "")
+                    if args[1:4] == ["--context", "colima-night-shift", "info"]:
+                        return night_shift.CmdResult("docker info", 0, "[]", "")
                     return night_shift.CmdResult("docker info", 0, "[]", "")
 
                 status = sandbox.detect_sandbox(fake_run)
