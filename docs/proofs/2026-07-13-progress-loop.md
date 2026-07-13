@@ -97,6 +97,9 @@ run evidence separate from model claims and from human/manual proof.
   and Night Shift in ranked order and showed a plain-language reason for each
   selection. No model tokens were spent because the evidence gate found no
   model-ready task. Proof: `docs/proofs/2026-07-13-portfolio-priority-brief.md`.
+- PR #163 made the empty portfolio closeout say that Night Shift checked the
+  repos and deliberately kept weak work off the user's review list, with one
+  clear command to try again tonight. Hosted Ubuntu/macOS checks passed.
 - The repeatable blank-home recovery proof now passes from a temporary HOME
   outside any Git repo with no GitHub credentials: it returns clear `--repo`,
   Git-repo, and `gh auth login` next steps, exits safely, and saves no config.

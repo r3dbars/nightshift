@@ -29,6 +29,8 @@ deterministic real-run proof is recorded in
 PR #162 preserved ranked portfolio order in morning briefs and added a
 plain-language selection reason; its current-main read-only proof is recorded
 in [`2026-07-13-portfolio-priority-brief.md`](proofs/2026-07-13-portfolio-priority-brief.md).
+PR #163 made the no-candidate portfolio closeout explicitly reassuring and
+kept one clear next step.
 The full 10-hour soak and native eight-hour launch are running but are not
 counted until they finish. The latest real BetterFeedback runs also proved
 runner-native dependency preparation, automatic cache reuse, a repaired
