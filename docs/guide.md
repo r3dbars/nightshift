@@ -130,7 +130,7 @@ night-shift autopilot --repo /path/to/project \
 ```
 
 - `brief`: read-only repo scan, artifacts, and a ranked queue.
-- `draft-local`: exact patch plans, issue candidates, files, and tests.
+- `draft-local`: exact patch plans, issue candidates, files, tests, and isolated tested drafts when enabled; nothing is pushed.
 - `draft-prs`: review-ready candidates, plus optional isolated patches when
   `--execute-drafts` is enabled. With one-time explicit authorization, a patch
   that passes the approved sandbox check again may become a GitHub draft PR.

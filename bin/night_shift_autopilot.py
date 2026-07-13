@@ -45,12 +45,24 @@ class AutopilotCycleState:
         }
 
     def may_draft(self, repo: str, execute_drafts: bool, permission: str) -> bool:
-        return execute_drafts and permission == "draft-prs" and repo not in self.drafted_repos
+        return (
+            execute_drafts
+            and permission in {"draft-local", "draft-prs"}
+            and repo not in self.drafted_repos
+        )
 
     def finish_draft_attempt(self, row: dict, draft: dict | None) -> None:
         if draft is not None:
             row["draft"] = draft
         self.drafted_repos.add(str(row.get("repo") or ""))
+
+    @staticmethod
+    def may_publish(permission: str, allow_draft_prs: bool, draft_status: str) -> bool:
+        return (
+            permission == "draft-prs"
+            and allow_draft_prs
+            and draft_status in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
+        )
 
     def attach_publish(self, row: dict, publish: dict) -> None:
         row["publish"] = publish

@@ -30,6 +30,7 @@ class AutopilotCycleStateTests(unittest.TestCase):
             state = AutopilotCycleState(Path(tmp))
             state.start_cycle()
             row = {"repo": "owner/repo", "rc": 0}
+            self.assertTrue(state.may_draft("owner/repo", True, "draft-local"))
             self.assertTrue(state.may_draft("owner/repo", True, "draft-prs"))
             state.finish_draft_attempt(row, {"status": "VERIFIED_DRAFT"})
             self.assertFalse(state.may_draft("owner/repo", True, "draft-prs"))
@@ -47,7 +48,13 @@ class AutopilotCycleStateTests(unittest.TestCase):
             state.no_prepared_repositories()
             self.assertEqual(state.status, "YELLOW")
 
-    def test_new_cycle_resets_work_signal_and_draft_gate_requires_both_permissions(self):
+    def test_publish_requires_draft_pr_permission_saved_consent_and_verified_status(self):
+        self.assertFalse(AutopilotCycleState.may_publish("draft-local", True, "VERIFIED_DRAFT"))
+        self.assertFalse(AutopilotCycleState.may_publish("draft-prs", False, "VERIFIED_DRAFT"))
+        self.assertFalse(AutopilotCycleState.may_publish("draft-prs", True, "REJECT"))
+        self.assertTrue(AutopilotCycleState.may_publish("draft-prs", True, "VERIFIED_DRAFT"))
+
+    def test_new_cycle_resets_work_signal_and_draft_gate_requires_local_draft_permission(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = AutopilotCycleState(Path(tmp))
             state.start_cycle()
@@ -56,6 +63,7 @@ class AutopilotCycleStateTests(unittest.TestCase):
             self.assertFalse(state.cycle_had_work)
             self.assertFalse(state.may_draft("owner/repo", False, "draft-prs"))
             self.assertFalse(state.may_draft("owner/repo", True, "brief"))
+            self.assertTrue(state.may_draft("owner/repo", True, "draft-local"))
             self.assertTrue(state.may_draft("owner/repo", True, "draft-prs"))
 
 
