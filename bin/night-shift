@@ -1569,6 +1569,13 @@ def task_context_block(task: dict) -> str:
     evidence_lines = "\n".join(f"- {path}" for path in evidence_sources) if evidence_sources else "- None."
     citation_examples = coverage_citation_examples(evidence_sources)
     citation_lines = "\n".join(f"- {citation}" for citation in citation_examples) if citation_examples else "- None."
+    semantic = task.get("semantic_contract") or {}
+    semantic_lines = (
+        "- semantic test contract: " + json.dumps(semantic, sort_keys=True)
+        + "\n- test proposals must name an observable return value, exception, response, state change, or recorded side effect; coverage counts alone are not proof."
+        if semantic else
+        "- semantic test contract: none"
+    )
     evidence_rule = (
         "- For this live-signal task, EVIDENCE must cite one supplied live-evidence path exactly. "
         "Use FILES_TO_TOUCH for repo files."
@@ -1589,6 +1596,7 @@ def task_context_block(task: dict) -> str:
         {evidence_lines}
         - copy-ready deterministic citations (use only the relevant one or two):
         {citation_lines}
+        {semantic_lines}
         {evidence_rule}
         """
     ).strip()
@@ -1784,6 +1792,7 @@ def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict |
         - A suggestion without an exact path plus evidence is not useful.
         - If the claim says a file is missing a check or behavior, EVIDENCE must cite that same file.
         - A changelog statement that says a feature was added is evidence of current behavior, not a request to add it again.
+        - For test-strengthening work, describe the observable behavior being asserted: a return value, exception, response, state change, or recorded side effect. A coverage count or symbol invocation count alone is not behavioral proof.
         {issue_contract}
 
         OUTPUT:
