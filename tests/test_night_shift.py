@@ -23,7 +23,7 @@ sys.modules[LOADER.name] = night_shift
 LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
-from night_shift_drafts import MAX_VERIFICATION_REPAIRS, owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
+from night_shift_drafts import MAX_VERIFICATION_REPAIRS, owner_symbol_call_count, parse_test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
 from night_shift_patch_protocol import materialize_test_method_patch, materialize_ts_test_case_patch
 from night_shift_js_evidence import simple_exported_function, top_level_symbol_call_count_text as js_symbol_call_count_text
 from night_shift_python_evidence import semantic_test_contract_reasons
@@ -3638,26 +3638,26 @@ buildThing() { return 1; }
                 "analysis=python-ast\nsymbol=cleanup call_matches=0\nscan_complete=true"
             )
         }
-        self.assertEqual(test_strengthening_contract(valid)["owner"], "DraftEngine")
+        self.assertEqual(parse_test_strengthening_contract(valid)["owner"], "DraftEngine")
         top_level = {
             "invocation-index/helpers-cleanup.txt": next(iter(valid.values())).replace(
                 "owner=DraftEngine", "owner=none"
             )
         }
-        self.assertEqual(test_strengthening_contract(top_level)["owner"], "none")
+        self.assertEqual(parse_test_strengthening_contract(top_level)["owner"], "none")
         for replacement in ("analysis=mixed-regex", "symbol=cleanup call_matches=1", "scan_complete=false"):
             broken = {key: value.replace(
                 "analysis=python-ast" if replacement.startswith("analysis") else
                 "symbol=cleanup call_matches=0" if replacement.startswith("symbol") else
                 "scan_complete=true", replacement
             ) for key, value in valid.items()}
-            self.assertIsNone(test_strengthening_contract(broken))
+        self.assertIsNone(parse_test_strengthening_contract(broken))
         missing_owner = {
             key: value.replace("owner=DraftEngine\n", "") for key, value in valid.items()
         }
-        self.assertIsNone(test_strengthening_contract(missing_owner))
+        self.assertIsNone(parse_test_strengthening_contract(missing_owner))
         duplicated = {**valid, "invocation-index/other.txt": next(iter(valid.values()))}
-        self.assertIsNone(test_strengthening_contract(duplicated))
+        self.assertIsNone(parse_test_strengthening_contract(duplicated))
 
     def test_strengthening_contract_accepts_complete_typescript_gap(self):
         evidence = {
@@ -3667,7 +3667,7 @@ buildThing() { return 1; }
                 "scan_complete=true"
             )
         }
-        contract = test_strengthening_contract(evidence)
+        contract = parse_test_strengthening_contract(evidence)
         self.assertEqual(contract["analysis"], "typescript-regex")
         self.assertEqual(contract["owner"], "none")
 
