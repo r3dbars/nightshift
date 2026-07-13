@@ -231,6 +231,8 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "Reuse existing imports and test helpers; add no dependency. Use the exact constructor and method "
             "signatures shown in SOURCE EXCERPT; do not monkeypatch attributes that the class does not define. "
             "Fake command results must expose the exact attributes read by source, such as rc rather than a dict. "
+            "For fake command results, use an object with attributes such as `SimpleNamespace(rc=0)` and reuse the "
+            "existing test import; never return a dict like `{'rc': 0}`. "
             + import_guidance
             + "If the source return annotation is bool, assert the returned value directly with assertTrue or assertFalse; "
             "do not read attributes such as rc from that boolean. A fake command runner does not create filesystem "
