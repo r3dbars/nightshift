@@ -1,0 +1,48 @@
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "bin"))
+
+from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, repo_outcome_adjustment
+
+
+class RepoOutcomeTests(unittest.TestCase):
+    def test_productive_and_wasted_runs_adjust_ranking_with_caps(self):
+        productive = [
+            {"repo": "owner/good", "verified_drafts": 1, "estimated_tokens": 5000}
+            for _ in range(5)
+        ]
+        wasted = [
+            {"repo": "owner/weak", "accepted_candidates": 0, "estimated_tokens": 5000}
+            for _ in range(8)
+        ]
+        good, good_summary = repo_outcome_adjustment(productive, "owner/good")
+        weak, weak_summary = repo_outcome_adjustment(wasted, "owner/weak")
+        self.assertEqual(good, 50)
+        self.assertEqual(weak, -40)
+        self.assertEqual(good_summary["productive_runs"], 5)
+        self.assertEqual(weak_summary["wasted_token_runs"], 8)
+
+    def test_zero_token_empty_run_is_neutral(self):
+        adjustment, summary = repo_outcome_adjustment(
+            [{"repo": "owner/repo", "accepted_candidates": 0, "estimated_tokens": 0}],
+            "owner/repo",
+        )
+        self.assertEqual(adjustment, 0)
+        self.assertEqual(summary["wasted_token_runs"], 0)
+
+    def test_outcome_ledger_is_bounded_and_keeps_latest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "repo-outcomes.jsonl"
+            for index in range(4):
+                append_repo_outcome(path, {"repo": "owner/repo", "index": index}, limit=2)
+            rows = load_repo_outcomes(path)
+            self.assertEqual([row["index"] for row in rows], [2, 3])
+            self.assertEqual(len(path.read_text().splitlines()), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
