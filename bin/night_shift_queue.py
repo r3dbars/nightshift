@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from night_shift_portfolio import parse_json_text
-from night_shift_python_evidence import owner_symbol_call_count_text
+from night_shift_python_evidence import owner_symbol_call_count_text, top_level_symbol_call_count_text
 from night_shift_selection import (
     declared_symbols,
     relevant_tests_for_source,
@@ -302,6 +302,8 @@ class QueueEvidenceIndex:
             ])}
             if owner:
                 evidence.update(owned_invocation)
+            elif Path(path).suffix == ".py":
+                evidence.update(self.invocation_gap(path, missing))
             evidence.update(self.symbol_source_evidence(path, missing, owner))
             gaps.append((path, missing, evidence))
         return gaps
@@ -333,7 +335,10 @@ class QueueEvidenceIndex:
             total_bytes += len(text.encode("utf-8", errors="replace"))
             scanned += 1
             if Path(path).suffix == ".py":
-                counted = owner_symbol_call_count_text(text, owner, symbol)
+                if owner:
+                    counted = owner_symbol_call_count_text(text, owner, symbol)
+                else:
+                    counted = top_level_symbol_call_count_text(text, symbol)
                 if counted is None:
                     complete = False
                     continue
@@ -555,11 +560,13 @@ def build_repo_work_queue(
             signal=goal_text.strip(),
             evidence_sources=mission_evidence,
             executable=bool(
-                mission_evidence
+                dotted_symbols
+                and mission_evidence
                 and test_commands
                 and any(
                     key.startswith("invocation-index/")
                     and "analysis=python-ast" in value
+                    and "call_matches=0" in value
                     and "scan_complete=true" in value
                     for key, value in mission_evidence.items()
                 )
@@ -696,10 +703,9 @@ def build_repo_work_queue(
         )
     for index, (path, symbol, gap_evidence) in enumerate(coverage_gaps[:12], start=1):
         safe = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-").lower()[:48]
-        has_owned_ast_gap = any(
+        has_ast_gap = any(
             key.startswith("invocation-index/")
             and "analysis=python-ast" in value
-            and "owner=none" not in value
             and "call_matches=0" in value
             and "scan_complete=true" in value
             for key, value in gap_evidence.items()
@@ -711,7 +717,7 @@ def build_repo_work_queue(
                 f"Add one focused behavioral test for `{symbol}` in `{path}` using the supplied owner-aware "
                 "zero-invocation and source evidence. Return ACTION_TYPE: draft-pr-candidate and name the "
                 "existing test file to change. Reject if a safe observable behavior cannot be asserted."
-                if has_owned_ast_gap else
+                if has_ast_gap else
                 f"Inspect only `{symbol}` in `{path}`. Cite that exact source line plus the supplied coverage-index evidence. Do not discuss another function; reject when the index is incomplete or this exact gap is unsupported."
             ),
             "A declared source symbol with no textual test match is a bounded coverage lead, not proof of a gap.",
@@ -719,9 +725,9 @@ def build_repo_work_queue(
             ladder="strengthen",
             preferred_lane="local",
             proof_kind="test",
-            executable=bool(test_commands and has_owned_ast_gap),
+            executable=bool(test_commands and has_ast_gap),
             evidence_sources=gap_evidence,
-            semantic_contract={"minimum_target_invocations": 1} if has_owned_ast_gap else {},
+            semantic_contract={"minimum_target_invocations": 1} if has_ast_gap else {},
         )
 
     for index in range(0, min(len(tests), 24), 4):

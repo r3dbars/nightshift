@@ -1543,7 +1543,7 @@ buildThing() { return 1; }
         self.assertEqual(ready, [gap])
         self.assertIn("no deterministic gap evidence", skipped[0]["reason"])
 
-    def test_top_level_coverage_gap_includes_source_evidence_but_is_not_executable(self):
+    def test_top_level_python_coverage_gap_is_executable_with_complete_ast_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             (repo / "src").mkdir()
@@ -1567,7 +1567,16 @@ buildThing() { return 1; }
             )
             task = next(row for row in queue if row["slug"].startswith("changed-file-proof-"))
             self.assertTrue(any(key.startswith("goal-source/") for key in task["evidence_sources"]))
-            self.assertFalse(task["executable"])
+            invocation = next(
+                value
+                for key, value in task["evidence_sources"].items()
+                if key.startswith("invocation-index/")
+            )
+            self.assertIn("owner=none", invocation)
+            self.assertIn("analysis=python-ast", invocation)
+            self.assertIn("call_matches=0", invocation)
+            self.assertIn("scan_complete=true", invocation)
+            self.assertTrue(task["executable"])
 
     def test_morning_status_is_strict_and_shared(self):
         with tempfile.TemporaryDirectory() as tmp:
