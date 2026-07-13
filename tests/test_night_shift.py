@@ -4513,6 +4513,17 @@ buildThing() { return 1; }
             self.assertLess(commands.index("npm run test:unit:vitest"), commands.index("npm run lint"))
             self.assertLess(commands.index("npm run lint"), commands.index("npm run check:routes"))
 
+    def test_detect_test_commands_does_not_invent_missing_test_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(
+                json.dumps({"scripts": {"test:unit:vitest": "vitest run", "lint": "eslint ."}}),
+                encoding="utf-8",
+            )
+            commands = night_shift.detect_test_commands(repo, ["package.json"])
+            self.assertNotIn("npm run test", commands)
+            self.assertIn("npm run test:unit:vitest", commands)
+
     def test_github_portfolio_prioritizes_failed_runs(self):
         original_run_cmd = night_shift.run_cmd
         now = night_shift.datetime.now(night_shift.timezone.utc).isoformat().replace("+00:00", "Z")

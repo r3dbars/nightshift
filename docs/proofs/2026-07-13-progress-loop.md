@@ -64,6 +64,10 @@ run evidence separate from model claims and from human/manual proof.
   three local calls and produced exact grounded candidates, but correctly
   rejected them because dependencies were not installed. Proof:
   `docs/proofs/2026-07-13-custom-codex-home.md`.
+- The mixed-repo rehearsal also exposed and fixed a command-detector bug that
+  invented `npm run test` when no such package script existed. BetterFeedback
+  now receives the real `npm run test:unit:vitest` verification command, with a
+  regression test in the package gate.
 
 ## Remaining Proof Gaps
 
