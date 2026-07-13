@@ -422,6 +422,12 @@ class DraftEngine:
             retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
             if retry_timeout > 0:
                 correction = patch_format_correction(candidate["files"])
+                if candidate.get("draft_intent") == "test-strengthening":
+                    correction += (
+                        " Insert the one test method immediately before the exact final runner lines shown at "
+                        "the end of SOURCE EXCERPT. Keep those final lines unchanged as the hunk anchor, and "
+                        "ensure every @@ old/new line count matches the actual hunk body."
+                    )
                 if apply_reason:
                     correction += (
                         " The previous patch did not apply to the pinned commit. Use only exact unchanged "
