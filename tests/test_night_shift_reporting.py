@@ -231,6 +231,12 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertIn("Verify: python3 -m unittest tests.test_app", morning)
             self.assertIn("Proof: /tmp/proof.json", morning)
 
+    def test_morning_status_reads_valid_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "status.txt"
+            path.write_text("Line 1\nStatus: GREEN\nLine 2\n", encoding="utf-8")
+            from night_shift_portfolio_reporting import PortfolioReportEngine
+            self.assertEqual(PortfolioReportEngine.morning_status(path), "GREEN")
 
 if __name__ == "__main__":
     unittest.main()
