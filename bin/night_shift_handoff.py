@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 
-from night_shift_redaction import redact
+from night_shift_redaction import contains_secret, redact
 from night_shift_evidence import proposes_test_theater
 
 
@@ -106,6 +106,41 @@ def materialize_review_files(repo: Path, target: Path, files: list[str], source_
         destination.write_text(redact(source), encoding="utf-8")
         copied.append(path.as_posix())
     return copied
+
+
+def handoff_pack_metrics(prompt: str, target: Path, files: list[str]) -> dict[str, int]:
+    materialized_bytes = 0
+    redaction_markers = prompt.count("[REDACTED_SECRET]")
+    for relative in files:
+        try:
+            content = (target / relative).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        materialized_bytes += len(content.encode("utf-8"))
+        redaction_markers += content.count("[REDACTED_SECRET]")
+    return {
+        "materialized_bytes": materialized_bytes,
+        "materialized_file_count": len(files),
+        "prompt_bytes": len(prompt.encode("utf-8")),
+        "redaction_markers": redaction_markers,
+    }
+
+
+def handoff_pack_privacy_reasons(prompt: str, target: Path, files: list[str], repo: Path) -> list[str]:
+    reasons: list[str] = []
+    if str(repo.resolve()) in prompt:
+        reasons.append("prompt exposed the source checkout path")
+    if contains_secret(prompt):
+        reasons.append("prompt retained secret material after redaction")
+    for relative in files:
+        try:
+            content = (target / relative).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            reasons.append(f"materialized review file became unreadable: {relative}")
+            continue
+        if contains_secret(content):
+            reasons.append(f"materialized review file retained secret material: {relative}")
+    return reasons
 
 
 def citation_exists(repo: Path, relative: str, line: int, source_ref: str = "") -> bool:

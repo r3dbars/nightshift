@@ -1995,6 +1995,39 @@ buildThing() { return 1; }
             self.assertTrue(metadata["valid_review"])
             self.assertEqual(metadata["materialized_files"], ["src/app.py"])
             self.assertEqual(metadata["source_ref"], "")
+            self.assertEqual(metadata["materialized_file_count"], 1)
+            self.assertGreater(metadata["materialized_bytes"], 0)
+            self.assertGreater(metadata["prompt_bytes"], 0)
+            self.assertGreaterEqual(metadata["redaction_markers"], 1)
+            self.assertGreaterEqual(metadata["review_seconds"], 0)
+            self.assertGreater(metadata["review_output_bytes"], 0)
+
+    def test_handoff_pack_privacy_gate_rejects_surviving_secret(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            review = root / "review"
+            repo.mkdir()
+            review.mkdir()
+            (review / "app.py").write_text(
+                "token = 'ghp_abcdefghijklmnopqrstuvwxyz1234567890'\n", encoding="utf-8"
+            )
+            reasons = night_shift.handoff_pack_privacy_reasons(
+                "Review app.py", review, ["app.py"], repo
+            )
+            self.assertIn("materialized review file retained secret material: app.py", reasons)
+
+    def test_handoff_pack_metrics_count_only_bounded_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            review = Path(tmp)
+            (review / "app.py").write_text("[REDACTED_SECRET]\n", encoding="utf-8")
+            metrics = night_shift.handoff_pack_metrics(
+                "Review\n[REDACTED_SECRET]", review, ["app.py"]
+            )
+            self.assertEqual(metrics["materialized_file_count"], 1)
+            self.assertEqual(metrics["redaction_markers"], 2)
+            self.assertGreater(metrics["materialized_bytes"], 0)
+            self.assertGreater(metrics["prompt_bytes"], 0)
 
     def test_handoff_reviews_pinned_revision_when_checkout_has_moved(self):
         with tempfile.TemporaryDirectory() as tmp:
