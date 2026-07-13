@@ -49,6 +49,9 @@ def extract_unified_diff(output: str) -> str:
             f"--- a/{path}\n+++ b/{path}", cleaned, count=1,
         )
         patch = f"diff --git a/{path} b/{path}\n{normalized}"
+    # The bundled worker wrapper appends its proof path to stdout. Keep that
+    # runtime metadata out of the patch while preserving every model diff line.
+    patch = patch.split("\nMAESTRO_PROOF=", 1)[0]
     patch = patch.replace("```diff\n", "").replace("```\n", "")
     patch = "\n".join(
         "+" if line.startswith("+") and line[1:].strip() == "" else line
