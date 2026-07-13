@@ -13,7 +13,7 @@ if [ -z "$base" ]; then
   echo "WINDOWS_WORKER_BASE_URL is not set. Example: http://windows-host.local:11434/v1" >&2
   exit 2
 fi
-response="$(curl -s "$base/chat/completions" \
+if ! response="$(curl -fsS --connect-timeout 5 --max-time 180 "$base/chat/completions" \
   -H "Authorization: Bearer $key" \
   -H "Content-Type: application/json" \
   -d "$(python3 - "$model" "$prompt" "$max_tokens" <<'PY'
@@ -21,16 +21,26 @@ import json, sys
 model, prompt, max_tokens = sys.argv[1], sys.argv[2], int(sys.argv[3])
 print(json.dumps({"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}))
 PY
-)")"
+)")"; then
+  echo "Windows worker request failed; the other computer may be offline or still loading its model." >&2
+  exit 1
+fi
 content="$(python3 - "$response" <<'PY'
 import json, sys
-data=json.loads(sys.argv[1])
-if "choices" not in data:
-    print(json.dumps(data, sort_keys=True), file=sys.stderr)
+try:
+    data = json.loads(sys.argv[1])
+    content = data["choices"][0]["message"]["content"].strip()
+    if not content:
+        raise ValueError("empty content")
+except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+    print("Windows worker returned no usable chat content; the response was rejected.", file=sys.stderr)
     raise SystemExit(1)
-print(data["choices"][0]["message"]["content"].strip())
+print(content)
 PY
-)"
+ )" || {
+  echo "Windows worker returned an unreadable response; no draft was kept." >&2
+  exit 1
+}
 printf '%s\n' "$content"
 python3 - "$prompt" "$content" "$model" <<'PY'
 import json, sys

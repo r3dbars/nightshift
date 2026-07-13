@@ -8,23 +8,33 @@ if [ -z "$prompt" ]; then
   echo "usage: maestro-local <prompt>" >&2
   exit 2
 fi
-response="$(curl -s "$base/chat/completions" \
+if ! response="$(curl -fsS --connect-timeout 5 --max-time 180 "$base/chat/completions" \
   -H "Content-Type: application/json" \
   -d "$(python3 - "$model" "$prompt" "$max_tokens" <<'PY'
 import json, sys
 model, prompt, max_tokens = sys.argv[1], sys.argv[2], int(sys.argv[3])
 print(json.dumps({"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}))
 PY
-)")"
+)")"; then
+  echo "Mac local AI request failed; I will leave this task untouched." >&2
+  exit 1
+fi
 content="$(python3 - "$response" <<'PY'
 import json, sys
-data=json.loads(sys.argv[1])
-if "choices" not in data:
-    print(json.dumps(data, sort_keys=True), file=sys.stderr)
+try:
+    data = json.loads(sys.argv[1])
+    content = data["choices"][0]["message"]["content"].strip()
+    if not content:
+        raise ValueError("empty content")
+except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+    print("Mac local AI returned no usable chat content; the response was rejected.", file=sys.stderr)
     raise SystemExit(1)
-print(data["choices"][0]["message"]["content"].strip())
+print(content)
 PY
-)"
+ )" || {
+  echo "Mac local AI returned an unreadable response; no draft was kept." >&2
+  exit 1
+}
 printf '%s\n' "$content"
 python3 - "$prompt" "$content" "$model" <<'PY'
 import json, sys
