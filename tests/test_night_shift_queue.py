@@ -101,6 +101,31 @@ class QueueEvidenceTests(unittest.TestCase):
             self.assertIn("call_matches=0", invocation)
             self.assertTrue(any(key.startswith("goal-source/") for key in evidence))
 
+    def test_owner_scoped_gap_and_source_survive_same_name_collisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "src.py").write_text(
+                "def save():\n    return 0\n\n"
+                "class Alpha:\n    def save(self):\n        return 1\n\n"
+                "class Beta:\n    def save(self):\n        return 2\n",
+                encoding="utf-8",
+            )
+            (repo / "test_src.py").write_text(
+                "from src import Alpha\nalpha = Alpha()\nalpha.save()\n", encoding="utf-8"
+            )
+            scan = {
+                "tracked_files": ["src.py", "test_src.py"], "source_files": ["src.py"],
+                "test_files": ["test_src.py"], "coverage_test_files": ["test_src.py"],
+            }
+            gap = QueueEvidenceIndex(repo, scan).coverage_gaps(["src.py"])[0]
+            invocation = next(
+                value for key, value in gap[2].items() if key.startswith("invocation-index/")
+            )
+            source = next(value for key, value in gap[2].items() if key.startswith("goal-source/"))
+            self.assertIn("owner=Beta", invocation)
+            self.assertIn("source_line=9 | def save(self):", source)
+            self.assertNotIn("source_line=1 | def save():", source)
+
     def test_binary_source_is_not_treated_as_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

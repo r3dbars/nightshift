@@ -247,13 +247,28 @@ class QueueEvidenceIndex:
             ordered_symbols = list(dict.fromkeys(
                 preferred + [symbol for _owner, symbol in owned_methods] + symbols
             ))
-            missing = next(
-                (
-                    symbol for symbol in ordered_symbols
-                    if not symbol.startswith("_") and not re.search(rf"\b{re.escape(symbol)}\b", test_corpus)
-                ),
-                "",
+            owner = ""
+            owned_invocation: dict[str, str] = {}
+            preferred_owned = sorted(
+                owned_methods,
+                key=lambda row: (0 if row[1] in preferred else 1, owned_methods.index(row)),
             )
+            missing = ""
+            for candidate_owner, candidate_symbol in preferred_owned:
+                invocation = self.invocation_gap(path, candidate_symbol, candidate_owner)
+                invocation_text = "\n".join(invocation.values())
+                if "call_matches=0" in invocation_text and "scan_complete=true" in invocation_text:
+                    owner, missing, owned_invocation = candidate_owner, candidate_symbol, invocation
+                    break
+            if not missing:
+                missing = next(
+                    (
+                        symbol for symbol in ordered_symbols
+                        if not symbol.startswith("_")
+                        and not re.search(rf"\b{re.escape(symbol)}\b", test_corpus)
+                    ),
+                    "",
+                )
             if not missing:
                 continue
             safe_source = re.sub(r"[^A-Za-z0-9_.-]+", "-", path).strip("-")
@@ -267,10 +282,9 @@ class QueueEvidenceIndex:
                 "identifier_matches=0",
                 f"scan_complete={'true' if corpus_complete and corpus_files_scanned == len(coverage_test_paths) else 'false'}",
             ])}
-            owner = next((value for value, symbol in owned_methods if symbol == missing), "")
             if owner:
-                evidence.update(self.invocation_gap(path, missing, owner))
-                evidence.update(self.symbol_source_evidence(path, missing))
+                evidence.update(owned_invocation)
+                evidence.update(self.symbol_source_evidence(path, missing, owner))
             gaps.append((path, missing, evidence))
         return gaps
 
@@ -317,17 +331,30 @@ class QueueEvidenceIndex:
             f"scan_complete={'true' if coverage_test_paths and complete and scanned == len(coverage_test_paths) else 'false'}",
         ])}
 
-    def symbol_source_evidence(self, source_path: str, symbol: str) -> dict[str, str]:
+    def symbol_source_evidence(
+        self, source_path: str, symbol: str, owner: str = ""
+    ) -> dict[str, str]:
         lines = self.read_current_text(source_path).splitlines()
         declaration = None
         if Path(source_path).suffix == ".py":
             try:
                 tree = ast.parse("\n".join(lines))
-                node = next(
-                    value for value in ast.walk(tree)
-                    if isinstance(value, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                    and value.name == symbol
-                )
+                if owner:
+                    owner_node = next(
+                        value for value in tree.body
+                        if isinstance(value, ast.ClassDef) and value.name == owner
+                    )
+                    node = next(
+                        value for value in owner_node.body
+                        if isinstance(value, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and value.name == symbol
+                    )
+                else:
+                    node = next(
+                        value for value in tree.body
+                        if isinstance(value, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                        and value.name == symbol
+                    )
                 declaration = node.lineno - 1
             except (SyntaxError, StopIteration):
                 return {}
