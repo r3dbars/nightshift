@@ -157,7 +157,11 @@ class DraftEngine:
             if contract:
                 test_files = [path for path in files if is_test_path(path) and path.endswith(".py")]
                 source_file = contract["source_file"]
-                if source_file not in files or not test_files:
+                source_exists = (
+                    self.run_cmd(["git", "cat-file", "-e", f"{source_ref}:{source_file}"], cwd=repo, timeout=20).rc == 0
+                    if source_ref else (repo / source_file).is_file()
+                )
+                if not source_exists or not test_files:
                     continue
                 files = test_files
                 item = {

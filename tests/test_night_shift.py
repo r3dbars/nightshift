@@ -2729,6 +2729,38 @@ buildThing() { return 1; }
             )
             self.assertIsNone(valid_test_strengthening_candidate(candidate, root))
 
+    def test_candidate_selection_keeps_source_read_only_for_test_strengthening(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger"
+            ledger.mkdir()
+            source_ref = "a" * 40
+            evidence = {
+                "invocation-index/drafts-cleanup.txt": (
+                    "symbol=cleanup\nsource_file=src/drafts.py\nowner=DraftEngine\n"
+                    "analysis=python-ast\nsymbol=cleanup call_matches=0\nscan_complete=true"
+                )
+            }
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "key": "test-gap", "executable": True, "proof_kind": "test", "score": "MAYBE",
+                "action_type": "draft-pr-candidate", "source_ref": source_ref,
+                "files": ["tests/test_drafts.py"], "verification_commands": ["python -m unittest"],
+                "tests": "python -m unittest", "evidence_sources": evidence,
+            }]), encoding="utf-8")
+
+            def fake_run(args, **_kwargs):
+                exists = args[:3] == ["git", "cat-file", "-e"] and args[3] in {
+                    f"{source_ref}:tests/test_drafts.py", f"{source_ref}:src/drafts.py",
+                }
+                return night_shift.CmdResult("git", 0 if exists else 1, "", "")
+
+            selected = night_shift.DraftEngine(fake_run, root / "worktrees", lambda: "now").select_candidate(
+                ledger, root, lambda _repo: {"test_commands": []}, {"strengthen": 300},
+            )
+            self.assertEqual(selected["files"], ["tests/test_drafts.py"])
+            self.assertEqual(selected["context_files"], ["src/drafts.py", "tests/test_drafts.py"])
+            self.assertEqual(selected["draft_intent"], "test-strengthening")
+
     def test_clean_baseline_can_only_promote_proven_test_strengthening(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
