@@ -12,9 +12,11 @@ from typing import Callable
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
 from night_shift_sandbox import sandbox_command, sandbox_patch_command
 from night_shift_patch_protocol import materialize_test_method_patch, patch_prompt, validate_patch
-from night_shift_python_evidence import owner_symbol_call_count_text
+from night_shift_python_evidence import owner_symbol_call_count_text, semantic_test_contract_reasons
 from night_shift_queue import is_test_path
 from night_shift_state import record_state
+
+MAX_VERIFICATION_REPAIRS = 2
 
 
 def draft_proof_status(baseline_rc: int, after_rc: int, guards: list[str]) -> tuple[str, str]:
@@ -50,6 +52,17 @@ def patch_format_correction(files: list[str]) -> str:
         "CORRECTION: Return the complete patch again with no markdown fence or prose. "
         + header
         + " Include the matching `--- a/...`, `+++ b/...`, and `@@` lines."
+    )
+
+
+def verification_correction_prompt(patch: str, failure_output: str) -> str:
+    return (
+        "VERIFICATION CORRECTION: The patch applied but the approved repository check failed. "
+        "Return a complete corrected unified diff against the original pinned source. Change only "
+        "the allowed test file and preserve every semantic proof requirement. Match every fake result "
+        "attribute to the exact attribute consumed by the pinned source (for example, rc is not "
+        "returncode). Fix the exact latest failure without weakening assertions.\n\n"
+        f"CURRENT PATCH:\n{patch[-8000:]}\n\nFAILURE OUTPUT:\n{failure_output[-5000:]}"
     )
 
 
@@ -254,10 +267,12 @@ class DraftEngine:
         safe_task: str,
         correction: str = "",
         patch_lane: str = "windows",
+        source_override: str | None = None,
     ):
         delegate = shutil.which("maestro-delegate") or str(Path.home() / ".codex" / "bin" / "maestro-delegate")
         context_files = candidate.get("context_files") or candidate["files"]
-        prompt = patch_prompt(candidate, self.source_excerpt(repo, source_ref, context_files), command)
+        source = self.source_excerpt(repo, source_ref, context_files) if source_override is None else source_override
+        prompt = patch_prompt(candidate, source, command)
         if correction:
             prompt += "\n\n" + correction
         env = os.environ.copy()
@@ -389,6 +404,18 @@ class DraftEngine:
         else:
             record_state(lifecycle_path, fingerprint, "REPRODUCED", baseline_rc=baseline.rc, verification=verification)
             record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="reproduced failure handed to bounded patch worker")
+        if strengthening and not candidate.get("semantic_contract"):
+            record_state(
+                lifecycle_path, fingerprint, "REJECTED",
+                reason="test-strengthening mission has no explicit semantic contract",
+            )
+            return finish({
+                "status": "REJECT",
+                "reason": "test-strengthening mission has no explicit semantic contract",
+                "baseline_rc": baseline.rc,
+                "semantic_contract": {},
+                "proof_level": "gap confirmed only",
+            })
         if not worker_url or not worker_model:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="sandboxed coding lane is not configured")
             return finish(
@@ -495,6 +522,70 @@ class DraftEngine:
             timeout=min(verify_timeout, profile.max_seconds),
             pid_log=parent_ledger / "processes.tsv",
         )
+        if verified.rc != 0 and strengthening:
+            repair_sandbox = sandbox_dir
+            for attempt in range(1, MAX_VERIFICATION_REPAIRS + 1):
+                verification_output_path = repair_sandbox / "verification.txt"
+                retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
+                if retry_timeout <= 0:
+                    break
+                failure_output = (
+                    verification_output_path.read_text(encoding="utf-8", errors="replace")[-5000:]
+                    if verification_output_path.exists() else (verified.stderr or verified.stdout)[-5000:]
+                )
+                current_patch = patch_path.read_text(encoding="utf-8", errors="replace")[-8000:]
+                correction = verification_correction_prompt(current_patch, failure_output)
+                repair = self.ask_for_patch(
+                    worktree, source_ref, candidate, verification_argv, retry_timeout,
+                    worker_url, worker_model, parent_ledger,
+                    f"{safe_task}-verification-{attempt}", correction, patch_lane,
+                    source_override="Use CURRENT PATCH below as the exact pinned source context.",
+                )
+                (proof_dir / f"{safe_task}.verification-worker-attempt-{attempt}.txt").write_text(
+                    (repair.stdout + "\n" + repair.stderr).strip() + "\n", encoding="utf-8"
+                )
+                if attempt == 1:
+                    (proof_dir / f"{safe_task}.verification-worker.txt").write_text(
+                        (repair.stdout + "\n" + repair.stderr).strip() + "\n", encoding="utf-8"
+                    )
+                repaired = validate_patch(repair.stdout, candidate["files"], profile)
+                repaired_patch = repaired.patch
+                repair_applies = False
+                if repaired.valid:
+                    patch_path.write_text(repaired_patch, encoding="utf-8")
+                    repair_applies = self.run_cmd(
+                        ["git", "apply", "--check", patch_path], cwd=worktree, timeout=30
+                    ).rc == 0
+                if (not repaired.valid or not repair_applies) and len(candidate["files"]) == 1:
+                    try:
+                        original_test = (worktree / candidate["files"][0]).read_text(encoding="utf-8")
+                    except (OSError, UnicodeError):
+                        original_test = ""
+                    repaired_patch = materialize_test_method_patch(
+                        repair.stdout, original_test, candidate["files"][0]
+                    )
+                    repaired = validate_patch(repaired_patch, candidate["files"], profile)
+                    if repaired.valid:
+                        patch_path.write_text(repaired_patch, encoding="utf-8")
+                        repair_applies = self.run_cmd(
+                            ["git", "apply", "--check", patch_path], cwd=worktree, timeout=30
+                        ).rc == 0
+                if repair.rc != 0 or not repaired.valid or not repair_applies:
+                    continue
+                patch_path.write_text(repaired_patch, encoding="utf-8")
+                retry_sandbox = proof_dir / f"{safe_task}-verification-sandbox-{attempt}"
+                retry_sandbox.mkdir(parents=True, exist_ok=True)
+                verified = self.run_cmd(
+                    sandbox_patch_command(worktree, patch_path, retry_sandbox, verification_argv, profile),
+                    cwd=worktree, timeout=min(retry_timeout, profile.max_seconds),
+                    pid_log=parent_ledger / "processes.tsv",
+                )
+                sandbox_dir = retry_sandbox
+                repair_sandbox = retry_sandbox
+                proposed = repaired
+                model = repair
+                if verified.rc == 0:
+                    break
         (sandbox_dir / "runner.txt").write_text(
             (verified.stdout + "\n" + verified.stderr).strip() + "\n",
             encoding="utf-8",
@@ -527,10 +618,23 @@ class DraftEngine:
                 ) if replayed.rc == 0 else None
                 if count is None or count <= 0:
                     guards.append("test strengthening did not add a proven owner-aware invocation")
+                if replayed.rc == 0 and count is not None and candidate.get("semantic_contract"):
+                    try:
+                        patched_texts = [
+                            (worktree / path).read_text(encoding="utf-8") for path in candidate["files"]
+                        ]
+                    except (OSError, UnicodeError):
+                        guards.append("patched tests could not be read for semantic proof")
+                    else:
+                        guards.extend(semantic_test_contract_reasons(
+                            patched_texts, candidate["semantic_contract"],
+                            strengthening["owner"], strengthening["symbol"],
+                        ))
         status, proof_level = draft_proof_status(baseline.rc, after_rc, guards)
         record_state(
             lifecycle_path, fingerprint, "VERIFIED" if status != "REJECT" else "REJECTED",
             patch=str(applied_path if applied_path.exists() else patch_path), after_rc=after_rc, guards=guards,
+            semantic_contract=candidate.get("semantic_contract") or {},
         )
         return finish({
             "status": status,
@@ -549,5 +653,6 @@ class DraftEngine:
             "sandbox_rc": verified.rc,
             "sandbox_output": str(sandbox_dir / "runner.txt"),
             "guard_reasons": guards,
+            "semantic_contract": candidate.get("semantic_contract") or {},
             "proof": str(proof_path),
         })

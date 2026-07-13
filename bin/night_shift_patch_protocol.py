@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import difflib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -133,6 +134,22 @@ def validate_patch(
 
 def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...]) -> str:
     contract = candidate.get("strengthening_contract") or {}
+    semantic = candidate.get("semantic_contract") or {}
+    semantic_guidance: list[str] = []
+    if semantic.get("minimum_target_invocations"):
+        semantic_guidance.append(
+            f"Invoke the target at least {semantic['minimum_target_invocations']} times in the test."
+        )
+    if semantic.get("required_boolean_outcomes") == [True, False]:
+        semantic_guidance.append(
+            "Arrange distinct fake or fixture preconditions so one target invocation actually returns True "
+            "and another actually returns False, then assert each result; do not reuse an unchanged fake."
+        )
+    if len(semantic.get("ordered_terms") or []) == 2:
+        first, second = semantic["ordered_terms"]
+        semantic_guidance.append(
+            f"Record calls and assert {first} occurs before {second} using separate ordered assertions."
+        )
     if candidate.get("draft_intent") == "test-strengthening":
         edit_policy = (
             "You may modify only an existing allowed TEST file. Add a focused behavioral test "
@@ -152,6 +169,8 @@ TASK: {candidate.get('summary', '')}
 EVIDENCE: {candidate.get('evidence', '')}
 EXPECTED RESULT: {candidate.get('expected_result', '')}
 STRENGTHENING CONTRACT: {contract.get('owner', '')}.{contract.get('symbol', '')}
+SEMANTIC CONTRACT: {json.dumps(semantic, sort_keys=True)}
+SEMANTIC PROOF REQUIREMENTS: {' '.join(semantic_guidance) or 'none'}
 ALLOWED FILES: {', '.join(candidate.get('files', []))}
 VERIFICATION ARGV: {' '.join(command)}
 SOURCE EXCERPT:

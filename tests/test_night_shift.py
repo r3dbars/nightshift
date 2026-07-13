@@ -22,11 +22,36 @@ sys.modules[LOADER.name] = night_shift
 LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
-from night_shift_drafts import owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate
+from night_shift_drafts import MAX_VERIFICATION_REPAIRS, owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
 from night_shift_patch_protocol import materialize_test_method_patch
+from night_shift_python_evidence import semantic_test_contract_reasons
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_semantic_contract_rejects_partial_test_and_accepts_complete_test(self):
+        contract = {
+            "minimum_target_invocations": 2,
+            "required_boolean_outcomes": [True, False],
+            "ordered_terms": ["remove", "prune"],
+        }
+        partial = (
+            "from drafts import DraftEngine\n"
+            "def test_cleanup():\n    engine = DraftEngine()\n    result = engine.cleanup()\n"
+            "    assert result is True\n    assert 'remove'\n    assert 'prune'\n"
+        )
+        reasons = semantic_test_contract_reasons([partial], contract, "DraftEngine", "cleanup")
+        self.assertIn("semantic contract requires at least 2 target invocations; found 1", reasons)
+        self.assertIn("semantic contract requires assertions for both boolean outcomes", reasons)
+        complete = (
+            "from drafts import DraftEngine\n"
+            "def test_cleanup():\n    engine = DraftEngine()\n"
+            "    first = engine.cleanup()\n    second = engine.cleanup()\n"
+            "    assert first is True\n    assert 'remove'\n    assert 'prune'\n    assert second is False\n"
+        )
+        self.assertEqual(
+            semantic_test_contract_reasons([complete], contract, "DraftEngine", "cleanup"), []
+        )
+
     def test_controller_materializes_ast_valid_test_method_at_pinned_tail(self):
         original = (
             "import unittest\n\nclass Tests(unittest.TestCase):\n"
@@ -43,6 +68,20 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn("+    def test_cleanup(self):", patch)
         self.assertIn(' if __name__ == "__main__":', patch)
         self.assertEqual(materialize_test_method_patch("+import os\n", original, "tests/test_app.py"), "")
+
+    def test_patch_prompt_turns_semantic_contract_into_operational_guidance(self):
+        prompt = __import__("night_shift_patch_protocol").patch_prompt({
+            "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
+            "strengthening_contract": {"owner": "DraftEngine", "symbol": "cleanup"},
+            "semantic_contract": {
+                "minimum_target_invocations": 2,
+                "required_boolean_outcomes": [True, False],
+                "ordered_terms": ["remove", "prune"],
+            },
+        }, "source", ("python", "-m", "unittest"))
+        self.assertIn("Invoke the target at least 2 times", prompt)
+        self.assertIn("distinct fake or fixture preconditions", prompt)
+        self.assertIn("assert remove occurs before prune", prompt)
 
     def test_inline_label_parsing_preserves_terminal_source_punctuation(self):
         evidence = (
@@ -2879,12 +2918,28 @@ buildThing() { return 1; }
                 "files": ["tests/test_drafts.py"], "context_files": ["src/drafts.py", "tests/test_drafts.py"],
                 "verification_argv": ["true"], "draft_intent": "test-strengthening",
                 "strengthening_contract": contract,
+                "semantic_contract": {"minimum_target_invocations": 1},
             }
             result = night_shift.DraftEngine(
                 fake_run, Path(tmp) / "worktrees", lambda: "now"
             ).run_draft(repo, "owner/repo", candidate, ledger, 900, "http://local/v1", "coder", profile=profile)
             self.assertEqual(result["status"], "VERIFIED_DRAFT")
             self.assertEqual(result["proof_level"], "passing repository check after a bounded patch")
+            self.assertEqual(result["semantic_contract"], {"minimum_target_invocations": 1})
+            self.assertEqual(
+                night_shift.latest_states(ledger / "task-lifecycle.jsonl")["strengthen"]["semantic_contract"],
+                {"minimum_target_invocations": 1},
+            )
+
+            missing_semantics = night_shift.DraftEngine(
+                fake_run, Path(tmp) / "missing-semantics-worktrees", lambda: "missing-semantics"
+            ).run_draft(
+                repo, "owner/repo", {**candidate, "semantic_contract": {}},
+                Path(tmp) / "missing-semantics-ledger", 900,
+                "http://local/v1", "coder", profile=profile,
+            )
+            self.assertEqual(missing_semantics["status"], "REJECT")
+            self.assertIn("no explicit semantic contract", missing_semantics["reason"])
 
             patch = (
                 "diff --git a/tests/test_drafts.py b/tests/test_drafts.py\n"
@@ -2954,6 +3009,23 @@ buildThing() { return 1; }
             self.assertEqual(calls[0][0][1], "local")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MODEL"], "local-coder")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MAX_TOKENS"], "4096")
+
+    def test_patch_worker_can_replace_large_source_context_for_verification_repair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prompts = []
+
+            def fake_run(args, **_kwargs):
+                prompts.append(args[-1])
+                return night_shift.CmdResult("worker", 0, "", "")
+
+            engine = night_shift.DraftEngine(fake_run, Path(tmp), lambda: "now")
+            engine.ask_for_patch(
+                Path(tmp), "HEAD", {"files": ["tests/test_app.py"]}, ("true",), 10,
+                "http://local/v1", "coder", Path(tmp), "repair", "FAILURE", "local",
+                source_override="COMPACT-CONTEXT",
+            )
+            self.assertIn("COMPACT-CONTEXT", prompts[0])
+            self.assertNotIn("## tests/test_app.py", prompts[0])
 
     def test_test_source_excerpt_includes_pinned_imports_and_tail_anchor(self):
         class Result:
@@ -3256,6 +3328,15 @@ buildThing() { return 1; }
             )
             self.assertEqual(result["status"], "REJECT")
             self.assertEqual(worker_calls, 1)
+
+    def test_verification_failure_prompt_contains_patch_and_failure_without_source_edits(self):
+        correction = verification_correction_prompt("PATCH-SENTINEL", "FAILURE-SENTINEL")
+        self.assertIn("corrected unified diff", correction)
+        self.assertIn("PATCH-SENTINEL", correction)
+        self.assertIn("FAILURE-SENTINEL", correction)
+        self.assertIn("Change only the allowed test file", correction)
+        self.assertIn("rc is not returncode", correction)
+        self.assertEqual(MAX_VERIFICATION_REPAIRS, 2)
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:

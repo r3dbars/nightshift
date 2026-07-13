@@ -15,12 +15,26 @@ from night_shift_queue import (
     TASK_LADDER,
     build_repo_work_queue,
     contains_identifier,
+    goal_semantic_contract,
     is_test_path,
 )
 from night_shift_portfolio import PortfolioEngine
 
 
 class QueueEvidenceTests(unittest.TestCase):
+    def test_goal_semantic_contract_preserves_explicit_outcome_and_order_requirements(self):
+        contract = goal_semantic_contract(
+            "Add a test proving ordered remove and prune calls and both boolean return outcomes"
+        )
+        self.assertEqual(contract["minimum_target_invocations"], 2)
+        self.assertEqual(contract["required_boolean_outcomes"], [True, False])
+        self.assertEqual(contract["ordered_terms"], ["remove", "prune"])
+        self.assertEqual(goal_semantic_contract("Add a cleanup test"), {})
+        self.assertNotIn(
+            "required_boolean_outcomes",
+            goal_semantic_contract("Test the truthful and falsehood labels"),
+        )
+
     def test_issue_symbols_rank_exact_source_matches(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
