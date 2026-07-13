@@ -160,3 +160,8 @@ def validate_handoff_review(
     if not READY_LINE.search(output):
         reasons.append("review must state READY_FOR_IMPLEMENTATION: yes/no")
     return reasons
+
+
+def handoff_review_verdict(output: str) -> str:
+    verdicts = VERDICT_LINE.findall(output)
+    return verdicts[0] if len(verdicts) == 1 else ""

@@ -68,3 +68,67 @@ def apply_task_feedback(
         )
     )
     return ranked, skipped
+
+
+def apply_review_outcomes(
+    tasks: list[dict], outcomes: list[dict], repo: str, source_ref: str
+) -> tuple[list[dict], list[dict]]:
+    """Apply validated review decisions only to the exact candidate revision."""
+    latest: dict[str, dict] = {}
+    for outcome in outcomes:
+        fingerprint = str(outcome.get("fingerprint") or "")
+        if (
+            fingerprint
+            and outcome.get("valid_review") is True
+            and outcome.get("repo") == repo
+            and outcome.get("source_ref") == source_ref
+            and outcome.get("verdict") in {"CONFIRMED", "REJECTED", "NEEDS_INFO"}
+        ):
+            latest[fingerprint] = outcome
+    ready: list[dict] = []
+    skipped: list[dict] = []
+    for task in tasks:
+        row = dict(task)
+        outcome = latest.get(str(row.get("fingerprint") or ""))
+        if not outcome:
+            ready.append(row)
+            continue
+        verdict = outcome["verdict"]
+        row["review_outcome"] = verdict
+        if verdict == "REJECTED":
+            skipped.append({
+                "fingerprint": row.get("fingerprint", ""),
+                "slug": row.get("slug", ""),
+                "category": "review-outcome",
+                "reason": "independent review rejected this exact candidate at this revision",
+            })
+            continue
+        if verdict == "CONFIRMED":
+            row["selection_priority"] = int(
+                row.get("selection_priority") or row.get("ladder_priority") or 0
+            ) + 30
+        ready.append(row)
+    ready.sort(
+        key=lambda row: (
+            -(
+                int(row.get("selection_priority") or row.get("ladder_priority") or 0)
+                + int(row.get("feedback_adjustment") or 0)
+            ),
+            str(row.get("slug") or ""),
+        )
+    )
+    return ready, skipped
+
+
+def should_record_review_outcome(existing: list[dict], outcome: dict) -> bool:
+    identity = (
+        outcome.get("ledger"), outcome.get("item"), outcome.get("fingerprint"),
+        outcome.get("source_ref"), outcome.get("verdict"),
+    )
+    return not any(
+        (
+            row.get("ledger"), row.get("item"), row.get("fingerprint"),
+            row.get("source_ref"), row.get("verdict"),
+        ) == identity
+        for row in existing
+    )
