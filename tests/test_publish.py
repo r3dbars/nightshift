@@ -21,6 +21,7 @@ index 56a6051..243f978 100644
 -return 1
 +return 2
 """
+COMMIT_SHA = "c" * 40
 
 
 def result(rc=0, stdout="", stderr=""):
@@ -70,6 +71,8 @@ class PublishTests(unittest.TestCase):
                     return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
                 if args[:3] == ["git", "diff", "--name-only"]:
                     return result(stdout="src/app.py\n")
+                if args[:3] == ["git", "rev-parse", "HEAD"]:
+                    return result(stdout=COMMIT_SHA + "\n")
                 if args[:3] == ["gh", "pr", "create"]:
                     return result(stdout="https://github.com/owner/repo/pull/7\n")
                 if args[:3] == ["gh", "pr", "view"]:
@@ -160,6 +163,8 @@ class PublishTests(unittest.TestCase):
                     return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
                 if args[:3] == ["git", "diff", "--name-only"]:
                     return result(stdout="src/app.py\n")
+                if args[:3] == ["git", "rev-parse", "HEAD"]:
+                    return result(stdout=COMMIT_SHA + "\n")
                 if args[:3] == ["gh", "pr", "create"]:
                     return result(stdout="https://github.com/owner/repo/pull/8\n")
                 if args[:3] == ["gh", "pr", "view"]:
@@ -202,8 +207,10 @@ class PublishTests(unittest.TestCase):
             root = Path(tmp)
             patch_path = root / "repair.patch"
             patch_path.write_text(PATCH, encoding="utf-8")
+            ls_calls = 0
 
             def fake(command, **kwargs):
+                nonlocal ls_calls
                 args = [str(item) for item in command]
                 if args[:3] == ["gh", "api", "user"]:
                     return result(stdout="owner\n")
@@ -211,6 +218,8 @@ class PublishTests(unittest.TestCase):
                     return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
                 if args[:3] == ["git", "diff", "--name-only"]:
                     return result(stdout="src/app.py\n")
+                if args[:3] == ["git", "rev-parse", "HEAD"]:
+                    return result(stdout=COMMIT_SHA + "\n")
                 if args[:3] == ["gh", "pr", "create"]:
                     return result(stdout="https://github.com/owner/repo/pull/9\n")
                 if args[:3] == ["gh", "pr", "view"]:
@@ -218,7 +227,8 @@ class PublishTests(unittest.TestCase):
                 if args[:3] == ["gh", "pr", "close"]:
                     return result(rc=1)
                 if args[:3] == ["git", "ls-remote", "--exit-code"]:
-                    return result(stdout="abc\trefs/heads/night-shift/test\n")
+                    ls_calls += 1
+                    return result(rc=2) if ls_calls == 1 else result(stdout=f"{COMMIT_SHA}\trefs/heads/night-shift/test\n")
                 if args[:4] == ["git", "push", "origin", "--delete"]:
                     return result(rc=1)
                 return result()
@@ -235,8 +245,10 @@ class PublishTests(unittest.TestCase):
             root = Path(tmp)
             patch_path = root / "repair.patch"
             patch_path.write_text(PATCH, encoding="utf-8")
+            ls_calls = 0
 
             def fake(command, **kwargs):
+                nonlocal ls_calls
                 args = [str(item) for item in command]
                 if args[:3] == ["gh", "api", "user"]:
                     return result(stdout="owner\n")
@@ -244,10 +256,13 @@ class PublishTests(unittest.TestCase):
                     return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
                 if args[:3] == ["git", "diff", "--name-only"]:
                     return result(stdout="src/app.py\n")
+                if args[:3] == ["git", "rev-parse", "HEAD"]:
+                    return result(stdout=COMMIT_SHA + "\n")
                 if len(args) >= 4 and args[:3] == ["git", "push", "origin"] and "--delete" not in args:
                     return result(rc=124, stderr="timeout")
                 if args[:3] == ["git", "ls-remote", "--exit-code"]:
-                    return result(rc=1, stderr="network unavailable")
+                    ls_calls += 1
+                    return result(rc=2) if ls_calls == 1 else result(rc=1, stderr="network unavailable")
                 return result()
 
             published = PublishEngine(fake, root / "worktrees", lambda: "now").publish(
@@ -255,6 +270,35 @@ class PublishTests(unittest.TestCase):
             )
             self.assertEqual(published["status"], "REMOTE_CLEANUP_REQUIRED")
             self.assertTrue(published["remote_branch_created"])
+
+    def test_existing_branch_collision_is_never_pushed_or_deleted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            patch_path = root / "repair.patch"
+            patch_path.write_text(PATCH, encoding="utf-8")
+            calls = []
+
+            def fake(command, **kwargs):
+                args = [str(item) for item in command]
+                calls.append(args)
+                if args[:3] == ["gh", "api", "user"]:
+                    return result(stdout="owner\n")
+                if args[:3] == ["gh", "repo", "view"]:
+                    return result(stdout=json.dumps({"nameWithOwner": "owner/repo", "isFork": False, "defaultBranchRef": {"name": "main"}}))
+                if args[:3] == ["git", "diff", "--name-only"]:
+                    return result(stdout="src/app.py\n")
+                if args[:3] == ["git", "rev-parse", "HEAD"]:
+                    return result(stdout=COMMIT_SHA + "\n")
+                if args[:3] == ["git", "ls-remote", "--exit-code"]:
+                    return result(stdout=f"{'d' * 40}\trefs/heads/night-shift/collision\n")
+                return result()
+
+            published = PublishEngine(fake, root / "worktrees", lambda: "now").publish(
+                root, "owner/repo", self.proof(patch_path), profile(), root / "proof"
+            )
+            self.assertEqual(published["status"], "REJECT")
+            pushes = [args for args in calls if args[:2] == ["git", "push"]]
+            self.assertEqual(pushes, [])
 
 
 if __name__ == "__main__":
