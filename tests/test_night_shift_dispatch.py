@@ -90,6 +90,25 @@ class DispatchOneTests(unittest.TestCase):
         self.assertEqual(outcome["retry_count"], 0)
         self.assertEqual(outcome["score"], "MAYBE")
 
+    def test_coverage_signature_test_is_rejected_as_test_theater(self):
+        theater = GOOD_OUTPUT.replace(
+            "CLAIM: the helper always returns zero",
+            "CLAIM: add an import and signature test for the helper",
+        ).replace(
+            "EXPECTED_RESULT: pytest passes",
+            "EXPECTED_RESULT: the signature exists and the import succeeds",
+        )
+        result = SimpleNamespace(rc=0, stdout=theater, stderr="", timed_out=False)
+        outcome, run_cmd, _ledger = self._dispatch(
+            [result, result],
+            candidate_files=["src/app.py"],
+            verification_commands=["python -m pytest tests/test_app.py"],
+            evidence_sources={"coverage-index/app-run.txt": "scan_complete=true\nidentifier_matches=0"},
+        )
+        self.assertEqual(outcome["score"], "REJECT")
+        self.assertEqual(len(run_cmd.calls), 2)
+        self.assertIn("tests symbol presence", "; ".join(outcome["quality_reasons"]))
+
     def test_explicit_reject_action_never_retries(self):
         first = SimpleNamespace(rc=0, stdout="ACTION_TYPE: reject\n", stderr="", timed_out=False)
         outcome, run_cmd, _ledger = self._dispatch([first])

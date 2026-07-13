@@ -37,7 +37,7 @@ from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
+from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_review_outcomes, apply_task_feedback, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_selection import (
@@ -99,6 +99,7 @@ from night_shift_evidence import (
     first_label_value,
     label_block,
     output_quality_reasons,
+    proposes_test_theater,
     score_output,
     summarize_output,
 )
@@ -3561,6 +3562,9 @@ def command_handoff(args) -> int:
         "return_code": result.rc,
         "source_ref": source_ref,
         "valid_review": not review_reasons,
+        "utility_valid": not review_reasons,
+        "ready_for_implementation": handoff_review_ready(review_output) if result.rc == 0 else False,
+        "utility_schema": 2,
         "validation_reasons": review_reasons,
     }
     (handoff_dir / f"item-{args.item}-{args.agent}.json").write_text(
@@ -3577,6 +3581,9 @@ def command_handoff(args) -> int:
         "repo": str(repo),
         "source_ref": source_ref,
         "valid_review": True,
+        "ready_for_implementation": handoff_review_ready(review_output),
+        "utility_valid": True,
+        "utility_schema": 2,
         "verdict": handoff_review_verdict(review_output),
     }
     if outcome["fingerprint"] and outcome["source_ref"] and outcome["verdict"]:

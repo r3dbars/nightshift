@@ -226,6 +226,29 @@ def clean_inline_code(value: str) -> str:
     return cleaned
 
 
+def proposes_test_theater(output: str) -> bool:
+    """Detect test plans that prove symbol presence instead of behavior."""
+    proposal_lines = [
+        line for line in output.splitlines()
+        if not (
+            re.match(r"\s*(?:EVIDENCE\s*:)?\s*[A-Za-z0-9_./@+-]+:\d+\s*\|", line, re.IGNORECASE)
+            or re.search(r"\[[A-Za-z0-9_./@+-]+(?::\d+)?\]\([^\n)]+:\d+(?:[-–]\d+)?\)", line)
+            or re.search(r"\[[A-Za-z0-9_./@+-]+:\d+\]\([^\n)]+\)", line)
+        )
+    ]
+    low = " ".join("\n".join(proposal_lines).lower().split())
+    presence_test = re.search(
+        r"(?:test|assert|check).{0,48}(?:signature|import|exist(?:s|ence)?|identifier|textual (?:match|reference))"
+        r"|(?:signature|import|exist(?:s|ence)?|identifier|textual (?:match|reference)).{0,48}(?:test|assert|check)",
+        low,
+    )
+    behavior = re.search(
+        r"\b(?:return(?:s|ed|ing)?|rais(?:e|es|ed|ing)|throw(?:s|n|ing)?|response|status code|state change|side effect|output|error message|failure path|success path|observable behavior)\b",
+        low,
+    )
+    return bool(presence_test and not behavior)
+
+
 def output_quality_reasons(
     rc: int,
     output: str,
@@ -267,6 +290,9 @@ def output_quality_reasons(
     reasons.extend(
         evidence_validation_reasons(output, repo, candidate_files, proof_kind, evidence_sources, source_ref)
     )
+    coverage_only = any(str(path).startswith("coverage-index/") for path in (evidence_sources or {}))
+    if coverage_only and proposes_test_theater(output):
+        reasons.append("coverage proposal tests symbol presence instead of observable behavior")
     if action_type(output) == "reject":
         reasons.append("worker explicitly rejected the task")
     return reasons
@@ -328,6 +354,7 @@ def score_output(
         "missing an exact verification command",
         "verification command",
         "file to touch",
+        "coverage proposal",
     )
     if any(reason.startswith(critical_quality) for reason in quality_reasons):
         return "REJECT"
