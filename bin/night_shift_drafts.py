@@ -459,8 +459,10 @@ class DraftEngine:
                 original_test = (worktree / test_file).read_text(encoding="utf-8") if test_file else ""
             except (OSError, UnicodeError):
                 original_test = ""
-            recovered = materialize_test_method_patch(first_model_output, original_test, test_file)
-            if recovered:
+            for recovery_output in (first_model_output, model.stdout):
+                recovered = materialize_test_method_patch(recovery_output, original_test, test_file)
+                if not recovered:
+                    continue
                 recovered_check = validate_patch(recovered, candidate["files"], profile)
                 patch_path.write_text(recovered, encoding="utf-8")
                 applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
@@ -468,6 +470,7 @@ class DraftEngine:
                     proposed = recovered_check
                     apply_reason = ""
                     patch_recovered = True
+                    break
         if (model.rc != 0 and not patch_recovered) or not proposed.valid or apply_reason:
             rejection = "; ".join(proposed.reasons) or apply_reason or "patch worker failed"
             record_state(lifecycle_path, fingerprint, "REJECTED", reason=rejection)
