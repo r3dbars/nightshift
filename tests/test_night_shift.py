@@ -581,6 +581,23 @@ ACTION_TYPE: patch-plan
             )
             self.assertEqual(reasons, [])
 
+    def test_exact_source_quote_preserves_a_trailing_string_delimiter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "status.py").write_text(
+                "def status():\n    return \"UNKNOWN\"\n", encoding="utf-8"
+            )
+            output = """CLAIM: `status` returns UNKNOWN
+EVIDENCE: status.py:2 | return "UNKNOWN"
+FILES_TO_TOUCH: status.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: status() returns UNKNOWN
+ACTION_TYPE: patch-plan
+"""
+            self.assertEqual(
+                night_shift.evidence_validation_reasons(output, repo, ["status.py"]), []
+            )
+
     def test_correction_prompt_lists_exact_evidence_paths(self):
         prompt = night_shift.correction_prompt(
             "Inspect the gap.",

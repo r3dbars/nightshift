@@ -180,7 +180,9 @@ def evidence_validation_reasons(
             source_line = lines[int(raw_line) - 1]
         except (OSError, ValueError, IndexError):
             return [f"evidence path or line does not exist: {relative}:{raw_line}"]
-        quote = raw_quote.strip().strip("`").strip('"').strip()
+        quote = raw_quote.strip()
+        if len(quote) >= 2 and quote[0] == quote[-1] and quote[0] in {'`', '"'}:
+            quote = quote[1:-1].strip()
         if " ".join(quote.split()) != " ".join(source_line.strip().split()):
             return [f"evidence quote does not match source: {relative}:{raw_line}"]
         source_intent = bool(re.search(
