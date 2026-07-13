@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+
+DEFAULT_MODE = "night-shift"
+
+
+def rows_by_name(rows: list[tuple[str, str, str]]) -> dict[str, tuple[str, str]]:
+    return {name: (state, message) for name, state, message in rows}
+
+
+def row_state(rows: list[tuple[str, str, str]], name: str) -> str:
+    return rows_by_name(rows).get(name, ("", ""))[0]
+
+
+def detected_tools(rows: list[tuple[str, str, str]], privacy_route: str = "mac-only") -> list[str]:
+    by_name = rows_by_name(rows)
+    tools = []
+    if by_name.get("local-models", ("", ""))[0] == "GREEN" and by_name.get("local-chat", ("", ""))[0] == "GREEN":
+        tools.append("local Mac AI")
+    if privacy_route == "mac-and-lan" and by_name.get("windows-worker", ("", ""))[0] == "GREEN":
+        tools.append("another computer")
+    if by_name.get("gh-auth", ("", ""))[0] == "GREEN":
+        tools.append("GitHub CLI for repo context")
+    return tools
+
+
+def mode_label(mode: str) -> str:
+    return {"quiet": "Quiet", "night-shift": "Normal", "afterburner": "Afterburner"}.get(mode, mode)
+
+
+def wake_goal_label(goal: str) -> str:
+    return {
+        "brief": "A short morning brief only",
+        "chores": "Ranked repo chores and test ideas",
+        "draft-prs": "Draft PR candidates, but only after checks",
+    }.get(goal, goal)
+
+
+def privacy_route_label(route: str) -> str:
+    return {
+        "mac-only": "Keep repo context on this Mac",
+        "mac-and-lan": "Use this Mac plus my other AI computer",
+        "cloud-ok": "Cloud coding subscriptions are okay for hard questions",
+    }.get(route, route)
+
+
+def permission_label(permission: str) -> str:
+    return {
+        "brief": "Read only and make a morning brief",
+        "draft-local": "Draft local patch plans and issue candidates, but do not push",
+        "draft-prs": "Prepare local patch candidates for review, but do not push or merge",
+    }.get(permission, permission)
+
+
+def autonomy_copy(permission: str) -> str:
+    return {
+        "brief": "Read-only. Make a brief and a ranked queue.",
+        "draft-local": "More helpful. Draft exact local patch plans, tests, and issue candidates.",
+        "draft-prs": "Most autonomous. Prepare local candidates only after the repo owner enables its sandbox profile.",
+    }.get(permission, "Read-only. Make a brief and a ranked queue.")
+
+
+def stop_label(stop: str) -> str:
+    return {
+        "morning": "Stop when I come back",
+        "2h": "Stop after 2 hours",
+        "6h": "Stop after 6 hours",
+        "8h": "Stop after 8 hours",
+        "10h": "Stop after 10 hours",
+    }.get(stop, stop)
+
+
+def mode_counts(
+    mode: str,
+    mode_defaults: dict,
+    rows: list[tuple[str, str, str]] | None = None,
+    privacy_route: str = "mac-only",
+) -> str:
+    defaults = mode_defaults.get(mode, mode_defaults[DEFAULT_MODE])
+    if rows is None:
+        return "unique task batches, deepest useful work first"
+    by_name = rows_by_name(rows)
+    local = defaults["local"] if (
+        by_name.get("local-models", ("", ""))[0] == "GREEN"
+        and by_name.get("local-chat", ("", ""))[0] == "GREEN"
+    ) else 0
+    windows = defaults["windows"] if (
+        privacy_route == "mac-and-lan" and by_name.get("windows-worker", ("", ""))[0] == "GREEN"
+    ) else 0
+    if local and windows:
+        return "unique task batches on this Mac and the other computer"
+    if local:
+        return "unique task batches on this Mac"
+    if windows:
+        return "unique task batches on the other computer"
+    return "planning brief only until worker AI is reachable"
+
+
+def start_preview(config: dict, rows: list[tuple[str, str, str]], mode_defaults: dict) -> str:
+    repo = config.get("project", {}).get("repo", config.get("repo", "unknown"))
+    prefs = config.get("preferences", config)
+    mode = prefs.get("mode", DEFAULT_MODE)
+    permission = prefs.get("permission", "brief")
+    execute_drafts = bool(prefs.get("execute_drafts", False))
+    allow_draft_prs = bool(prefs.get("allow_draft_prs", False))
+    stop = prefs.get("stop", "morning")
+    wake_goal = prefs.get("wake_goal", "brief")
+    privacy_route = prefs.get("privacy_route", "mac-only")
+    tools = detected_tools(rows, privacy_route) or ["no worker AI found yet; planning brief only"]
+    scope = prefs.get("scope", "github-recent")
+    lines = [
+        "", "Night Shift preview", "", "Project:", f"- {repo}", "", "Tonight it WILL:",
+        "- Watch recently active GitHub repos" if scope == "github-recent" else "- Work through this repo",
+        f"- Use: {', '.join(tools)}",
+        f"- Aim for: {wake_goal_label(wake_goal)}",
+        f"- Run in {mode_label(mode)} mode ({mode_counts(mode, mode_defaults, rows, privacy_route)})",
+        f"- {permission_label(permission)}",
+        f"- Autonomy: {autonomy_copy(permission)}",
+        "- Make test-gated patches only in disposable worktrees" if execute_drafts else "- Keep code changes as analysis candidates",
+        "- Open test-passed changes as GitHub draft PRs for review" if allow_draft_prs else "- Keep every code change local",
+        f"- {stop_label(stop)}",
+        "- Save a repo scan, deduped work queue, morning brief, and artifacts",
+        "", "Tonight it WILL NOT:",
+        "- Push branches or open PRs unless you saved explicit draft-PR consent",
+        "- Open a non-draft PR", "- Merge PRs", "- Release, deploy, publish, tag, or notarize",
+        "- Delete or reorganize user files", "- Change credentials, billing, or repo visibility",
+        "- Edit this checkout directly", "- Keep running after the stop limit",
+        "", "Privacy:", f"- {privacy_route_label(privacy_route)}", "", "If this fails, run:",
+        f"  night-shift doctor --repo {repo}",
+    ]
+    return "\n".join(lines)
+
+
+def setup_has_changed(saved: dict, proposed: dict) -> bool:
+    if not saved:
+        return True
+    without_timestamp = lambda value: {key: item for key, item in value.items() if key != "updated_at"}
+    return without_timestamp(saved) != without_timestamp(proposed)
