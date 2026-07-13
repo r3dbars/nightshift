@@ -69,16 +69,38 @@ def main() -> int:
                     "WINDOWS_WORKER_API_KEY": "wrapper-proof-key",
                 },
             )
+            windows_authorization = MalformedHandler.authorization
+            custom_home = Path(tmp) / "custom-codex-home"
+            subprocess.run(
+                [str(ROOT / "install.sh"), "--codex-home", str(custom_home), "--no-path"],
+                cwd=ROOT,
+                env={**env, "SHELL": "/bin/bash"},
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            custom_home_delegate = run_wrapper(
+                [str(custom_home / "bin" / "maestro-delegate"), "local", "--label", "custom-home", "--", "malformed-check"],
+                {
+                    **env,
+                    "CODEX_HOME": str(custom_home),
+                    "MAESTRO_LOCAL_BASE_URL": base,
+                },
+            )
         finally:
             server.shutdown()
 
         for name, result in (("local", malformed_local), ("Windows", malformed_windows)):
             if result.returncode != 1 or "no usable chat content" not in result.stderr:
                 raise SystemExit(f"{name} wrapper did not reject malformed chat JSON")
-        if MalformedHandler.authorization != "Bearer wrapper-proof-key":
+        if windows_authorization != "Bearer wrapper-proof-key":
             raise SystemExit("Windows wrapper did not preserve its authorization header")
+        if custom_home_delegate.returncode != 1 or "MAESTRO_PROOF=" not in custom_home_delegate.stderr:
+            raise SystemExit("maestro-delegate did not honor CODEX_HOME when HOME differed")
+        if not list((custom_home / "maestro" / "runs").glob("*-custom-home-local")):
+            raise SystemExit("maestro-delegate did not write its proof under CODEX_HOME")
 
-    print("WORKER_WRAPPER_ERROR_PROOF: GREEN | offline and malformed local/Windows responses fail closed")
+    print("WORKER_WRAPPER_ERROR_PROOF: GREEN | offline, malformed, and custom CODEX_HOME paths fail closed")
     return 0
 
 

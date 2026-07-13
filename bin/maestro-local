@@ -11,7 +11,7 @@ fi
 if ! response="$(curl -fsS --connect-timeout 5 --max-time 180 "$base/chat/completions" \
   -H "Content-Type: application/json" \
   -d "$(python3 - "$model" "$prompt" "$max_tokens" <<'PY'
-import json, sys
+import json, os, sys
 model, prompt, max_tokens = sys.argv[1], sys.argv[2], int(sys.argv[3])
 print(json.dumps({"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}))
 PY
@@ -50,7 +50,8 @@ event = {
     "output_tokens": max(1, len(content)//4),
 }
 event["total_tokens"] = event["input_tokens"] + event["output_tokens"]
-path = Path.home()/".codex/maestro-sidecar/events.jsonl"
+codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+path = codex_home/"maestro-sidecar/events.jsonl"
 path.parent.mkdir(parents=True, exist_ok=True)
 with path.open("a", encoding="utf-8") as f:
     f.write(json.dumps(event, sort_keys=True)+"\n")
