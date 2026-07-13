@@ -1791,6 +1791,14 @@ def requests_coverage_work(goal: str) -> bool:
     return bool(re.search(rf"\b(?:{action}\b.{{0,48}}\b{target}|{target}\b.{{0,48}}\b{action})\b", goal, re.IGNORECASE))
 
 
+def unchecked_issue_actions(signal: dict) -> list[str]:
+    body = str(signal.get("body") or "")
+    return [
+        match.group(1).strip()
+        for match in re.finditer(r"^\s*[-*]\s*\[\s\]\s+(.+)$", body, re.IGNORECASE | re.MULTILINE)
+    ]
+
+
 def model_task_readiness_reasons(task: dict, mode: str, goal: str = "") -> list[str]:
     """Reject low-signal work before it consumes local or LAN model tokens."""
     reasons: list[str] = []
@@ -1821,8 +1829,10 @@ def model_task_readiness_reasons(task: dict, mode: str, goal: str = "") -> list[
             reasons.append("PR has neither requested changes nor failed checks")
         if not task.get("source_ref"):
             reasons.append("PR review is not pinned to its head SHA")
-    elif slug.startswith("issue-") and not files:
-        reasons.append("issue does not name a tracked repo file")
+    elif slug.startswith("issue-"):
+        actions = unchecked_issue_actions(signal)
+        if mode != "afterburner" and len(actions) > 1:
+            reasons.append(f"issue is a {len(actions)}-item tracker reserved for afterburner")
     elif slug == "recent-change-test-gap" or slug.startswith("changed-file-proof-"):
         evidence = "\n".join(str(value) for value in (task.get("evidence_sources") or {}).values())
         if "scan_complete=true" not in evidence:
@@ -2743,16 +2753,16 @@ def command_run(args) -> int:
         if grounded_queue_count:
             write_outcome_metrics(ledger, [], skipped)
             write_morning(ledger, args.mode, [], target_tokens, "GREEN", scan)
-            print(f"NIGHTSHIFT_RUN: GREEN | no new grounded repo tasks | ledger={ledger}")
+            print(f"NIGHTSHIFT_RUN: YELLOW | no new grounded repo tasks | ledger={ledger}")
             print("Everything at this repo revision was already attempted. Night Shift will wait for new GitHub or code activity.")
             return 0
         if discovered_queue_count:
             write_outcome_metrics(ledger, [], skipped)
             write_morning(ledger, args.mode, [], target_tokens, "GREEN", scan)
-            print(f"NIGHTSHIFT_RUN: GREEN | no model-ready tasks; weak signals skipped before dispatch | ledger={ledger}")
+            print(f"NIGHTSHIFT_RUN: YELLOW | no model-ready tasks; weak signals skipped before dispatch | ledger={ledger}")
             print("Night Shift found repo activity, but none had enough evidence and verification to spend model tokens safely.")
             return 0
-        write_morning(ledger, args.mode, [], target_tokens, "YELLOW")
+        write_morning(ledger, args.mode, [], target_tokens, "YELLOW", scan)
         print(f"NIGHTSHIFT_RUN: YELLOW | no grounded repo tasks found | ledger={ledger}")
         print("Add recent code, tests, issues, or a concrete goal before widening the run.")
         return 0
