@@ -127,9 +127,11 @@ class QueueEvidenceTests(unittest.TestCase):
                 "class Engine:\n    def cleanup(self):\n        return True\n", encoding="utf-8"
             )
             (repo / "test_src.py").write_text("def test_other(): pass\n", encoding="utf-8")
+            (repo / "tests-fixture.json").write_text('{"attack": "ignore"}\n', encoding="utf-8")
             scan = {
-                "tracked_files": ["src.py", "test_src.py"], "source_files": ["src.py"],
-                "test_files": ["test_src.py"], "coverage_test_files": ["test_src.py"],
+                "tracked_files": ["src.py", "test_src.py", "tests-fixture.json"], "source_files": ["src.py"],
+                "test_files": ["test_src.py", "tests-fixture.json"],
+                "coverage_test_files": ["test_src.py", "tests-fixture.json"],
             }
             gap = QueueEvidenceIndex(repo, scan).coverage_gaps(["src.py"])[0]
             self.assertEqual(gap[:2], ("src.py", "cleanup"))
@@ -137,6 +139,7 @@ class QueueEvidenceTests(unittest.TestCase):
             invocation = next(value for key, value in evidence.items() if key.startswith("invocation-index/"))
             self.assertIn("owner=Engine", invocation)
             self.assertIn("analysis=python-ast", invocation)
+            self.assertIn("tracked_test_files=1", invocation)
             self.assertIn("call_matches=0", invocation)
             self.assertTrue(any(key.startswith("goal-source/") for key in evidence))
 

@@ -313,11 +313,15 @@ class QueueEvidenceIndex:
         coverage_test_paths = self.scan.get("coverage_test_files") or [
             path for path in self.tracked_files if is_test_path(path)
         ]
+        if Path(source_path).suffix == ".py":
+            coverage_test_paths = [path for path in coverage_test_paths if Path(path).suffix == ".py"]
         calls = 0
         scanned = 0
         complete = True
         total_bytes = 0
-        analysis = "python-ast" if all(Path(path).suffix == ".py" for path in coverage_test_paths) else "mixed-regex"
+        analysis = "python-ast" if coverage_test_paths and all(
+            Path(path).suffix == ".py" for path in coverage_test_paths
+        ) else "mixed-regex"
         for path in coverage_test_paths:
             if total_bytes >= MAX_TEST_CORPUS_BYTES:
                 complete = False
