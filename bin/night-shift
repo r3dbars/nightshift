@@ -2532,6 +2532,7 @@ def command_run(args) -> int:
                 item.get("evidence_sources", {}),
                 item.get("source_ref", ""),
                 item.get("kind") == "issue",
+                item.get("kind", ""),
                 item.get("semantic_contract", {}),
             )
         )
@@ -2562,6 +2563,7 @@ def command_run(args) -> int:
                 evidence_sources,
                 source_ref,
                 pinned_issue,
+                kind,
                 semantic_contract,
             ) = item
             if lane_running[lane] >= lane_limits[lane]:
@@ -2594,6 +2596,7 @@ def command_run(args) -> int:
                 "proof_kind": proof_kind,
                 "executable": executable,
                 "source_ref": source_ref,
+                "kind": kind,
                 "verification_commands": verification_commands,
                 "evidence_sources": evidence_sources,
                 "semantic_contract": semantic_contract,
@@ -2630,6 +2633,7 @@ def command_run(args) -> int:
                     result["proof_kind"] = pending_item["proof_kind"]
                     result["executable"] = pending_item["executable"]
                     result["source_ref"] = pending_item["source_ref"]
+                    result["kind"] = pending_item["kind"]
                     result["verification_commands"] = pending_item["verification_commands"]
                     result["evidence_sources"] = sanitize_evidence_sources(pending_item["evidence_sources"])
                     result["semantic_contract"] = pending_item["semantic_contract"]
@@ -2661,6 +2665,7 @@ def command_run(args) -> int:
                             "proof_kind": pending_item["proof_kind"],
                             "executable": pending_item["executable"],
                             "source_ref": pending_item["source_ref"],
+                            "kind": pending_item["kind"],
                             "verification_commands": pending_item["verification_commands"],
                             "evidence_sources": sanitize_evidence_sources(pending_item["evidence_sources"]),
                             "semantic_contract": pending_item["semantic_contract"],
