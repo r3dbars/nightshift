@@ -1448,6 +1448,61 @@ buildThing() { return 1; }
             self.assertIn("2 unproven candidate(s); no deterministic outcome", brief)
             self.assertNotIn("weak claim", brief)
 
+    def test_empty_portfolio_brief_gives_one_clear_next_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            child = ledger / "child"
+            child.mkdir()
+            night_shift.portfolio_brief(
+                ledger,
+                [{"repo": "owner/repo", "ledger": str(child), "new_tasks": 0}],
+                "GREEN",
+            )
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("Nothing needs your review from this shift.", brief)
+            self.assertIn("night-shift start --yes", brief)
+            self.assertNotIn("Your morning choices:", brief)
+
+    def test_report_header_matches_morning_brief_status(self):
+        original = night_shift.select_ledger
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                ledger = Path(tmp)
+                (ledger / "morning.md").write_text(
+                    "# Morning Brief\n\nStatus: YELLOW\n", encoding="utf-8"
+                )
+                night_shift.select_ledger = lambda args: ledger
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    rc = night_shift.command_report(
+                        SimpleNamespace(ledger=str(ledger), latest=False)
+                    )
+                self.assertEqual(rc, 0)
+                self.assertIn("NIGHTSHIFT_REPORT: YELLOW", output.getvalue())
+                self.assertNotIn("NIGHTSHIFT_REPORT: GREEN", output.getvalue())
+        finally:
+            night_shift.select_ledger = original
+
+    def test_report_header_fails_closed_for_malformed_morning_status(self):
+        original = night_shift.select_ledger
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                ledger = Path(tmp)
+                (ledger / "morning.md").write_text(
+                    "# Morning Brief\n\nNo machine-readable status here.\n", encoding="utf-8"
+                )
+                night_shift.select_ledger = lambda args: ledger
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    rc = night_shift.command_report(
+                        SimpleNamespace(ledger=str(ledger), latest=False)
+                    )
+                self.assertEqual(rc, 0)
+                self.assertIn("NIGHTSHIFT_REPORT: YELLOW", output.getvalue())
+                self.assertNotIn("NIGHTSHIFT_REPORT: UNKNOWN", output.getvalue())
+        finally:
+            night_shift.select_ledger = original
+
     def test_outcome_metrics_separate_free_pre_model_skips(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)

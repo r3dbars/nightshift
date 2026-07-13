@@ -3478,7 +3478,10 @@ def command_report(args) -> int:
     morning = ledger / "morning.md"
     token_report = ledger / "token-report.txt"
     artifacts = list((ledger / "artifacts").glob("*")) if (ledger / "artifacts").exists() else []
-    print(f"NIGHTSHIFT_REPORT: GREEN | ledger={ledger} | artifacts={len(artifacts)}")
+    report_status = morning_status(morning) if morning.exists() else "YELLOW"
+    if report_status not in {"GREEN", "YELLOW", "RED"}:
+        report_status = "YELLOW"
+    print(f"NIGHTSHIFT_REPORT: {report_status} | ledger={ledger} | artifacts={len(artifacts)}")
     if morning.exists():
         print("")
         print(morning.read_text(encoding="utf-8", errors="replace").strip())
