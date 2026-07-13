@@ -16,6 +16,7 @@ from night_shift_evidence import (
     summarize_output,
 )
 from night_shift_redaction import redact, sanitize_evidence_sources
+from night_shift_models import output_token_budget
 
 
 def coverage_citation_examples(evidence_sources: dict[str, str] | None) -> list[str]:
@@ -179,8 +180,12 @@ def dispatch_one(
 ) -> dict:
     env = dict(env)
     defaults = mode_defaults[mode]
-    env.setdefault("MAESTRO_LOCAL_MAX_TOKENS", str(defaults["local_max_tokens"]))
-    env.setdefault("MAESTRO_WINDOWS_MAX_TOKENS", str(defaults["windows_max_tokens"]))
+    env.setdefault("MAESTRO_LOCAL_MAX_TOKENS", str(output_token_budget(
+        env.get("MAESTRO_LOCAL_MODEL", ""), defaults["local_max_tokens"]
+    )))
+    env.setdefault("MAESTRO_WINDOWS_MAX_TOKENS", str(output_token_budget(
+        env.get("WINDOWS_WORKER_MODEL", ""), defaults["windows_max_tokens"]
+    )))
     start = time.time()
     safe_label = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-") or "task"
 

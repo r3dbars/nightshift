@@ -92,6 +92,23 @@ class DispatchOneTests(unittest.TestCase):
         self.assertEqual(outcome["retry_count"], 0)
         self.assertEqual(outcome["score"], "MAYBE")
 
+    def test_reasoning_model_gets_visible_output_budget(self):
+        result = SimpleNamespace(rc=0, stdout=GOOD_OUTPUT, stderr="", timed_out=False)
+        _outcome, run_cmd, _ledger = self._dispatch(
+            [result], env={"MAESTRO_LOCAL_MODEL": "qwen3.5-35b-a3b"}
+        )
+        self.assertEqual(run_cmd.calls[0]["env"]["MAESTRO_LOCAL_MAX_TOKENS"], "8192")
+
+    def test_explicit_model_budget_is_preserved(self):
+        result = SimpleNamespace(rc=0, stdout=GOOD_OUTPUT, stderr="", timed_out=False)
+        _outcome, run_cmd, _ledger = self._dispatch(
+            [result], env={
+                "MAESTRO_LOCAL_MODEL": "qwen3.5-35b-a3b",
+                "MAESTRO_LOCAL_MAX_TOKENS": "12000",
+            }
+        )
+        self.assertEqual(run_cmd.calls[0]["env"]["MAESTRO_LOCAL_MAX_TOKENS"], "12000")
+
     def test_coverage_signature_test_is_rejected_as_test_theater(self):
         theater = GOOD_OUTPUT.replace(
             "CLAIM: `helper` always returns zero",
