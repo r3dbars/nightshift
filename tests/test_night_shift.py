@@ -1827,7 +1827,8 @@ buildThing() { return 1; }
             read_only_check = __import__("night_shift_sandbox").sandbox_command(root, ("true",), profile)
             self.assertIn("PYTHONDONTWRITEBYTECODE=1", read_only_check)
             self.assertIn(f"{root.resolve()}:/source:ro", read_only_check)
-            self.assertIn("/work:rw,noexec,nosuid,size=512m", read_only_check)
+            self.assertIn("/work:rw,exec,nosuid,size=512m,mode=700", read_only_check)
+            self.assertIn("/tmp:rw,exec,nosuid,size=256m,mode=1777", read_only_check)
             self.assertIn("cp -a /source/. /work/", __import__("night_shift_sandbox").fixed_verify_script())
 
     def test_podman_patch_tmpfs_avoids_docker_only_ownership_options(self):
@@ -1846,6 +1847,7 @@ buildThing() { return 1; }
             self.assertNotIn("uid=", tmpfs)
             self.assertNotIn("gid=", tmpfs)
             self.assertIn("mode=700", tmpfs)
+            self.assertIn("exec", tmpfs)
         finally:
             sandbox.sandbox_runtime = original_runtime
 

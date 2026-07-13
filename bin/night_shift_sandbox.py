@@ -156,7 +156,9 @@ def sandbox_patch_command(
     container tmpfs; the artifact directory receives logs and a candidate diff.
     """
     runtime = sandbox_runtime() or "docker"
-    tmpfs_options = "rw,noexec,nosuid,size=512m,mode=700"
+    # Approved checks may compile and execute test binaries. The workspace is
+    # disposable, no-network tmpfs; the host source remains mounted read-only.
+    tmpfs_options = "rw,exec,nosuid,size=512m,mode=700"
     if Path(runtime).name != "podman":
         tmpfs_options += ",uid=65534,gid=65534"
     return [
@@ -164,6 +166,7 @@ def sandbox_patch_command(
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
         "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"/work:{tmpfs_options}",
+        "--tmpfs", "/tmp:rw,exec,nosuid,size=256m,mode=1777",
         "--volume", f"{source.resolve()}:/source:ro", "--volume", f"{patch.resolve()}:/input/candidate.patch:ro",
         "--volume", f"{artifacts.resolve()}:/artifacts:rw", "--workdir", "/work",
         "--env", "HOME=/tmp", "--env", "GIT_CONFIG_NOSYSTEM=1", profile.image,
@@ -178,13 +181,13 @@ def sandbox_command(repo: Path, command: tuple[str, ...], profile: RepoProfile) 
     its patch to a separate, explicitly mounted artifact directory.
     """
     runtime = sandbox_runtime() or "docker"
-    home = "/tmp/night-shift-home"
+    home = "/tmp"
     return [
         runtime, "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
-        "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"{home}:rw,noexec,nosuid,size=64m",
-        "--tmpfs", "/work:rw,noexec,nosuid,size=512m", "--workdir", "/work",
+        "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"{home}:rw,exec,nosuid,size=256m,mode=1777",
+        "--tmpfs", "/work:rw,exec,nosuid,size=512m,mode=700", "--workdir", "/work",
         "--volume", f"{repo.resolve()}:/source:ro",
         "--env", f"HOME={home}", "--env", "GIT_CONFIG_NOSYSTEM=1",
         "--env", "PYTHONDONTWRITEBYTECODE=1",

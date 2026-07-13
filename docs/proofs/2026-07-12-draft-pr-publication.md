@@ -58,8 +58,9 @@ This proves real Docker-backed draft publication and replay suppression for one
 harmless repository change. It does not yet prove varied useful PRs or an
 unattended overnight publication.
 
-After review, the runner was rebuilt with GitHub CLI support and explicit
-`noexec` tmpfs verification as
-`sha256:13ecda360a4b3e3e61c8a65c4d150d546b97200f58d07e8d6ec74fdac9da5599`.
+After review, the runner was rebuilt with GitHub CLI support and an explicitly
+disposable, no-network tmpfs verification workspace as
+`sha256:7c99f2ae41f5921403660be84a85a4e465b63b91fc66a1a74f8adbb2bb496a37`.
 The focused publisher suite passed again inside that hardened image; the full
-157-test package gate passed separately on the host.
+157-test package gate passed both inside the no-network Colima VM and
+separately on the host.
