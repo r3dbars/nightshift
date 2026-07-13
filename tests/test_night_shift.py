@@ -69,6 +69,20 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn(' if __name__ == "__main__":', patch)
         self.assertEqual(materialize_test_method_patch("+import os\n", original, "tests/test_app.py"), "")
 
+    def test_patch_prompt_turns_semantic_contract_into_operational_guidance(self):
+        prompt = __import__("night_shift_patch_protocol").patch_prompt({
+            "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
+            "strengthening_contract": {"owner": "DraftEngine", "symbol": "cleanup"},
+            "semantic_contract": {
+                "minimum_target_invocations": 2,
+                "required_boolean_outcomes": [True, False],
+                "ordered_terms": ["remove", "prune"],
+            },
+        }, "source", ("python", "-m", "unittest"))
+        self.assertIn("Invoke the target at least 2 times", prompt)
+        self.assertIn("distinct fake or fixture preconditions", prompt)
+        self.assertIn("assert remove occurs before prune", prompt)
+
     def test_inline_label_parsing_preserves_terminal_source_punctuation(self):
         evidence = (
             "2. CLAIM: cleanup behavior\n"
