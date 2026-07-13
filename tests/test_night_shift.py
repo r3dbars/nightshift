@@ -366,6 +366,62 @@ SAFE_FOR_DRAFT_PR: yes
 """
         self.assertEqual(night_shift.score_output(0, output, ["app.py"], ["python -m pytest"]), "REJECT")
 
+    def test_source_line_must_explicitly_support_claimed_intent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("enabled = False\n", encoding="utf-8")
+            output = """CLAIM: The feature is intentionally disabled
+EVIDENCE: app.py:1 | enabled = False
+PROPOSED_CHANGE: test enabling it
+FILES_TO_TOUCH: app.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: behavior is verified
+ACTION_TYPE: patch-plan
+SAFE_FOR_CODEX_TO_ATTEMPT: yes
+"""
+            reasons = night_shift.output_quality_reasons(
+                0, output, ["app.py"], ["python -m pytest"], repo
+            )
+            self.assertIn("cited line does not support claimed intent: app.py:1", reasons)
+            self.assertEqual(
+                night_shift.score_output(0, output, ["app.py"], ["python -m pytest"], repo),
+                "REJECT",
+            )
+
+            (repo / "app.py").write_text("# intentionally disabled\n", encoding="utf-8")
+            denied = output.replace("intentionally disabled", "not intentionally disabled").replace(
+                "app.py:1 | enabled = False", "app.py:1 | # intentionally disabled"
+            )
+            self.assertIn(
+                "cited line does not support claimed intent: app.py:1",
+                night_shift.output_quality_reasons(
+                    0, denied, ["app.py"], ["python -m pytest"], repo
+                ),
+            )
+
+    def test_issue_output_must_have_exactly_one_citation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("enabled = False\nmode = 'off'\n", encoding="utf-8")
+            output = """TASK_ID: issue-38-next-action
+CLAIM: The enabled flag is false
+EVIDENCE:
+- app.py:1 | enabled = False
+- app.py:2 | mode = 'off'
+PROPOSED_CHANGE: test enabling it
+FILES_TO_TOUCH: app.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: behavior is verified
+ACTION_TYPE: patch-plan
+SAFE_FOR_CODEX_TO_ATTEMPT: yes
+"""
+            self.assertIn(
+                "issue evidence must contain exactly one citation",
+                night_shift.output_quality_reasons(
+                    0, output, ["app.py"], ["python -m pytest"], repo
+                ),
+            )
+
     def test_test_backed_negative_claim_can_become_candidate_not_proof(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
@@ -1780,6 +1836,20 @@ buildThing() { return 1; }
             "task", "inspect", "context", {"slug": "task", "files": ["bin/night-shift"]}, "draft-local"
         )
         self.assertIn("Cite only a path listed under candidate files", prompt)
+
+    def test_issue_prompts_require_one_literal_source_claim(self):
+        task = {"slug": "issue-38-next-action", "kind": "issue", "files": ["src/app.py"]}
+        for prompt in (
+            night_shift.local_prompt("issue-38-next-action", "Review issue", "context", task),
+            night_shift.windows_prompt("issue-38-next-action", "Review issue", "context", task),
+        ):
+            self.assertIn("EVIDENCE must contain exactly one", prompt)
+            self.assertIn("CLAIM must be a literal restatement", prompt)
+            self.assertIn("describe PROPOSED_CHANGE or BEST_NEXT_ACTION as a hypothesis", prompt)
+        non_issue = night_shift.windows_prompt(
+            "failed-ci-1", "Review CI", "context", {"slug": "failed-ci-1", "kind": "tests"}
+        )
+        self.assertNotIn("ISSUE EVIDENCE CONTRACT", non_issue)
 
     def test_empty_model_queue_still_gets_a_factual_morning_surface(self):
         with tempfile.TemporaryDirectory() as tmp:
