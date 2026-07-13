@@ -3082,7 +3082,7 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
     )
     new_candidates = any(row.get("new_tasks", 0) for row in cycle_rows)
     display_status = status
-    if status != "RED":
+    if status == "GREEN":
         display_status = "GREEN" if proven or not new_candidates else "YELLOW"
     lines = [
         "# Night Shift Portfolio Brief",
@@ -3110,6 +3110,8 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
         publish = row.get("publish") or {}
         if publish:
             lines.append(f"  Draft PR: {publish.get('pr_url') or publish.get('reason', 'not opened')}")
+            if publish.get("status") == "REMOTE_CLEANUP_REQUIRED":
+                lines.append("  ACTION REQUIRED: check GitHub and close/delete the reported draft PR or branch.")
     lines.extend(
         [
             "",
@@ -3321,6 +3323,8 @@ def command_autopilot(args) -> int:
                                 cycle_row["publish"] = publish_engine().publish(
                                     checkout, cycle_row["repo"], draft, profile, publish_dir
                                 )
+                                if cycle_row["publish"].get("status") == "REMOTE_CLEANUP_REQUIRED":
+                                    status = "YELLOW"
                         drafted_repos.add(cycle_row["repo"])
                 cycle_rows.append(cycle_row)
                 (ledger / "cycles.json").write_text(json.dumps(cycle_rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
