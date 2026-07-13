@@ -13,6 +13,7 @@ bash -n \
   bin/maestro-claude \
   scripts/prove-linux-install.sh \
   scripts/prove-macos-install.sh \
+  scripts/prove-blank-home-recovery.sh \
   scripts/prove-ten-hour-soak.sh \
   scripts/prove-controller-restart.sh \
   scripts/prove-concurrent-scheduler.sh
