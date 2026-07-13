@@ -144,7 +144,7 @@ class ReportingTests(unittest.TestCase):
             )
             brief = (ledger / "morning.md").read_text()
             self.assertIn("Status: YELLOW", brief)
-            self.assertIn("Nothing had enough evidence", brief)
+            self.assertIn("nothing was strong enough to ask an AI", brief)
             self.assertNotIn("Fix the startup gate", brief)
 
 

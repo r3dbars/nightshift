@@ -120,7 +120,7 @@ class PortfolioReportEngine:
             lines.append("- No repository produced a new task this cycle.")
         for repo_name, row in sorted(latest_by_repo.items()):
             child = Path(row.get("ledger", ""))
-            summary = "No new grounded task survived."
+            summary = "I checked this repo, but nothing was strong enough to work on safely tonight."
             draft = row.get("draft") or {}
             morning = child / "morning.md"
             if draft.get("status") == "PROVEN_REPAIR":
