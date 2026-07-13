@@ -3604,6 +3604,34 @@ buildThing() { return 1; }
             sandbox.shutil.which = original_which
             sandbox.platform.system = original_system
 
+    def test_colima_context_accepts_real_user_socket_with_temporary_home(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_which = sandbox.shutil.which
+        original_system = sandbox.platform.system
+        try:
+            sandbox.shutil.which = lambda name: f"/usr/local/bin/{name}" if name in {"docker", "colima"} else None
+            sandbox.platform.system = lambda: "Darwin"
+            with patch.dict(os.environ, {"HOME": "/tmp/night-shift-proof-home", "USER": "redbars"}):
+                def fake_run(args, **kwargs):
+                    if Path(args[0]).name == "colima":
+                        return night_shift.CmdResult(
+                            "colima status", 0, json.dumps({
+                                "runtime": "docker",
+                                "driver": "macOS Virtualization.Framework",
+                                "docker_socket": "unix:///Users/redbars/.colima/night-shift/docker.sock",
+                            }), "",
+                        )
+                    if args[1:3] == ["context", "show"]:
+                        return night_shift.CmdResult("docker context show", 0, "colima-night-shift\n", "")
+                    return night_shift.CmdResult("docker info", 0, "[]", "")
+
+                status = sandbox.detect_sandbox(fake_run)
+            self.assertTrue(status.available)
+            self.assertEqual(status.runtime, "docker")
+        finally:
+            sandbox.shutil.which = original_which
+            sandbox.platform.system = original_system
+
     def test_default_colima_context_maps_to_default_profile(self):
         sandbox = __import__("night_shift_sandbox")
         original_which = sandbox.shutil.which
