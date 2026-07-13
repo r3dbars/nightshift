@@ -127,6 +127,15 @@ Then verify from the coordinator machine:
 curl -s --max-time 3 http://<windows-host>:11434/api/tags
 ```
 
+When the user chooses **Mac plus my other AI computer** in the advanced setup,
+Night Shift first checks only the private devices already present in the Mac's
+ARP table. It asks only the known Ollama (`11434`) and LM Studio
+(`1234`) model-list endpoints, with a small host limit and short time bound.
+It sends no repository content, never scans public addresses, and asks the user
+to confirm a match before saving it. If no match is found, the wizard offers a
+manual address or lets the user continue Mac-only. Discovery is read-only and
+never starts, installs, or changes software on the other computer.
+
 Find the host: use the machine name (`<name>.local` often resolves on a home
 LAN) or the IPv4 from `ipconfig` on the Windows box. If the curl times out,
 check in this order: Ollama restarted after setting `OLLAMA_HOST`, firewall
