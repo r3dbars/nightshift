@@ -129,6 +129,8 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn("assert remove occurs before prune", prompt)
         self.assertIn("exact constructor and method signatures", prompt)
         self.assertIn("rc rather than a dict", prompt)
+        self.assertIn("SimpleNamespace(rc=0)", prompt)
+        self.assertIn("never return a dict", prompt)
         self.assertIn(
             "from night_shift_drafts import DraftEngine` inside the new test method", prompt
         )
