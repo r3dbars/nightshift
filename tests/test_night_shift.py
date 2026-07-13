@@ -1824,6 +1824,11 @@ buildThing() { return 1; }
             self.assertIn(f"{root.resolve()}:/source:ro", command)
             self.assertIn("rm -rf .git; git init -q", __import__("night_shift_sandbox").fixed_patch_script())
             self.assertIn("git apply --recount --whitespace=error", __import__("night_shift_sandbox").fixed_patch_script())
+            read_only_check = __import__("night_shift_sandbox").sandbox_command(root, ("true",), profile)
+            self.assertIn("PYTHONDONTWRITEBYTECODE=1", read_only_check)
+            self.assertIn(f"{root.resolve()}:/source:ro", read_only_check)
+            self.assertIn("/work:rw,noexec,nosuid,size=512m", read_only_check)
+            self.assertIn("cp -a /source/. /work/", __import__("night_shift_sandbox").fixed_verify_script())
 
     def test_podman_patch_tmpfs_avoids_docker_only_ownership_options(self):
         sandbox = __import__("night_shift_sandbox")
@@ -1855,6 +1860,59 @@ buildThing() { return 1; }
             self.assertEqual(status.runtime, "podman")
         finally:
             night_shift.shutil.which = original_which
+
+    def test_live_colima_context_is_an_accepted_vm_sandbox(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_which = sandbox.shutil.which
+        original_system = sandbox.platform.system
+        try:
+            sandbox.shutil.which = lambda name: f"/usr/local/bin/{name}" if name in {"docker", "colima"} else None
+            sandbox.platform.system = lambda: "Darwin"
+
+            def fake_run(args, **kwargs):
+                if args[1:3] == ["context", "show"]:
+                    return night_shift.CmdResult("docker context show", 0, "colima-night-shift\n", "")
+                if Path(args[0]).name == "colima":
+                    return night_shift.CmdResult("colima status", 0, json.dumps({
+                        "driver": "macOS Virtualization.Framework",
+                        "runtime": "docker",
+                        "docker_socket": f"unix://{Path.home()}/.colima/night-shift/docker.sock",
+                    }), "")
+                if args[1] == "info":
+                    return night_shift.CmdResult("docker info", 0, "[]", "")
+                return night_shift.CmdResult("unexpected", 1, "", "")
+
+            status = sandbox.detect_sandbox(fake_run)
+            self.assertTrue(status.available)
+            self.assertEqual(status.runtime, "docker")
+            self.assertIn("Colima profile 'night-shift'", status.detail)
+        finally:
+            sandbox.shutil.which = original_which
+            sandbox.platform.system = original_system
+
+    def test_colima_context_rejects_a_mismatched_socket(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_which = sandbox.shutil.which
+        original_system = sandbox.platform.system
+        try:
+            sandbox.shutil.which = lambda name: f"/usr/local/bin/{name}" if name in {"docker", "colima"} else None
+            sandbox.platform.system = lambda: "Darwin"
+
+            def fake_run(args, **kwargs):
+                if args[1:3] == ["context", "show"]:
+                    return night_shift.CmdResult("docker context show", 0, "colima-night-shift\n", "")
+                if Path(args[0]).name == "colima":
+                    return night_shift.CmdResult("colima status", 0, json.dumps({
+                        "driver": "macOS Virtualization.Framework",
+                        "runtime": "docker",
+                        "docker_socket": "unix:///tmp/untrusted.sock",
+                    }), "")
+                return night_shift.CmdResult("docker info", 0, "[]", "")
+
+            self.assertFalse(sandbox.detect_sandbox(fake_run).available)
+        finally:
+            sandbox.shutil.which = original_which
+            sandbox.platform.system = original_system
 
     def test_podman_stopped_machine_gets_exact_start_command(self):
         sandbox = __import__("night_shift_sandbox")

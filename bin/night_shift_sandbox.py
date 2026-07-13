@@ -56,12 +56,39 @@ def build_runner_image(run_cmd: Callable) -> tuple[bool, str]:
     return True, image
 
 
+def live_colima_docker(run_cmd: Callable, docker: str) -> str:
+    """Return a verified Colima profile name for this Docker context."""
+    if platform.system() != "Darwin" or not shutil.which("colima"):
+        return ""
+    context = run_cmd([docker, "context", "show"], timeout=20)
+    name = context.stdout.strip() if context.rc == 0 else ""
+    if not name.startswith("colima-"):
+        return ""
+    profile = name.removeprefix("colima-")
+    status = run_cmd([shutil.which("colima"), "status", "--profile", profile, "--json"], timeout=20)
+    try:
+        detail = json.loads(status.stdout) if status.rc == 0 else {}
+    except (TypeError, json.JSONDecodeError):
+        return ""
+    expected_socket = f"unix://{Path.home()}/.colima/{profile}/docker.sock"
+    if (
+        detail.get("runtime") == "docker"
+        and str(detail.get("driver") or "").startswith("macOS ")
+        and detail.get("docker_socket") == expected_socket
+    ):
+        return profile
+    return ""
+
+
 def detect_sandbox(run_cmd: Callable) -> SandboxStatus:
     docker = shutil.which("docker")
     if docker:
         info = run_cmd([docker, "info", "--format", "{{json .SecurityOptions}}"], timeout=20)
         if info.rc == 0 and "rootless" in (info.stdout or "").lower():
             return SandboxStatus(True, "Docker rootless sandbox is ready", "docker")
+        colima_profile = live_colima_docker(run_cmd, docker) if info.rc == 0 else ""
+        if colima_profile:
+            return SandboxStatus(True, f"Docker is isolated in Colima profile '{colima_profile}'", "docker")
     podman = shutil.which("podman")
     if podman:
         info = run_cmd([podman, "info", "--format", "{{.Host.Security.Rootless}}"], timeout=20)
@@ -102,6 +129,11 @@ def fixed_patch_script() -> str:
         "git diff --binary > /artifacts/applied.patch; set +e; \"$@\" > /artifacts/verification.txt 2>&1; "
         "rc=$?; printf '%s\\n' \"$rc\" > /artifacts/verification.rc; exit \"$rc\""
     )
+
+
+def fixed_verify_script() -> str:
+    """Copy read-only source into disposable tmpfs before running checks."""
+    return "set -eu; cp -a /source/. /work/; cd /work; rm -rf .git; exec \"$@\""
 
 
 def sandbox_patch_command(
@@ -145,7 +177,9 @@ def sandbox_command(repo: Path, command: tuple[str, ...], profile: RepoProfile) 
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
         "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"{home}:rw,noexec,nosuid,size=64m",
-        "--workdir", "/workspace", "--volume", f"{repo.resolve()}:/workspace:ro",
+        "--tmpfs", "/work:rw,noexec,nosuid,size=512m", "--workdir", "/work",
+        "--volume", f"{repo.resolve()}:/source:ro",
         "--env", f"HOME={home}", "--env", "GIT_CONFIG_NOSYSTEM=1",
-        profile.image, *command,
+        "--env", "PYTHONDONTWRITEBYTECODE=1",
+        profile.image, "sh", "-ceu", fixed_verify_script(), "night-shift-verify", *command,
     ]
