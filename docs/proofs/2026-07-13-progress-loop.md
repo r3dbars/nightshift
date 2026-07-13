@@ -105,6 +105,17 @@ run evidence separate from model claims and from human/manual proof.
   provider `YELLOW`, and same-port restart `GREEN`. It is package-gated and
   intentionally does not raise the hardware score because it is not a real
   LM Studio or Ollama restart.
+- A fresh live Windows-lane run against the clean BetterFeedback clone used
+  `qwen3-coder:30b` at `192.168.7.201:11434`, created a one-file behavioral
+  test, passed the real `npm run test:unit:vitest` command before and after the
+  patch, passed isolated sandbox verification, satisfied the invocation
+  contract, and removed its temporary worktree. Proof:
+  `docs/proofs/2026-07-13-windows-verified-draft.md`.
+- PR #151 now strips the exact bundled-worker `MAESTRO_PROOF` footer before
+  validating a returned diff. PR #152 filters non-draftable side-effecting
+  TypeScript test gaps before model calls. PR #153 safely materializes one
+  bounded `it`/`test` block from a raw worker response when no unified diff is
+  returned. The package gate passes 389 tests after these changes.
 
 ## Remaining Proof Gaps
 
@@ -119,3 +130,7 @@ run evidence separate from model claims and from human/manual proof.
 - The current-main proof confirms the retry hardening works once, but it does
   not yet raise useful-output, multi-repo, or draft-PR scores because the
   morning item still needs human usefulness review.
+- The Windows verified draft closes one real Windows execution path, but it
+  does not by itself count as a user-accepted outcome or a published draft PR.
+  Those scores remain held until the candidate is reviewed and the broader
+  varied-repository evidence is complete.
