@@ -23,6 +23,7 @@ from night_shift_queue import (
 from night_shift_portfolio import PortfolioEngine
 from night_shift_python_evidence import top_level_symbol_call_count_text
 from night_shift_js_evidence import top_level_symbol_call_count_text as js_symbol_call_count_text
+from night_shift_selection import model_ready_tasks
 
 
 class QueueEvidenceTests(unittest.TestCase):
@@ -476,6 +477,63 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
                 PortfolioEngine.task_fingerprint("owner/repo", "a" * 40, mission),
                 PortfolioEngine.task_fingerprint("owner/repo", "a" * 40, changed_mission),
             )
+
+    def test_goal_guidance_grounding_finds_plain_symbol_and_keeps_mission_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "bin").mkdir()
+            (repo / "tests").mkdir()
+            (repo / "bin/night_shift_reporting.py").write_text(
+                "def write_report(artifacts):\n"
+                "    # Handles artifact paths for the morning report.\n"
+                "    return artifacts\n",
+                encoding="utf-8",
+            )
+            (repo / "bin/night_shift_sandbox.py").write_text(
+                "def patch_input_directory(source, artifacts):\n"
+                "    return source.parent / '.night-shift-patch-input'\n",
+                encoding="utf-8",
+            )
+            (repo / "tests/test_night_shift.py").write_text(
+                "def test_existing_behavior():\n"
+                "    patch_input_directory(source, artifacts)\n",
+                encoding="utf-8",
+            )
+            scan = {
+                "recent_files": ["bin/night_shift_reporting.py", "bin/night_shift_sandbox.py"],
+                "source_files": ["bin/night_shift_reporting.py", "bin/night_shift_sandbox.py"],
+                "test_files": ["tests/test_night_shift.py"],
+                "coverage_test_files": ["tests/test_night_shift.py"],
+                "doc_files": [], "todo_sample": [],
+                "test_commands": ["python -m unittest"],
+                "tracked_files": [
+                    "bin/night_shift_reporting.py",
+                    "bin/night_shift_sandbox.py",
+                    "tests/test_night_shift.py",
+                ],
+            }
+            goal = (
+                "Add one focused behavioral regression test proving "
+                "patch_input_directory handles two artifact paths"
+            )
+            queue = build_repo_work_queue(
+                repo, scan, "afterburner", "draft-local", guidance="goal",
+                goal_text=goal,
+                run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            )
+            mission = next(item for item in queue if item["slug"] == "mission-brief")
+            self.assertIn("bin/night_shift_sandbox.py", mission["files"])
+            evidence = "\n".join(mission["evidence_sources"].values())
+            self.assertIn("symbol=patch_input_directory", evidence)
+            self.assertIn("source_file=bin/night_shift_sandbox.py", evidence)
+            self.assertIn("call_matches=1", evidence)
+            self.assertIn("scan_complete=true", evidence)
+            self.assertTrue(mission["executable"])
+            ready, skipped = model_ready_tasks(
+                [mission], "afterburner", goal, "draft-local"
+            )
+            self.assertEqual(ready, [mission])
+            self.assertEqual(skipped, [])
 
     def test_typescript_gap_uses_full_coverage_test_set_and_is_executable(self):
         with tempfile.TemporaryDirectory() as tmp:
