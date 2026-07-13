@@ -572,13 +572,17 @@ def repo_remote(repo: Path) -> str:
     return result.stdout.strip() if result.rc == 0 else ""
 
 
-def remote_advertises_current_revision(repo: Path, remote: str) -> bool:
-    head = run_cmd(["git", "-C", repo, "rev-parse", "HEAD"], timeout=20)
+def remote_advertises_revision(repo: Path, remote: str, revision: str) -> bool:
+    resolved = run_cmd(["git", "-C", repo, "rev-parse", f"{revision}^{{commit}}"], timeout=20)
     advertised = run_cmd(["git", "ls-remote", "--heads", "--tags", remote], timeout=60)
-    if head.rc != 0 or advertised.rc != 0:
+    if resolved.rc != 0 or advertised.rc != 0:
         return False
-    current = head.stdout.strip().lower()
-    return any(line.split()[0].lower() == current for line in advertised.stdout.splitlines() if line.split())
+    commit = resolved.stdout.strip().lower()
+    return any(line.split()[0].lower() == commit for line in advertised.stdout.splitlines() if line.split())
+
+
+def remote_advertises_current_revision(repo: Path, remote: str) -> bool:
+    return remote_advertises_revision(repo, remote, "HEAD")
 
 
 def load_repo_profile(repo: Path):
@@ -3220,6 +3224,15 @@ def run_isolated_draft(
     profile, profile_detail = load_repo_profile(repo)
     if not profile or not profile.may_execute:
         return {"status": "REJECT", "reason": profile_detail, "proof_level": "not executed"}
+    if getattr(profile, "external_approval", False):
+        source_ref = str(candidate.get("source_ref") or "")
+        remote = str(getattr(profile, "approved_remote", ""))
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", source_ref) or not remote_advertises_revision(repo, remote, source_ref):
+            return {
+                "status": "REJECT",
+                "reason": "external approval requires the exact candidate commit to be advertised by the approved remote",
+                "proof_level": "not executed",
+            }
     sandbox = detect_sandbox(run_cmd)
     if not sandbox.available:
         return {"status": "REJECT", "reason": sandbox.detail, "proof_level": "not executed"}

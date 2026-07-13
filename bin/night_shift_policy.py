@@ -38,6 +38,8 @@ class RepoProfile:
     max_pids: int
     max_seconds: int
     image: str
+    external_approval: bool = False
+    approved_remote: str = ""
 
     @property
     def may_execute(self) -> bool:
