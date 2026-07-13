@@ -42,6 +42,12 @@ def complete_invocation_evidence(value: str) -> bool:
 def goal_semantic_contract(goal: str) -> dict:
     low = goal.lower()
     contract: dict[str, object] = {}
+    if re.search(
+        r"\b(?:behavioral|focused|regression)\s+test\b|"
+        r"\btest\b.{0,32}\b(?:exercise|exercises|cover|covers|invoke|invokes|assert|asserts|prove|proves)\b",
+        low,
+    ):
+        contract["minimum_target_invocations"] = 1
     if re.search(r"\bboth\b.{0,40}\b(?:outcomes?|paths?|results?)\b", low):
         contract["minimum_target_invocations"] = 2
     if re.search(r"\btrue\b", low) and re.search(r"\bfalse\b", low) or re.search(r"\bboth boolean\b", low):

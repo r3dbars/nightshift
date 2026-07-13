@@ -182,7 +182,10 @@ class QueueEvidenceTests(unittest.TestCase):
         self.assertEqual(contract["minimum_target_invocations"], 2)
         self.assertEqual(contract["required_boolean_outcomes"], [True, False])
         self.assertEqual(contract["ordered_terms"], ["remove", "prune"])
-        self.assertEqual(goal_semantic_contract("Add a cleanup test"), {})
+        self.assertEqual(
+            goal_semantic_contract("Add a focused behavioral test for cleanup"),
+            {"minimum_target_invocations": 1},
+        )
         self.assertNotIn(
             "required_boolean_outcomes",
             goal_semantic_contract("Test the truthful and falsehood labels"),
