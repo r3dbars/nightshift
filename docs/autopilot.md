@@ -135,8 +135,8 @@ all deliberate:
 
 - **One issue, edited in place.** Never a second issue, never a nightly
   flood. The issue is a dashboard, not a feed.
-- **It is the only remote repo write Night Shift is allowed.** Optional code
-  drafts stay local in disposable worktrees. Never a pushed branch or PR.
+- **It is the default remote write.** Code stays local unless the owner has
+  separately authorized test-passed draft PRs.
 - **Opt-in only.** Delivery happens when you pass the flag or set
   `"deliver": "github-issue"` in config through consented setup. Silence is
   local-only.
@@ -148,9 +148,12 @@ whatever was asked. Your assistant becomes the morning courier.
 
 ### 7. The safety envelope does not bend at 3 a.m.
 
-Nothing about automation loosens the rules: no pushes, no merges, no releases,
-no credential or visibility changes, workers propose, tests prove, and humans
-decide. An unattended night has *less* authority than an attended one.
+Nothing about automation loosens the rules: no merges, releases, credential or
+visibility changes. Without explicit saved authorization, there are no code
+pushes. With it, Night Shift may push one unique isolated branch and open a
+draft PR only after the approved sandbox check passes again. Humans still
+decide what merges. An unattended night has *less* authority than an attended
+one.
 
 ## What This Adds Up To
 

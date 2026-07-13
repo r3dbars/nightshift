@@ -25,6 +25,27 @@ from night_shift_evidence import action_type, artifact_priority, first_label_val
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_remote_cleanup_required_stays_yellow_in_morning_brief(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            night_shift.portfolio_brief(
+                ledger,
+                [{
+                    "repo": "owner/repo",
+                    "ledger": str(ledger / "child"),
+                    "new_tasks": 1,
+                    "draft": {"status": "PROVEN_REPAIR", "patch": "repair.patch"},
+                    "publish": {
+                        "status": "REMOTE_CLEANUP_REQUIRED",
+                        "reason": "remote branch absence could not be proven",
+                    },
+                }],
+                "YELLOW",
+            )
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("Status: YELLOW", brief)
+            self.assertIn("ACTION REQUIRED", brief)
+
     def test_evidence_module_parses_and_prioritizes_worker_results(self):
         output = """CLAIM: Add a focused regression test
 ACTION_TYPE: patch-plan

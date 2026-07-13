@@ -222,6 +222,13 @@ class DraftEngine:
             return result
         worktree.parent.mkdir(parents=True, exist_ok=True)
         source_ref = str(candidate.get("source_ref") or "HEAD")
+        if not re.fullmatch(r"[0-9a-f]{40}", source_ref):
+            resolved = self.run_cmd(["git", "rev-parse", f"{source_ref}^{{commit}}"], cwd=repo, timeout=30)
+            if resolved.rc != 0 or not re.fullmatch(r"[0-9a-f]{40}", resolved.stdout.strip()):
+                result = {"status": "REJECT", "reason": "candidate source could not be pinned to an exact commit"}
+                proof_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+                return result
+            source_ref = resolved.stdout.strip()
         record_state(lifecycle_path, fingerprint, "DISCOVERED", repo=repo_name, source_ref=source_ref, reason="draft candidate selected")
         added = self.run_cmd(
             ["git", "worktree", "add", "--detach", worktree, source_ref],
@@ -381,6 +388,8 @@ class DraftEngine:
             "proof_level": proof_level,
             "patch_worker_rc": model.rc,
             "patch_lane": patch_lane,
+            "files": list(proposed.paths),
+            "verification_argv": list(verification_argv),
             "sandbox_rc": verified.rc,
             "sandbox_output": str(sandbox_dir / "runner.txt"),
             "guard_reasons": guards,

@@ -9,9 +9,12 @@ Turn idle AI hardware into useful, compounding repo work while the user sleeps.
 Watch recently active GitHub repos, work down the Repair-to-Index ladder,
 remember completed tasks, reject weak output, and leave a short portfolio brief.
 
-Keep this promise: workers draft; Codex or a human verifies. `night-shift run`
-never edits the target checkout, pushes, merges, releases, deploys, changes
-credentials or billing, changes repository visibility, or moves user files.
+Keep this promise: workers draft; deterministic checks prove; Codex or a human
+reviews. Night Shift never edits the target checkout, merges, releases,
+deploys, changes credentials or billing, changes repository visibility, or
+moves user files. It may push one isolated branch and open a draft PR only
+after the owner saves explicit consent and the fresh patch passes approved
+sandbox checks again.
 
 ## Route The Moment
 

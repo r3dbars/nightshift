@@ -34,7 +34,7 @@ test and added it to the suite.
 | Evidence quality | 90 | Copy-ready deterministic coverage citations produced one validator-accepted candidate with exact source and zero-match evidence; proof artifacts and lifecycle transitions remain separate from verified truth. | Exercise reproduction evidence across varied real repositories. |
 | Deterministic proof | 94 | A real Windows-model plus rootless-Podman rehearsal reproduced a failure, applied one approved patch in tmpfs, passed afterward, removed the worktree, and left the source repo clean. | Repeat across diverse repositories and prove provider restart recovery. |
 | Patch autonomy | 92 | Live Mac and Windows models each generated a one-file repair; strict bounded correction plus Podman promoted both only after failing-before/passing-after proof. | Prove model-generated isolated patches across diverse real repositories. |
-| Draft PR creation | 10 | Overnight runs do not currently push branches or open code PRs. | One-time consent, isolated tested branches, real draft PR proof, never merge or deploy. |
+| Draft PR creation | 30 | A separate fail-closed publisher now requires saved consent, exact SHA, owned origin, validated files, fresh sandbox verification, unique branch, and confirmed draft status. Its first real rehearsal stopped before any GitHub write when Podman failed, so successful publication remains unproven. | Restore the rootless runner, open a real tested draft PR, verify replay suppression and no merge/deploy behavior. |
 | Brief safety | 92 | No host repo execution; restricted actions and redaction. | Continue adversarial prompt-injection testing. |
 | Execute-draft safety | 94 | A real pinned runner proved read-only source mounts, no-network tmpfs patching, exact changed-path validation, clean source status, and disposable-worktree removal. | Repeat adversarial real-run proof across Docker and Podman before widening access. |
 | Prompt and secret security | 88 | Redaction, protected paths, code-first context selection, and explicit untrusted-data boundaries. | Add a prompt-injection corpus and real-run measurements. |
@@ -43,8 +43,8 @@ test and added it to the suite.
 | Reliability | 82 | Stop deadlines, process cancellation, single-controller lock, migration tests, and validated task-state transitions. | Crash-recovery and concurrent-scheduler integration tests. |
 | Observability | 92 | Ledgers, task attempts, cooldown skips, outcome metrics, health, and sandbox capability remain explicit; real runner stdout/stderr is now retained beside patch artifacts. | Confirm retention behavior in a real 10-hour soak. |
 | Learning loop | 55 | Feedback now changes pre-model selection by repo and task family: positive votes prioritize, one negative downranks, and two negatives suppress Normal-mode work without bypassing grounding. No real user-feedback outcome lift is proven yet. | Demonstrate better accepted outcomes and lower wasted tokens across later real user-rated runs. |
-| Test coverage | 94 | The full discovered suite has 144 tests covering Mac-only patch fallback, no-provider rejection, exact header binding, STOP-aware retries, and hunk recount; live Mac, Windows, and Podman proof exercises both repair lanes. | Interrupted-controller, scheduler, Docker-provider, and GitHub-write integration tests. |
-| Maintainability | 60 | Evidence scoring, reporting, and selection policy now live in directly tested modules; the main controller fell from 4,465 to 4,413 lines but still owns queue construction and dispatch. | Continue splitting setup, scanning, queueing, dispatch, and lifecycle into tested modules. |
+| Test coverage | 94 | The full discovered suite has 154 tests covering both patch lanes plus draft publication owner/origin binding, default-branch ancestry, approved-file staging, replay suppression, collision refusal, timed-out PR recovery, ambiguous-push cleanup escalation, and morning warning propagation. GitHub-write success is not yet integration-proven. | Interrupted-controller, scheduler, Docker-provider, and successful GitHub-write integration tests. |
+| Maintainability | 62 | Patch publication is isolated in a directly tested module; evidence scoring, reporting, and selection policy are also separated. The main controller still owns setup, queue construction, and dispatch. | Continue splitting setup, scanning, queueing, dispatch, and lifecycle into tested modules. |
 | Portability | 82 | The runner now builds on real ARM64 macOS Podman with provider-specific pull and tmpfs syntax; Docker behavior remains unit-tested only and Podman VM restart stability is unresolved. | Prove Docker and Linux hosts plus reliable provider restart behavior. |
 | Ten-hour readiness | 86 | Fixed stop limits, lock, cooldown, unattended pause, retention controls, and a per-revision rejection circuit breaker. | A clean 10-hour soak with resource and disk evidence. |
 | Honesty about proof | 91 | Worker claims stay separate from deterministic and manual proof. | Preserve this distinction through real draft-PR and cloud-handoff flows. |
@@ -54,7 +54,8 @@ test and added it to the suite.
 1. A score never increases from a model claim alone.
 2. A repo is analysis-only until its owner supplies a reviewed profile.
 3. A task becomes patchable only after a sandboxed reproduction and immutable verification plan.
-4. An overnight run never pushes, opens code PRs, merges, deploys, or releases.
+4. An overnight run opens only tested draft PRs after explicit saved consent;
+   it never merges, deploys, or releases.
 5. Every score must reach 95 simultaneously; code paths, mocks, and model claims alone do not qualify.
 6. Safety and privacy may not be weakened to improve usefulness or autonomy.
 7. Hardware, LAN, GitHub writes, scheduling, recovery, and overnight usefulness require real integration proof.
