@@ -8,7 +8,15 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from night_shift_selection import declared_symbols, relevant_tests_for_source, task_selection_priority
+from night_shift_selection import (
+    declared_symbols,
+    model_ready_tasks,
+    model_task_readiness_reasons,
+    relevant_tests_for_source,
+    requests_coverage_work,
+    task_selection_priority,
+    unchecked_issue_actions,
+)
 from night_shift_feedback import apply_task_feedback
 
 
@@ -118,6 +126,58 @@ class SelectionTests(unittest.TestCase):
         )
         self.assertEqual([row["slug"] for row in ranked], ["changed-file-proof-01", "mission-brief"])
         self.assertEqual(skipped, [])
+
+    def test_coverage_intent_requires_an_action_not_a_negation_or_summary(self):
+        self.assertTrue(requests_coverage_work("improve regression test coverage"))
+        self.assertTrue(requests_coverage_work("testing needs a focused review"))
+        self.assertFalse(requests_coverage_work("do not run tests; inspect the API issue"))
+        self.assertFalse(requests_coverage_work("summarize the test results"))
+
+    def test_normal_mode_rejects_trackers_but_afterburner_admits_them(self):
+        task = {
+            "slug": "issue-42-next-action",
+            "kind": "issue",
+            "files": ["src/app.py"],
+            "verification_commands": ["pytest"],
+            "signal": {"body": "- [ ] first\n- [ ] second"},
+        }
+        self.assertEqual(unchecked_issue_actions(task["signal"]), ["first", "second"])
+        self.assertIn("2-item tracker", " ".join(model_task_readiness_reasons(task, "night-shift")))
+        self.assertEqual(model_task_readiness_reasons(task, "afterburner"), [])
+
+    def test_failed_ci_requires_pinned_concrete_log_evidence(self):
+        healthy = {
+            "slug": "failed-ci-42",
+            "kind": "tests",
+            "files": ["src/app.py"],
+            "verification_commands": ["pytest"],
+            "source_ref": "a" * 40,
+            "evidence_sources": {"run.log": "src/app.py:9 AssertionError: failed"},
+        }
+        self.assertEqual(model_task_readiness_reasons(healthy, "night-shift"), [])
+        unpinned = {**healthy, "source_ref": ""}
+        self.assertIn("failed CI is not pinned", " ".join(model_task_readiness_reasons(unpinned, "night-shift")))
+        vague = {**healthy, "evidence_sources": {"run.log": "workflow completed"}}
+        self.assertIn("no concrete failure marker", " ".join(model_task_readiness_reasons(vague, "night-shift")))
+
+    def test_ready_partition_is_stable_and_malformed_signals_are_safe(self):
+        ready_task = {
+            "slug": "issue-1-next-action",
+            "kind": "issue",
+            "files": ["src/app.py"],
+            "verification_commands": ["pytest"],
+            "signal": "not-json",
+        }
+        broad_task = {
+            "slug": "source-map-1",
+            "kind": "map",
+            "files": ["src/app.py"],
+            "verification_commands": ["git status --short"],
+        }
+        ready, skipped = model_ready_tasks([ready_task, broad_task], "night-shift")
+        self.assertEqual(ready, [ready_task])
+        self.assertEqual(skipped[0]["slug"], "source-map-1")
+        self.assertEqual(skipped[0]["category"], "pre-model")
 
 
 if __name__ == "__main__":
