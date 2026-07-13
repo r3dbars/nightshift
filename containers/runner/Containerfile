@@ -1,4 +1,4 @@
-FROM docker.io/library/debian@sha256:675b032d19e294c9eb2525b24ee63e6dc718854a481c6fd6f5e0aefcaf8208a1
+FROM docker.io/library/node@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends bash curl gh git python3 rsync \

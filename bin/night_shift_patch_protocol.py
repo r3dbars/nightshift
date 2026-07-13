@@ -292,8 +292,9 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
         source_path = Path(str(contract["source_file"]))
         import_path = typescript_import_path(str(source_path), str(test_path))
         import_guidance = (
-            f"Inside the new test block, dynamically import the exact source module with `await import('{import_path}')`; "
-            f"call `{symbol}` from that module. Do not add a module-scope import. "
+            f"Inside the new test block, dynamically import the exact source module with "
+            f"`const {{ {symbol} }} = await import('{import_path}')`; call `{symbol}` from that binding. "
+            "Do not add a module-scope import. "
         )
     else:
         import_guidance = (
@@ -373,7 +374,8 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
                 "source module inside that block, call the exported target, and assert an observable result. Do not "
                 "change source, manifests, lockfiles, workflows, configuration, secrets, dependencies, or policy. "
                 "Do not add module-scope imports, filesystem or process side effects, network calls, database access, "
-                "shell commands, or new dependencies. Keep the patch under 60 added lines."
+                "shell commands, or new dependencies. Keep the patch under 60 added lines. "
+                + import_guidance
             )
         else:
             edit_policy = (

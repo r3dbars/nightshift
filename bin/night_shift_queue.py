@@ -32,6 +32,13 @@ TASK_LADDER = {
 }
 
 
+def complete_invocation_evidence(value: str) -> bool:
+    return any(
+        f"analysis={analysis}" in value
+        for analysis in ("python-ast", "typescript-regex")
+    ) and "call_matches=0" in value and "scan_complete=true" in value
+
+
 def goal_semantic_contract(goal: str) -> dict:
     low = goal.lower()
     contract: dict[str, object] = {}
@@ -537,7 +544,10 @@ def build_repo_work_queue(
         )
 
     recent = scan.get("recent_files") or []
-    tests = scan.get("test_files") or []
+    tests = list(dict.fromkeys([
+        *(scan.get("test_files") or []),
+        *(scan.get("coverage_test_files") or []),
+    ]))
     docs = scan.get("doc_files") or []
     todos = scan.get("todo_sample") or []
     test_commands = scan.get("test_commands") or []
@@ -632,9 +642,7 @@ def build_repo_work_queue(
                 and test_commands
                 and any(
                     key.startswith("invocation-index/")
-                    and "analysis=python-ast" in value
-                    and "call_matches=0" in value
-                    and "scan_complete=true" in value
+                    and complete_invocation_evidence(value)
                     for key, value in mission_evidence.items()
                 )
             ),
@@ -770,31 +778,36 @@ def build_repo_work_queue(
         )
     for index, (path, symbol, gap_evidence) in enumerate(coverage_gaps[:12], start=1):
         safe = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-").lower()[:48]
-        has_ast_gap = any(
+        has_supported_gap = any(
             key.startswith("invocation-index/")
-            and "analysis=python-ast" in value
-            and "call_matches=0" in value
-            and "scan_complete=true" in value
+            and complete_invocation_evidence(value)
+            for key, value in gap_evidence.items()
+        )
+        is_typescript_gap = any(
+            key.startswith("invocation-index/") and "analysis=typescript-regex" in value
             for key, value in gap_evidence.items()
         )
         add(
             f"changed-file-proof-{index:02d}-{safe}",
             "tests",
             (
-                f"Add one focused behavioral test for `{symbol}` in `{path}` using the supplied owner-aware "
-                "zero-invocation and source evidence. Return ACTION_TYPE: draft-pr-candidate and name the "
-                "existing test file to change. Reject if a safe observable behavior cannot be asserted."
-                if has_ast_gap else
-                f"Inspect only `{symbol}` in `{path}`. Cite that exact source line plus the supplied coverage-index evidence. Do not discuss another function; reject when the index is incomplete or this exact gap is unsupported."
+                (
+                    f"Add one focused behavioral test for `{symbol}` in `{path}` using the supplied "
+                    f"{'exact imported' if is_typescript_gap else 'owner-aware'} zero-invocation and source evidence. "
+                    "Return ACTION_TYPE: draft-pr-candidate and name the existing test file to change. "
+                    "Reject if a safe observable behavior cannot be asserted."
+                    if has_supported_gap else
+                    f"Inspect only `{symbol}` in `{path}`. Cite that exact source line plus the supplied coverage-index evidence. Do not discuss another function; reject when the index is incomplete or this exact gap is unsupported."
+                )
             ),
             "A declared source symbol with no textual test match is a bounded coverage lead, not proof of a gap.",
             [path] + relevant_tests_for_source(path, tests, read_current_text)[:5],
             ladder="strengthen",
             preferred_lane="local",
             proof_kind="test",
-            executable=bool(test_commands and has_ast_gap),
+            executable=bool(test_commands and has_supported_gap),
             evidence_sources=gap_evidence,
-            semantic_contract={"minimum_target_invocations": 1} if has_ast_gap else {},
+            semantic_contract={"minimum_target_invocations": 1} if has_supported_gap else {},
         )
 
     for index in range(0, min(len(tests), 24), 4):

@@ -173,6 +173,18 @@ class NightShiftQualityTests(unittest.TestCase):
             none_owner_prompt,
         )
         self.assertIn("exact pinned signature: def confidence_bonus(output: str) -> int:", none_owner_prompt)
+        typescript_prompt = __import__("night_shift_patch_protocol").patch_prompt({
+            "draft_intent": "test-strengthening", "files": ["tests/unit/lib/analytics-metrics.test.ts"],
+            "strengthening_contract": {
+                "owner": "none", "symbol": "formatPercent",
+                "source_file": "app/analytics/analytics-metrics.ts",
+                "analysis": "typescript-regex",
+            },
+            "semantic_contract": {"minimum_target_invocations": 1},
+        }, "export function formatPercent(value: number) { return `${Math.round(value)}%`; }", ("npm", "run", "test:unit:vitest"))
+        self.assertIn("await import('../../../app/analytics/analytics-metrics')", typescript_prompt)
+        self.assertIn("one focused Vitest/Jest `it(...)` or `test(...)` block", typescript_prompt)
+        self.assertNotIn("from analytics-metrics import", typescript_prompt)
         dedent_prompt = __import__("night_shift_patch_protocol").patch_prompt({
             "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
             "strengthening_contract": {"owner": "DraftEngine", "symbol": "cleanup"},
@@ -3301,6 +3313,24 @@ buildThing() { return 1; }
             self.assertIn("/work:rw,exec,nosuid,size=512m,mode=700", read_only_check)
             self.assertIn("/tmp:rw,exec,nosuid,size=256m,mode=1777", read_only_check)
             self.assertIn("cp -a /source/. /work/", __import__("night_shift_sandbox").fixed_verify_script())
+
+            dependencies = root / "node_modules"
+            dependencies.mkdir()
+            patched_with_dependencies = __import__("night_shift_sandbox").sandbox_patch_command(
+                root, root / "candidate.patch", root / "artifacts", ("npm", "test"), profile, dependencies,
+            )
+            self.assertIn(f"{dependencies.resolve()}:/work/node_modules:ro", patched_with_dependencies)
+            verified_with_dependencies = __import__("night_shift_sandbox").sandbox_command(
+                root, ("npm", "test"), profile, dependencies,
+            )
+            self.assertIn(f"{dependencies.resolve()}:/work/node_modules:ro", verified_with_dependencies)
+
+            symlink = root / "linked-node_modules"
+            symlink.symlink_to(dependencies, target_is_directory=True)
+            self.assertNotIn(
+                f"{dependencies.resolve()}:/work/node_modules:ro",
+                __import__("night_shift_sandbox").sandbox_command(root, ("npm", "test"), profile, symlink),
+            )
 
     def test_patch_tmpfs_uses_container_user_ownership_for_every_runtime(self):
         sandbox = __import__("night_shift_sandbox")
