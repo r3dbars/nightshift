@@ -96,6 +96,11 @@ run evidence separate from model claims and from human/manual proof.
   385-test package gate, isolated sandbox proof, semantic invocation proof,
   and worktree cleanup. Proof:
   `docs/proofs/2026-07-13-current-main-explicit-goal.md`.
+- PR #148 merged automatic runner-native npm dependency preparation on macOS.
+  A clean GitHub BetterFeedback clone passed `trust-repo --apply --yes`
+  without the expert dependency flag; the Linux Colima preflight passed after
+  the earlier host-native-binding failure was reproduced. Proof:
+  `docs/proofs/2026-07-13-auto-native-dependencies.md`.
 
 ## Remaining Proof Gaps
 
