@@ -263,10 +263,12 @@ class DraftEngine:
         safe_task: str,
         correction: str = "",
         patch_lane: str = "windows",
+        source_override: str | None = None,
     ):
         delegate = shutil.which("maestro-delegate") or str(Path.home() / ".codex" / "bin" / "maestro-delegate")
         context_files = candidate.get("context_files") or candidate["files"]
-        prompt = patch_prompt(candidate, self.source_excerpt(repo, source_ref, context_files), command)
+        source = self.source_excerpt(repo, source_ref, context_files) if source_override is None else source_override
+        prompt = patch_prompt(candidate, source, command)
         if correction:
             prompt += "\n\n" + correction
         env = os.environ.copy()
@@ -517,6 +519,7 @@ class DraftEngine:
                 repair = self.ask_for_patch(
                     worktree, source_ref, candidate, verification_argv, retry_timeout,
                     worker_url, worker_model, parent_ledger, f"{safe_task}-verification", correction, patch_lane,
+                    source_override="Use CURRENT PATCH below as the exact pinned source context.",
                 )
                 (proof_dir / f"{safe_task}.verification-worker.txt").write_text(
                     (repair.stdout + "\n" + repair.stderr).strip() + "\n", encoding="utf-8"

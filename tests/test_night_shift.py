@@ -2994,6 +2994,23 @@ buildThing() { return 1; }
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MODEL"], "local-coder")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MAX_TOKENS"], "4096")
 
+    def test_patch_worker_can_replace_large_source_context_for_verification_repair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prompts = []
+
+            def fake_run(args, **_kwargs):
+                prompts.append(args[-1])
+                return night_shift.CmdResult("worker", 0, "", "")
+
+            engine = night_shift.DraftEngine(fake_run, Path(tmp), lambda: "now")
+            engine.ask_for_patch(
+                Path(tmp), "HEAD", {"files": ["tests/test_app.py"]}, ("true",), 10,
+                "http://local/v1", "coder", Path(tmp), "repair", "FAILURE", "local",
+                source_override="COMPACT-CONTEXT",
+            )
+            self.assertIn("COMPACT-CONTEXT", prompts[0])
+            self.assertNotIn("## tests/test_app.py", prompts[0])
+
     def test_test_source_excerpt_includes_pinned_imports_and_tail_anchor(self):
         class Result:
             rc = 0
