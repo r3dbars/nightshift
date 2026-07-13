@@ -954,6 +954,23 @@ CONFIDENCE: high
         score = night_shift.score_output(0, output, ["app.py"], ["python -m pytest"])
         self.assertEqual(score, "REJECT")
 
+    def test_trusted_python_test_runner_allows_safe_narrowing_and_missing_echo(self):
+        module = __import__("night_shift_evidence")
+        approved = ["python3 -m unittest discover -s tests -p 'test_*.py'"]
+        self.assertTrue(module.verification_is_compatible(
+            "python3 -m unittest tests.test_app.AppTests.test_behavior", approved
+        ))
+        self.assertFalse(module.verification_is_compatible(
+            "python3 -m unittest tests.test_app; rm -rf /", approved
+        ))
+        self.assertFalse(module.verification_is_compatible(
+            approved[0] + "; rm -rf /", approved
+        ))
+        self.assertFalse(module.verification_is_compatible(
+            approved[0] + "\n$(touch /tmp/not-allowed)", approved
+        ))
+        self.assertFalse(module.verification_is_compatible("imaginary-test-command", approved))
+
     def test_model_cannot_approve_an_unsupplied_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

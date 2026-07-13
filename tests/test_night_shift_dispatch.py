@@ -92,6 +92,14 @@ class DispatchOneTests(unittest.TestCase):
         self.assertEqual(outcome["retry_count"], 0)
         self.assertEqual(outcome["score"], "MAYBE")
 
+    def test_report_uses_controller_approved_verification_command(self):
+        first = SimpleNamespace(rc=0, stdout=GOOD_OUTPUT, stderr="", timed_out=False)
+        approved = ["python -m pytest tests"]
+        outcome, _run_cmd, _ledger = self._dispatch(
+            [first], verification_commands=approved
+        )
+        self.assertEqual(outcome["tests"], approved[0])
+
     def test_empty_rejected_retry_does_not_erase_informative_first_attempt(self):
         first = SimpleNamespace(rc=0, stdout=REJECT_OUTPUT, stderr="", timed_out=False)
         second = SimpleNamespace(rc=0, stdout="", stderr="", timed_out=False)
