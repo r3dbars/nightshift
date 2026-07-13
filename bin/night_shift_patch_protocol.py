@@ -202,11 +202,15 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
     semantic = candidate.get("semantic_contract") or {}
     owner = str(contract.get("owner") or "")
     owner = "" if owner == "none" else owner
+    symbol = str(contract.get("symbol") or "")
     source_module = Path(str(contract.get("source_file") or "")).stem
     import_guidance = (
         f"If {owner} is not already imported, put `from {source_module} import {owner}` inside the new test method; "
         "do not edit global imports. "
         if owner and source_module else
+        f"If {symbol} is not already imported, put `from {source_module} import {symbol}` inside the new test method; "
+        "do not add imports at module or class scope. "
+        if symbol and source_module else
         "If the target owner is not already imported, import it from the exact source module inside the new test method; do not edit global imports. "
     )
     semantic_guidance: list[str] = []
@@ -214,7 +218,6 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
         semantic_guidance.append(
             f"Invoke the target at least {semantic['minimum_target_invocations']} times in the test."
         )
-    symbol = str(contract.get("symbol") or "")
     if symbol:
         signature_scope = ""
         owner = str(contract.get("owner") or "")
@@ -279,6 +282,7 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "For fake command results, use an object with attributes such as `SimpleNamespace(rc=0)` and reuse the "
             "existing test import; never return a dict like `{'rc': 0}`. "
             + import_guidance
+            + "Any new import must be inside the new test method; the isolated materializer retains only that method, not module or class-scope imports. "
             + "If the source return annotation is bool, assert the returned value directly with assertTrue or assertFalse; "
             "do not read attributes such as rc from that boolean. A fake command runner does not create filesystem "
             "side effects unless the fake explicitly implements them, so prove behavior from its recorded calls. "
