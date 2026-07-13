@@ -80,7 +80,7 @@ def verification_correction_prompt(patch: str, failure_output: str) -> str:
     )
 
 
-def test_strengthening_contract(evidence_sources: dict[str, str] | None) -> dict[str, str] | None:
+def parse_test_strengthening_contract(evidence_sources: dict[str, str] | None) -> dict[str, str] | None:
     contracts: list[dict[str, str]] = []
     for path, text in (evidence_sources or {}).items():
         if not path.startswith("invocation-index/"):
@@ -233,7 +233,7 @@ class DraftEngine:
                 files = [path for path in item.get("files") or [] if (repo / path).is_file()]
             known_commands = item.get("verification_commands") or default_commands
             verification = next((command for command in known_commands if command in (item.get("tests") or "")), "")
-            contract = test_strengthening_contract(item.get("evidence_sources"))
+            contract = parse_test_strengthening_contract(item.get("evidence_sources"))
             if contract:
                 extensions = {".py"} if contract.get("analysis") == "python-ast" else JS_EXTENSIONS
                 test_files = [
