@@ -86,13 +86,14 @@ def test_strengthening_contract(evidence_sources: dict[str, str] | None) -> dict
             and fields.get("call_matches") == "0"
             and fields.get("symbol")
             and fields.get("source_file", "").endswith(".py")
-            and fields.get("owner") not in {None, "", "none"}
+            and re.fullmatch(r"(?:none|[A-Za-z_][A-Za-z0-9_]*)", fields.get("owner", ""))
         ):
             contracts.append(fields)
     return contracts[0] if len(contracts) == 1 else None
 
 
 def owner_symbol_call_count(paths: list[Path], owner: str, symbol: str) -> int | None:
+    owner = "" if owner == "none" else owner
     calls = 0
     for path in paths:
         try:
@@ -117,8 +118,9 @@ def valid_test_strengthening_candidate(candidate: dict, worktree: Path) -> dict[
         or contract.get("scan_complete") != "true"
         or contract.get("call_matches") != "0"
         or not contract.get("symbol")
-        or not contract.get("owner")
-        or contract.get("owner") == "none"
+        or not re.fullmatch(
+            r"(?:none|[A-Za-z_][A-Za-z0-9_]*)", str(contract.get("owner") or "")
+        )
         or not str(contract.get("source_file") or "").endswith(".py")
         or contract.get("source_file") not in (candidate.get("context_files") or [])
     ):

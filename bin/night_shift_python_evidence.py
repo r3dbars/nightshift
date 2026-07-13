@@ -272,6 +272,7 @@ def owner_symbol_call_count_text(text: str, owner: str, symbol: str) -> int | No
 def semantic_test_contract_reasons(
     texts: list[str], contract: dict, owner: str, symbol: str
 ) -> list[str]:
+    owner = "" if owner == "none" else owner
     reasons: list[str] = []
     calls = 0
     assertion_rows: list[tuple[int, str]] = []
