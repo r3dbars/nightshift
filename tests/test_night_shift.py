@@ -1268,6 +1268,25 @@ buildThing() { return 1; }
             night_shift.task_selection_priority(mission),
         )
 
+    def test_explicit_mission_outranks_automatic_coverage_leads(self):
+        mission = {
+            "slug": "mission-brief", "kind": "mission", "ladder_priority": 500,
+            "files": ["bin/night_shift_drafts.py", "tests/test_night_shift.py"],
+            "verification_commands": ["python3 -m unittest"],
+        }
+        coverage = {
+            "slug": "changed-file-proof-01", "kind": "tests", "ladder_priority": 300,
+            "files": ["bin/night_shift_evidence.py"],
+            "verification_commands": ["python3 -m unittest"],
+            "evidence_sources": {
+                "coverage-index/evidence.txt": "scan_complete=true\nidentifier_matches=0"
+            },
+        }
+        self.assertGreater(
+            night_shift.task_selection_priority(mission),
+            night_shift.task_selection_priority(coverage),
+        )
+
     def test_incomplete_coverage_does_not_outrank_repair_mission(self):
         mission = {"kind": "mission", "ladder_priority": 500}
         incomplete = {
@@ -2116,7 +2135,7 @@ buildThing() { return 1; }
         self.assertEqual(mission["preferred_lane"], "local")
         self.assertNotIn("README.md", mission["files"][:2])
 
-    def test_real_queue_orders_complete_coverage_before_broad_mission(self):
+    def test_real_queue_orders_explicit_mission_before_automatic_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             (repo / "src").mkdir()
@@ -2138,10 +2157,8 @@ buildThing() { return 1; }
                 repo, scan, "quiet", "brief", "goal", "Find a small missing test"
             )
             slugs = [item["slug"] for item in queue]
-            self.assertLess(slugs.index("recent-change-test-gap"), slugs.index("mission-brief"))
-            self.assertGreater(queue[0]["selection_priority"], next(
-                item["selection_priority"] for item in queue if item["slug"] == "mission-brief"
-            ))
+            self.assertLess(slugs.index("mission-brief"), slugs.index("recent-change-test-gap"))
+            self.assertEqual(queue[0]["slug"], "mission-brief")
             coverage = next(item for item in queue if item["slug"] == "recent-change-test-gap")
             self.assertEqual(coverage["files"][:2], ["tests/test_other.py", "src/app.py"])
 
