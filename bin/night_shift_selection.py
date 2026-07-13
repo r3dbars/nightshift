@@ -69,6 +69,8 @@ def task_selection_priority(task: dict) -> int:
         and bool(files)
         and bool(commands)
     )
+    if task.get("slug") == "mission-brief" and task.get("kind") == "mission":
+        return priority + 2000
     if pinned_failed_ci:
         return priority + 1000
     if complete_index and files and commands:
@@ -108,11 +110,17 @@ def model_task_readiness_reasons(task: dict, mode: str, goal: str = "") -> list[
     files = task.get("files") or []
     commands = [command for command in task.get("verification_commands") or [] if command != "git status --short"]
     signal = _task_signal(task)
-
     if not files:
         reasons.append("no exact repo file is tied to the signal")
     if task.get("kind") in {"tests", "issue"} and not commands:
         reasons.append("no deterministic verification command was detected")
+    invocation_evidence = [
+        str(value) for key, value in (task.get("evidence_sources") or {}).items()
+        if str(key).startswith("invocation-index/")
+    ]
+    if invocation_evidence:
+        if any("scan_complete=true" not in value for value in invocation_evidence):
+            reasons.append("named-symbol invocation index is incomplete")
 
     if slug.startswith("failed-ci-"):
         evidence = "\n".join(str(value) for value in (task.get("evidence_sources") or {}).values()).strip()

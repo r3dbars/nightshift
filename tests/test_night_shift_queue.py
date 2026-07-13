@@ -17,6 +17,7 @@ from night_shift_queue import (
     contains_identifier,
     is_test_path,
 )
+from night_shift_portfolio import PortfolioEngine
 
 
 class QueueEvidenceTests(unittest.TestCase):
@@ -183,6 +184,115 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
         )
         self.assertEqual(queue[0]["slug"], "mission-brief")
         self.assertEqual(queue[0]["ladder"], "repair")
+
+    def test_goal_guidance_grounding_finds_named_symbol_outside_recent_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "recent.py").write_text("def unrelated():\n    return 1\n", encoding="utf-8")
+            (repo / "drafts.py").write_text(
+                "class DraftEngine:\n    def cleanup(self):\n        return True\n", encoding="utf-8"
+            )
+            (repo / "test_drafts.py").write_text("def test_other():\n    pass\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["recent.py"],
+                "source_files": ["recent.py", "drafts.py"],
+                "test_files": ["test_drafts.py"],
+                "doc_files": [], "todo_sample": [],
+                "test_commands": ["python -m unittest"],
+                "tracked_files": ["recent.py", "drafts.py", "test_drafts.py"],
+            }
+            queue = build_repo_work_queue(
+                repo, scan, "afterburner", "draft-local", guidance="goal",
+                goal_text="Add a behavioral test for DraftEngine.cleanup return value",
+                run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            )
+            mission = next(item for item in queue if item["slug"] == "mission-brief")
+            self.assertIn("drafts.py", mission["files"])
+            self.assertIn("test_drafts.py", mission["files"])
+            source_evidence = "\n".join(
+                value for key, value in mission["evidence_sources"].items()
+                if key.startswith("goal-source/")
+            )
+            self.assertIn("source_file=drafts.py", source_evidence)
+            evidence = "\n".join(mission["evidence_sources"].values())
+            self.assertIn("symbol=cleanup", evidence)
+            self.assertIn("symbol=cleanup call_matches=0", evidence)
+            self.assertIn("owner=DraftEngine", evidence)
+            self.assertIn("analysis=python-ast", evidence)
+            self.assertIn("def cleanup(self):", evidence)
+            self.assertIn("return True", evidence)
+            self.assertTrue(mission["executable"])
+            self.assertEqual(
+                mission["signal"], "Add a behavioral test for DraftEngine.cleanup return value"
+            )
+
+            changed = build_repo_work_queue(
+                repo, scan, "afterburner", "draft-local", guidance="goal",
+                goal_text="Add a behavioral test for DraftEngine.cleanup failure path",
+                run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            )
+            changed_mission = next(item for item in changed if item["slug"] == "mission-brief")
+            self.assertNotEqual(mission["signal"], changed_mission["signal"])
+            self.assertNotEqual(
+                PortfolioEngine.task_fingerprint("owner/repo", "a" * 40, mission),
+                PortfolioEngine.task_fingerprint("owner/repo", "a" * 40, changed_mission),
+            )
+
+    def test_invocation_gap_is_owner_aware_and_understands_import_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "drafts.py").write_text(
+                "class DraftEngine:\n    def cleanup(self):\n        return True\n", encoding="utf-8"
+            )
+            (repo / "test_drafts.py").write_text(
+                "from drafts import DraftEngine as DE\n"
+                "class Other:\n    def cleanup(self): pass\n"
+                "Other().cleanup()\n"
+                "engine = DE()\n"
+                "engine.cleanup()\n",
+                encoding="utf-8",
+            )
+            index = QueueEvidenceIndex(repo, {
+                "tracked_files": ["drafts.py", "test_drafts.py"],
+                "source_files": ["drafts.py"], "test_files": ["test_drafts.py"],
+                "coverage_test_files": ["test_drafts.py"],
+            })
+            evidence = "\n".join(index.invocation_gap("drafts.py", "cleanup", "DraftEngine").values())
+            self.assertIn("symbol=cleanup call_matches=1", evidence)
+
+    def test_incomplete_invocation_index_blocks_model_readiness(self):
+        task = {
+            "slug": "mission-brief", "kind": "mission", "files": ["src.py"],
+            "verification_commands": ["python -m unittest"],
+            "evidence_sources": {
+                "invocation-index/src-cleanup.txt": "scan_complete=false",
+                "coverage-index/other.txt": "scan_complete=true\nidentifier_matches=0",
+            },
+        }
+        from night_shift_selection import model_task_readiness_reasons
+        self.assertIn(
+            "named-symbol invocation index is incomplete",
+            model_task_readiness_reasons(task, "afterburner", "test cleanup"),
+        )
+
+    def test_non_dotted_goal_never_enables_ast_backed_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def cleanup():\n    return True\n", encoding="utf-8")
+            (repo / "test_app.py").write_text("def test_other():\n    pass\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["app.py"], "source_files": ["app.py"],
+                "test_files": ["test_app.py"], "coverage_test_files": ["test_app.py"],
+                "tracked_files": ["app.py", "test_app.py"], "doc_files": [],
+                "todo_sample": [], "test_commands": ["python -m unittest"],
+            }
+            queue = build_repo_work_queue(
+                repo, scan, "afterburner", "draft-local", guidance="goal",
+                goal_text="Add a cleanup behavioral test",
+                run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            )
+            mission = next(item for item in queue if item["slug"] == "mission-brief")
+            self.assertFalse(mission["executable"])
 
     def test_failed_ci_uses_injected_run_cmd_and_detect_test_commands(self):
         calls = []

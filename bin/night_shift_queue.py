@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -179,7 +180,9 @@ class QueueEvidenceIndex:
         files = list(dict.fromkeys([*(path for path, _ in matched_files), *direct]))[:12]
         return files, len(matched_terms)
 
-    def coverage_gaps(self, recent_source: list[str]) -> list[tuple[str, str, dict[str, str]]]:
+    def coverage_gaps(
+        self, recent_source: list[str], preferred_symbols: list[str] | None = None
+    ) -> list[tuple[str, str, dict[str, str]]]:
         coverage_test_paths = self.scan.get("coverage_test_files") or [
             path for path in self.tracked_files if is_test_path(path)
         ]
@@ -202,8 +205,13 @@ class QueueEvidenceIndex:
         gaps: list[tuple[str, str, dict[str, str]]] = []
         for path in recent_source:
             symbols = declared_symbols(self.read_current_text(path))
+            preferred = [symbol for symbol in (preferred_symbols or []) if symbol in symbols]
+            ordered_symbols = list(dict.fromkeys(preferred + symbols))
             missing = next(
-                (symbol for symbol in symbols if not symbol.startswith("_") and not re.search(rf"\b{re.escape(symbol)}\b", test_corpus)),
+                (
+                    symbol for symbol in ordered_symbols
+                    if not symbol.startswith("_") and not re.search(rf"\b{re.escape(symbol)}\b", test_corpus)
+                ),
                 "",
             )
             if not missing:
@@ -221,6 +229,115 @@ class QueueEvidenceIndex:
             ])}
             gaps.append((path, missing, evidence))
         return gaps
+
+    def invocation_gap(self, source_path: str, symbol: str, owner: str = "") -> dict[str, str]:
+        """Prove that tracked tests contain no executable call to a named symbol."""
+        if symbol not in declared_symbols(self.read_current_text(source_path)):
+            return {}
+        coverage_test_paths = self.scan.get("coverage_test_files") or [
+            path for path in self.tracked_files if is_test_path(path)
+        ]
+        calls = 0
+        scanned = 0
+        complete = True
+        total_bytes = 0
+        analysis = "python-ast" if all(Path(path).suffix == ".py" for path in coverage_test_paths) else "mixed-regex"
+        for path in coverage_test_paths:
+            if total_bytes >= MAX_TEST_CORPUS_BYTES:
+                complete = False
+                break
+            limit = min(MAX_SOURCE_BYTES, MAX_TEST_CORPUS_BYTES - total_bytes)
+            text, indexed = self._read_coverage_text(path, limit)
+            if not indexed:
+                complete = False
+            total_bytes += len(text.encode("utf-8", errors="replace"))
+            scanned += 1
+            if Path(path).suffix == ".py":
+                try:
+                    tree = ast.parse(text)
+                except SyntaxError:
+                    complete = False
+                    continue
+                owner_aliases = {owner} if owner else set()
+                if owner:
+                    owner_aliases.update(
+                        alias.asname or alias.name
+                        for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+                        for alias in node.names if alias.name == owner
+                    )
+                owner_instances: set[str] = set()
+                if owner:
+                    for node in ast.walk(tree):
+                        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                            continue
+                        value = node.value
+                        if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
+                            continue
+                        if value.func.id not in owner_aliases:
+                            continue
+                        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                        owner_instances.update(target.id for target in targets if isinstance(target, ast.Name))
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    if not owner and isinstance(node.func, ast.Name) and node.func.id == symbol:
+                        calls += 1
+                    elif owner and isinstance(node.func, ast.Attribute) and node.func.attr == symbol:
+                        receiver = node.func.value
+                        direct_owner = (
+                            isinstance(receiver, ast.Call)
+                            and isinstance(receiver.func, ast.Name)
+                            and receiver.func.id in owner_aliases
+                        )
+                        named_owner = isinstance(receiver, ast.Name) and receiver.id in owner_instances
+                        if direct_owner or named_owner:
+                            calls += 1
+            else:
+                calls += len(re.findall(rf"(?:\.|\b){re.escape(symbol)}\s*\(", text))
+        safe_source = re.sub(r"[^A-Za-z0-9_.-]+", "-", source_path).strip("-")
+        safe_symbol = re.sub(r"[^A-Za-z0-9_.-]+", "-", symbol)
+        return {f"invocation-index/{safe_source}-{safe_symbol}.txt": "\n".join([
+            f"symbol={symbol}",
+            f"source_file={source_path}",
+            f"owner={owner or 'none'}",
+            f"analysis={analysis}",
+            f"tracked_test_files={len(coverage_test_paths)}",
+            f"files_scanned={scanned}",
+            f"symbol={symbol} call_matches={calls}",
+            f"scan_complete={'true' if complete and scanned == len(coverage_test_paths) else 'false'}",
+        ])}
+
+    def symbol_source_evidence(self, source_path: str, symbol: str) -> dict[str, str]:
+        lines = self.read_current_text(source_path).splitlines()
+        declaration = None
+        if Path(source_path).suffix == ".py":
+            try:
+                tree = ast.parse("\n".join(lines))
+                node = next(
+                    value for value in ast.walk(tree)
+                    if isinstance(value, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                    and value.name == symbol
+                )
+                declaration = node.lineno - 1
+            except (SyntaxError, StopIteration):
+                return {}
+        else:
+            declaration = next(
+                (index for index, line in enumerate(lines) if contains_identifier(line, symbol)),
+                None,
+            )
+        if declaration is None:
+            return {}
+        start = max(0, declaration)
+        excerpt = [f"source_file={source_path}"]
+        excerpt.extend(
+            f"source_line={index + 1} | {lines[index].strip()}"
+            for index in range(start, min(len(lines), start + 6))
+            if lines[index].strip()
+        )
+        safe_source = re.sub(r"[^A-Za-z0-9_.-]+", "-", source_path).strip("-")
+        safe_symbol = re.sub(r"[^A-Za-z0-9_.-]+", "-", symbol)
+        return {f"goal-source/{safe_source}-{safe_symbol}.txt": "\n".join(excerpt)}
 
     def _read_coverage_text(self, relative: str, max_bytes: int) -> tuple[str, bool]:
         if not self.repo:
@@ -319,14 +436,73 @@ def build_repo_work_queue(
     todo_files = list(dict.fromkeys(todo_files))
 
     if guidance == "goal" and goal_text.strip():
+        ignored_goal_terms = {
+            "add", "assert", "behavioral", "existing", "focused", "method", "patterns",
+            "return", "returned", "test", "tests", "using", "value", "verify", "verifies",
+        }
+        goal_terms = {
+            term for term in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", goal_text)
+            if len(term) >= 4 and term.lower() not in ignored_goal_terms
+        }
+        dotted_references = re.findall(
+            r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b", goal_text
+        )
+        identity_terms = list(dict.fromkeys(
+            segment for reference in dotted_references for segment in reference.split(".")
+        ))
+        goal_matches: list[tuple[int, str]] = []
+        for path in [value for value in source_files if not is_test_path(value)][:120]:
+            text = read_current_text(path)
+            identity_score = sum(1 for term in identity_terms if contains_identifier(text, term))
+            broad_score = sum(1 for term in goal_terms if contains_identifier(text, term))
+            score = identity_score * 100 + broad_score
+            if score:
+                goal_matches.append((score, path))
+        goal_matches.sort(key=lambda row: (-row[0], row[1]))
+        mission_sources = [path for _score, path in goal_matches[:4]]
+        dotted_symbols = [
+            match.rsplit(".", 1)[-1]
+            for match in dotted_references
+        ]
+        preferred_goal_symbols = list(dict.fromkeys(dotted_symbols + list(goal_terms)))
+        mission_gaps = evidence_index.coverage_gaps(mission_sources, preferred_goal_symbols)
+        mission_evidence: dict[str, str] = {}
+        if mission_sources and dotted_symbols:
+            dotted_owner = dotted_references[0].rsplit(".", 1)[0].rsplit(".", 1)[-1]
+            mission_evidence.update(
+                evidence_index.invocation_gap(mission_sources[0], dotted_symbols[0], dotted_owner)
+            )
+            mission_evidence.update(
+                evidence_index.symbol_source_evidence(mission_sources[0], dotted_symbols[0])
+            )
+        for _path, symbol, evidence in mission_gaps:
+            if symbol in preferred_goal_symbols:
+                mission_evidence.update(evidence)
+        mission_tests: list[str] = []
+        for path in mission_sources:
+            mission_tests.extend(relevant_tests_for_source(path, tests, read_current_text)[:2])
+        mission_files = list(dict.fromkeys(mission_sources + mission_tests + recent_source[:6]))
         add(
             "mission-brief",
             "mission",
             f"Turn this user mission into the smallest safe repo task: {goal_text.strip()}",
             "User supplied a specific mission.",
-            recent_source[:6],
+            mission_files,
             ladder="repair",
             preferred_lane="local",
+            proof_kind="test" if mission_evidence else "source",
+            signal=goal_text.strip(),
+            evidence_sources=mission_evidence,
+            executable=bool(
+                mission_evidence
+                and test_commands
+                and any(
+                    key.startswith("invocation-index/")
+                    and "analysis=python-ast" in value
+                    and "scan_complete=true" in value
+                    for key, value in mission_evidence.items()
+                )
+            ),
         )
     if coverage_gaps:
         gap_path, gap_symbol, gap_evidence = coverage_gaps[0]
