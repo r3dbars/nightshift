@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
 from night_shift_reporting import ReportEngine
+from night_shift_portfolio_reporting import PortfolioReportEngine
 
 
 def result(label="tests-001", score="KEEP", lane="local", summary="Add focused test"):
@@ -110,6 +111,44 @@ class ReportingTests(unittest.TestCase):
             self.assertIn("Status: YELLOW", brief)
             self.assertIn("Nothing had enough evidence", brief)
             self.assertNotIn("Fix the startup gate", brief)
+
+
+class PortfolioReportingTests(unittest.TestCase):
+    def engine(self, root: Path) -> PortfolioReportEngine:
+        return PortfolioReportEngine(root / "history.jsonl", lambda label: label.split("-", 1)[0])
+
+    def test_snapshot_and_empty_brief_are_owned_by_module(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            engine = self.engine(root)
+            engine.write_snapshot(root, [{
+                "slug": "owner/repo", "score": 42,
+                "signals": {"prs": [1], "issues": [], "failed_runs": []},
+            }])
+            engine.write_brief(root, [], "GREEN")
+            self.assertIn("owner/repo", (root / "portfolio.md").read_text())
+            self.assertEqual(json.loads((root / "morning-items.json").read_text()), [])
+            self.assertIn("Status: GREEN", (root / "morning.md").read_text())
+
+    def test_brief_materializes_exact_child_choice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = root / "child"
+            child.mkdir()
+            (child / "work-queue.json").write_text(json.dumps([{
+                "key": "issue-42:tests:patch-plan", "labels": ["issue-42"],
+                "fingerprint": "fingerprint", "source_ref": "a" * 40,
+                "summary": "Repair issue 42", "score": "MAYBE",
+            }]))
+            self.engine(root).write_brief(root, [{
+                "repo": "owner/repo", "checkout": str(root), "ledger": str(child),
+                "new_tasks": 1,
+            }], "GREEN")
+            item = json.loads((root / "morning-items.json").read_text())[0]
+            self.assertEqual(item["child_ledger"], str(child))
+            self.assertEqual(item["fingerprint"], "fingerprint")
+            self.assertEqual(item["source_ref"], "a" * 40)
+            self.assertIn("Status: YELLOW", (root / "morning.md").read_text())
 
 
 if __name__ == "__main__":
