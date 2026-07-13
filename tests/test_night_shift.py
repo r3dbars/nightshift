@@ -2389,7 +2389,7 @@ buildThing() { return 1; }
             self.assertIn("/tmp:rw,exec,nosuid,size=256m,mode=1777", read_only_check)
             self.assertIn("cp -a /source/. /work/", __import__("night_shift_sandbox").fixed_verify_script())
 
-    def test_podman_patch_tmpfs_avoids_docker_only_ownership_options(self):
+    def test_patch_tmpfs_uses_container_user_ownership_for_every_runtime(self):
         sandbox = __import__("night_shift_sandbox")
         original_runtime = sandbox.sandbox_runtime
         sandbox.sandbox_runtime = lambda: "/opt/homebrew/bin/podman"
@@ -2406,6 +2406,13 @@ buildThing() { return 1; }
             self.assertNotIn("gid=", tmpfs)
             self.assertIn("mode=700", tmpfs)
             self.assertIn("exec", tmpfs)
+            sandbox.sandbox_runtime = lambda: "/usr/local/bin/docker"
+            docker_command = sandbox.sandbox_patch_command(
+                Path("/tmp/source"), Path("/tmp/patch"), Path("/tmp/artifacts"), ("true",), profile,
+            )
+            docker_tmpfs = docker_command[docker_command.index("--tmpfs") + 1]
+            self.assertNotIn("uid=", docker_tmpfs)
+            self.assertNotIn("gid=", docker_tmpfs)
         finally:
             sandbox.sandbox_runtime = original_runtime
 
