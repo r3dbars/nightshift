@@ -1545,8 +1545,10 @@ buildThing() { return 1; }
             self.assertTrue(metadata["cloud_authorized"])
             self.assertTrue(metadata["read_only"])
             self.assertTrue(metadata["valid_review"])
+            self.assertEqual(metadata["materialized_files"], ["src/app.py"])
+            self.assertEqual(metadata["source_ref"], "")
 
-    def test_handoff_refuses_cloud_review_when_checkout_does_not_match_source_ref(self):
+    def test_handoff_reviews_pinned_revision_when_checkout_has_moved(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
@@ -1575,13 +1577,95 @@ buildThing() { return 1; }
                 run=True, allow_cloud=True, timeout=30,
             )
             original_which = night_shift.shutil.which
+            original_run = night_shift.run_cmd
+            reviewed = []
+            night_shift.shutil.which = lambda name: "/usr/bin/codex" if name == "codex" else original_which(name)
+            try:
+                def fake_run(command, **kwargs):
+                    values = [str(value) for value in command]
+                    if values[0] == "git":
+                        completed = subprocess.run(
+                            values, cwd=kwargs.get("cwd"), text=True, capture_output=True, check=False
+                        )
+                        return night_shift.CmdResult("git", completed.returncode, completed.stdout, completed.stderr)
+                    review_root = Path(kwargs["cwd"])
+                    reviewed.append((review_root / "app.py").read_text(encoding="utf-8"))
+                    return night_shift.CmdResult(
+                        "codex", 0, "CONFIRMED\napp.py:1 | first\nREADY_FOR_IMPLEMENTATION: yes", ""
+                    )
+
+                night_shift.run_cmd = fake_run
+                with redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(night_shift.command_handoff(args), 0)
+            finally:
+                night_shift.run_cmd = original_run
+                night_shift.shutil.which = original_which
+            self.assertIn("independent read-only review complete", output.getvalue())
+            self.assertEqual(reviewed, ["first\n"])
+
+    def test_handoff_refuses_unavailable_pinned_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            ledger = root / "ledger"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            (repo / "app.py").write_text("first\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "first"], cwd=repo, check=True)
+            ledger.mkdir()
+            (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "rank": 1, "score": "MAYBE", "summary": "Review missing revision",
+                "evidence": "app.py:1 | first", "files": ["app.py"],
+                "tests": "python -m pytest", "source_ref": "f" * 40,
+            }]), encoding="utf-8")
+            args = SimpleNamespace(
+                ledger=str(ledger), latest=False, item=1, agent="codex",
+                run=True, allow_cloud=True, timeout=30,
+            )
+            original_which = night_shift.shutil.which
             night_shift.shutil.which = lambda name: "/usr/bin/codex" if name == "codex" else original_which(name)
             try:
                 with redirect_stdout(io.StringIO()) as output:
                     self.assertEqual(night_shift.command_handoff(args), 1)
             finally:
                 night_shift.shutil.which = original_which
-            self.assertIn("does not match", output.getvalue())
+            self.assertIn("pinned candidate revision is unavailable", output.getvalue())
+
+    def test_handoff_refuses_non_exact_pinned_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            ledger = root / "ledger"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            (repo / "app.py").write_text("first\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "first"], cwd=repo, check=True)
+            ledger.mkdir()
+            (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "rank": 1, "score": "MAYBE", "summary": "Review ambiguous revision",
+                "evidence": "app.py:1 | first", "files": ["app.py"],
+                "tests": "python -m pytest", "source_ref": "HEAD",
+            }]), encoding="utf-8")
+            args = SimpleNamespace(
+                ledger=str(ledger), latest=False, item=1, agent="codex",
+                run=True, allow_cloud=True, timeout=30,
+            )
+            original_which = night_shift.shutil.which
+            night_shift.shutil.which = lambda name: "/usr/bin/codex" if name == "codex" else original_which(name)
+            try:
+                with redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(night_shift.command_handoff(args), 1)
+            finally:
+                night_shift.shutil.which = original_which
+            self.assertIn("not an exact commit SHA", output.getvalue())
 
     def test_handoff_review_schema_rejects_unstructured_cloud_output(self):
         self.assertEqual(night_shift.validate_handoff_review("looks good"), [

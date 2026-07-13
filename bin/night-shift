@@ -3503,11 +3503,13 @@ def command_handoff(args) -> int:
 
     source_ref = str(item.get("source_ref") or "")
     if source_ref:
-        current = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, timeout=30)
-        pinned = run_cmd(["git", "rev-parse", source_ref], cwd=repo, timeout=30)
-        if current.rc != 0 or pinned.rc != 0 or current.stdout.strip() != pinned.stdout.strip():
-            print("NIGHTSHIFT_HANDOFF: RED | the checked-out revision does not match this pinned candidate")
-            print(f"Review the candidate in a detached checkout of {source_ref[:12]}, then rerun the handoff there.")
+        if not re.fullmatch(r"[0-9a-f]{40}", source_ref):
+            print("NIGHTSHIFT_HANDOFF: RED | the pinned candidate revision is not an exact commit SHA")
+            return 1
+        pinned = run_cmd(["git", "cat-file", "-e", f"{source_ref}^{{commit}}"], cwd=repo, timeout=30)
+        if pinned.rc != 0:
+            print("NIGHTSHIFT_HANDOFF: RED | the pinned candidate revision is unavailable")
+            print("Fetch the repository's recent history, then rerun the handoff.")
             return 1
 
     with tempfile.TemporaryDirectory(prefix="night-shift-handoff-") as temporary:
@@ -3536,8 +3538,10 @@ def command_handoff(args) -> int:
         "cloud_authorized": True,
         "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "item": args.item,
+        "materialized_files": copied,
         "read_only": True,
         "return_code": result.rc,
+        "source_ref": source_ref,
         "valid_review": not review_reasons,
         "validation_reasons": review_reasons,
     }
