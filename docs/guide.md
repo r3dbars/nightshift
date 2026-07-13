@@ -202,7 +202,16 @@ One-command install:
 
 ```bash
 ./install.sh
-night-shift start
+```
+
+The installer adds Night Shift to your shell `PATH` once. Open a new terminal
+and run `night-shift start`. To leave your shell profile unchanged, use
+`./install.sh --no-path` and run the absolute command printed by the installer.
+
+Maintainers can repeat the clean Ubuntu installation proof with:
+
+```bash
+scripts/prove-linux-install.sh
 ```
 
 Install into a different Codex home:
@@ -253,7 +262,7 @@ Recommended:
 - Claude CLI installed if you want the reasoning lane.
 - GitHub CLI signed in if you want PR state included in the context pack.
 
-If your shell cannot find `night-shift`, use either of these:
+If the current terminal has not picked up the new PATH yet, use either of these:
 
 ```bash
 export PATH="$HOME/.codex/bin:$PATH"
