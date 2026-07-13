@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 
-from night_shift_redaction import contains_secret, redact
+from night_shift_redaction import redact
 from night_shift_evidence import proposes_test_theater
 
 
@@ -17,6 +17,12 @@ MARKDOWN_LABEL_CITATION = re.compile(rf"\[({RELATIVE_PATH}):(\d+)\]\([^\n)]+\)")
 MARKDOWN_TARGET_CITATION = re.compile(rf"\[({RELATIVE_PATH})\]\(([^\n)]+):(\d+)\)")
 READY_LINE = re.compile(r"(?mi)^READY_FOR_IMPLEMENTATION:\s*(yes|no)\s*$")
 CANDIDATE_BOUNDARY = "NIGHT_SHIFT_END_CANDIDATE_DATA_7F3A"
+RESIDUAL_CREDENTIAL_RE = re.compile(
+    r"(?i)\b(?:webhook[_-]?secret|signing[_-]?key|credential|private[_-]?token)\b"
+    r"\s*[:=]\s*['\"][^'\"\n]{8,}['\"]"
+    r"|\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:[^\s/@]{8,}@"
+    r"|\bBearer\s+(?!\[REDACTED_SECRET\])[A-Za-z0-9._~+/=-]{8,}",
+)
 
 
 def candidate_text(value) -> str:
@@ -130,16 +136,16 @@ def handoff_pack_privacy_reasons(prompt: str, target: Path, files: list[str], re
     reasons: list[str] = []
     if str(repo.resolve()) in prompt:
         reasons.append("prompt exposed the source checkout path")
-    if contains_secret(prompt):
-        reasons.append("prompt retained secret material after redaction")
+    if RESIDUAL_CREDENTIAL_RE.search(prompt):
+        reasons.append("prompt retained suspicious credential material after redaction")
     for relative in files:
         try:
             content = (target / relative).read_text(encoding="utf-8", errors="replace")
         except OSError:
             reasons.append(f"materialized review file became unreadable: {relative}")
             continue
-        if contains_secret(content):
-            reasons.append(f"materialized review file retained secret material: {relative}")
+        if RESIDUAL_CREDENTIAL_RE.search(content):
+            reasons.append(f"materialized review file retained suspicious credential material: {relative}")
     return reasons
 
 

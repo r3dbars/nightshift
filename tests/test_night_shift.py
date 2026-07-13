@@ -2009,13 +2009,24 @@ buildThing() { return 1; }
             review = root / "review"
             repo.mkdir()
             review.mkdir()
-            (review / "app.py").write_text(
-                "token = 'ghp_abcdefghijklmnopqrstuvwxyz1234567890'\n", encoding="utf-8"
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            (repo / "app.py").write_text(
+                "credential = 'literal-value-standard-redactor-misses'\n", encoding="utf-8"
             )
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
+            copied = night_shift.materialize_review_files(repo, review, ["app.py"])
+            self.assertEqual(copied, ["app.py"])
+            self.assertIn("literal-value-standard-redactor-misses", (review / "app.py").read_text())
             reasons = night_shift.handoff_pack_privacy_reasons(
-                "Review app.py", review, ["app.py"], repo
+                "Review app.py", review, copied, repo
             )
-            self.assertIn("materialized review file retained secret material: app.py", reasons)
+            self.assertIn(
+                "materialized review file retained suspicious credential material: app.py",
+                reasons,
+            )
 
     def test_handoff_pack_metrics_count_only_bounded_payload(self):
         with tempfile.TemporaryDirectory() as tmp:
