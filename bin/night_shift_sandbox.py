@@ -143,12 +143,22 @@ def fixed_verify_script() -> str:
     )
 
 
+def dependency_volume(dependency_source: Path | None) -> list[str]:
+    """Expose a repo's installed dependencies read-only inside the disposable worktree."""
+    if dependency_source is None:
+        return []
+    if dependency_source.name != "node_modules" or dependency_source.is_symlink() or not dependency_source.is_dir():
+        return []
+    return ["--volume", f"{dependency_source.resolve()}:/work/node_modules:ro"]
+
+
 def sandbox_patch_command(
     source: Path,
     patch: Path,
     artifacts: Path,
     command: tuple[str, ...],
     profile: RepoProfile,
+    dependency_source: Path | None = None,
 ) -> list[str]:
     """Build the only writable-patch command Night Shift permits.
 
@@ -168,6 +178,7 @@ def sandbox_patch_command(
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
         "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"/work:{tmpfs_options}",
         "--tmpfs", "/tmp:rw,exec,nosuid,size=256m,mode=1777",
+        *dependency_volume(dependency_source),
         "--volume", f"{source.resolve()}:/source:ro", "--volume", f"{patch.resolve()}:/input/candidate.patch:ro",
         "--volume", f"{artifacts.resolve()}:/artifacts:rw", "--workdir", "/work",
         "--env", "HOME=/tmp", "--env", "GIT_CONFIG_NOSYSTEM=1", profile.image,
@@ -175,7 +186,12 @@ def sandbox_patch_command(
     ]
 
 
-def sandbox_command(repo: Path, command: tuple[str, ...], profile: RepoProfile) -> list[str]:
+def sandbox_command(
+    repo: Path,
+    command: tuple[str, ...],
+    profile: RepoProfile,
+    dependency_source: Path | None = None,
+) -> list[str]:
     """Run with no host credentials/network and bounded resources.
 
     The repo mount is intentionally read-only. A future patch worker must write
@@ -189,6 +205,7 @@ def sandbox_command(repo: Path, command: tuple[str, ...], profile: RepoProfile) 
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
         "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"{home}:rw,exec,nosuid,size=256m,mode=1777",
         "--tmpfs", "/work:rw,exec,nosuid,size=512m,mode=700", "--workdir", "/work",
+        *dependency_volume(dependency_source),
         "--volume", f"{repo.resolve()}:/source:ro",
         "--env", f"HOME={home}", "--env", "GIT_CONFIG_NOSYSTEM=1",
         "--env", "PYTHONDONTWRITEBYTECODE=1",

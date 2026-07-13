@@ -436,7 +436,7 @@ class DraftEngine:
         if baseline_timeout <= 0:
             return finish({"status": "REJECT", "reason": "stop limit reached before baseline verification"})
         baseline = self.run_cmd(
-            sandbox_command(worktree, verification_argv, profile),
+            sandbox_command(worktree, verification_argv, profile, repo / "node_modules"),
             cwd=worktree,
             timeout=min(baseline_timeout, profile.max_seconds),
             pid_log=parent_ledger / "processes.tsv",
@@ -537,6 +537,12 @@ class DraftEngine:
                         "the end of SOURCE EXCERPT. Keep those final lines unchanged as the hunk anchor, and "
                         "ensure every @@ old/new line count matches the actual hunk body."
                     )
+                    if strengthening and strengthening.get("analysis") == "typescript-regex":
+                        correction += (
+                            " For TypeScript, the only accepted import is inside the new test block: "
+                            f"`const {{ {strengthening['symbol']} }} = await import('{typescript_import_path(str(strengthening['source_file']), test_file)}')`. "
+                            "Never add a module-scope import and never use require."
+                        )
                 if apply_reason:
                     correction += (
                         " The previous patch did not apply to the pinned commit. Use only exact unchanged "
@@ -599,7 +605,9 @@ class DraftEngine:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="stop limit reached before isolated verification")
             return finish({"status": "REJECT", "reason": "stop limit reached before isolated verification", "baseline_rc": baseline.rc})
         verified = self.run_cmd(
-            sandbox_patch_command(worktree, patch_path, sandbox_dir, verification_argv, profile),
+            sandbox_patch_command(
+                worktree, patch_path, sandbox_dir, verification_argv, profile, repo / "node_modules",
+            ),
             cwd=worktree,
             timeout=min(verify_timeout, profile.max_seconds),
             pid_log=parent_ledger / "processes.tsv",
@@ -617,6 +625,12 @@ class DraftEngine:
                 )
                 current_patch = patch_path.read_text(encoding="utf-8", errors="replace")[-8000:]
                 correction = verification_correction_prompt(current_patch, failure_output)
+                if strengthening and strengthening.get("analysis") == "typescript-regex":
+                    correction += (
+                        "\nFor this TypeScript test, preserve the exact in-test dynamic import and imported binding: "
+                        f"`const {{ {strengthening['symbol']} }} = await import('{typescript_import_path(str(strengthening['source_file']), candidate['files'][0])}')`. "
+                        "Never use a module-scope import or require."
+                    )
                 repair = self.ask_for_patch(
                     worktree, source_ref, candidate, verification_argv, retry_timeout,
                     worker_url, worker_model, parent_ledger,
@@ -662,7 +676,9 @@ class DraftEngine:
                 retry_sandbox = proof_dir / f"{safe_task}-verification-sandbox-{attempt}"
                 retry_sandbox.mkdir(parents=True, exist_ok=True)
                 verified = self.run_cmd(
-                    sandbox_patch_command(worktree, patch_path, retry_sandbox, verification_argv, profile),
+                    sandbox_patch_command(
+                        worktree, patch_path, retry_sandbox, verification_argv, profile, repo / "node_modules",
+                    ),
                     cwd=worktree, timeout=min(retry_timeout, profile.max_seconds),
                     pid_log=parent_ledger / "processes.tsv",
                 )

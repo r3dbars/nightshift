@@ -453,6 +453,34 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
                 PortfolioEngine.task_fingerprint("owner/repo", "a" * 40, changed_mission),
             )
 
+    def test_typescript_gap_uses_full_coverage_test_set_and_is_executable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "analytics.ts").write_text(
+                "export function formatPercent(value: number) { return `${Math.round(value)}%`; }\n",
+                encoding="utf-8",
+            )
+            (repo / "tests" / "unit" / "lib").mkdir(parents=True)
+            (repo / "tests" / "unit" / "lib" / "analytics-metrics.test.ts").write_text(
+                "describe('metrics', () => {});\n", encoding="utf-8"
+            )
+            scan = {
+                "recent_files": ["analytics.ts"],
+                "source_files": ["analytics.ts"],
+                "test_files": [],
+                "coverage_test_files": ["tests/unit/lib/analytics-metrics.test.ts"],
+                "test_commands": ["npm run test:unit:vitest"],
+                "tracked_files": ["analytics.ts", "tests/unit/lib/analytics-metrics.test.ts"],
+            }
+            queue = build_repo_work_queue(
+                repo, scan, "afterburner", "draft-local",
+                run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            )
+            task = next(item for item in queue if item["slug"].startswith("changed-file-proof-"))
+            self.assertTrue(task["executable"])
+            self.assertIn("tests/unit/lib/analytics-metrics.test.ts", task["files"])
+            self.assertIn("analysis=typescript-regex", "\n".join(task["evidence_sources"].values()))
+
     def test_invocation_gap_is_owner_aware_and_understands_import_aliases(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
