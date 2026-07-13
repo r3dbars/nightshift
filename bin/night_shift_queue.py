@@ -45,6 +45,13 @@ def complete_invocation_evidence(value: str) -> bool:
     ) and "call_matches=0" in value and "scan_complete=true" in value
 
 
+def complete_invocation_scan(value: str) -> bool:
+    return any(
+        f"analysis={analysis}" in value
+        for analysis in ("python-ast", "typescript-regex", "swift-regex")
+    ) and "scan_complete=true" in value
+
+
 def goal_semantic_contract(goal: str) -> dict:
     low = goal.lower()
     contract: dict[str, object] = {}
@@ -638,10 +645,10 @@ def build_repo_work_queue(
             "add", "assert", "behavioral", "existing", "focused", "method", "patterns",
             "return", "returned", "test", "tests", "using", "value", "verify", "verifies",
         }
-        goal_terms = {
+        goal_terms = list(dict.fromkeys(
             term for term in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", goal_text)
             if len(term) >= 4 and term.lower() not in ignored_goal_terms
-        }
+        ))
         dotted_references = re.findall(
             r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b", goal_text
         )
@@ -652,8 +659,11 @@ def build_repo_work_queue(
         for path in [value for value in source_files if not is_test_path(value)][:120]:
             text = read_current_text(path)
             identity_score = sum(1 for term in identity_terms if contains_identifier(text, term))
+            declared_goal_score = sum(
+                1 for term in goal_terms if term in declared_symbols(text)
+            )
             broad_score = sum(1 for term in goal_terms if contains_identifier(text, term))
-            score = identity_score * 100 + broad_score
+            score = (identity_score + declared_goal_score) * 100 + broad_score
             if score:
                 goal_matches.append((score, path))
         goal_matches.sort(key=lambda row: (-row[0], row[1]))
@@ -662,16 +672,29 @@ def build_repo_work_queue(
             match.rsplit(".", 1)[-1]
             for match in dotted_references
         ]
-        preferred_goal_symbols = list(dict.fromkeys(dotted_symbols + list(goal_terms)))
+        preferred_goal_symbols = list(dict.fromkeys(dotted_symbols + goal_terms))
         mission_gaps = evidence_index.coverage_gaps(mission_sources, preferred_goal_symbols)
         mission_evidence: dict[str, str] = {}
-        if mission_sources and dotted_symbols:
-            dotted_owner = dotted_references[0].rsplit(".", 1)[0].rsplit(".", 1)[-1]
+        mission_symbol = ""
+        mission_owner = ""
+        if mission_sources:
+            source_symbols = declared_symbols(read_current_text(mission_sources[0]))
+            mission_symbol = next(
+                (
+                    symbol for symbol in preferred_goal_symbols
+                    if symbol in source_symbols
+                    and ("_" in symbol or len(symbol) >= 8 or symbol in dotted_symbols)
+                ),
+                "",
+            )
+            if dotted_symbols and dotted_symbols[0] == mission_symbol:
+                mission_owner = dotted_references[0].rsplit(".", 1)[0].rsplit(".", 1)[-1]
+        if mission_sources and mission_symbol:
             mission_evidence.update(
-                evidence_index.invocation_gap(mission_sources[0], dotted_symbols[0], dotted_owner)
+                evidence_index.invocation_gap(mission_sources[0], mission_symbol, mission_owner)
             )
             mission_evidence.update(
-                evidence_index.symbol_source_evidence(mission_sources[0], dotted_symbols[0])
+                evidence_index.symbol_source_evidence(mission_sources[0], mission_symbol, mission_owner)
             )
         for _path, symbol, evidence in mission_gaps:
             if symbol in preferred_goal_symbols:
@@ -684,16 +707,16 @@ def build_repo_work_queue(
         mission_draftable = True
         if mission_sources and Path(mission_sources[0]).suffix.lower() in JS_EXTENSIONS:
             mission_draftable = simple_exported_function(
-                read_current_text(mission_sources[0]), dotted_symbols[0]
-            ) if dotted_symbols else False
+                read_current_text(mission_sources[0]), mission_symbol
+            ) if mission_symbol else False
         mission_executable = bool(
-            dotted_symbols
+            mission_symbol
             and mission_evidence
             and test_commands
             and mission_draftable
             and any(
                 key.startswith("invocation-index/")
-                and complete_invocation_evidence(value)
+                and complete_invocation_scan(value)
                 for key, value in mission_evidence.items()
             )
         )
