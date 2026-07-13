@@ -47,6 +47,7 @@ def correction_prompt(
     candidate_files: list[str] | None = None,
     evidence_sources: dict[str, str] | None = None,
     verification_commands: list[str] | None = None,
+    previous_output: str = "",
 ) -> str:
     allowed_paths = list(dict.fromkeys((candidate_files or []) + list((evidence_sources or {}).keys())))
     path_lines = "\n".join(f"- {path}" for path in allowed_paths) or "- None"
@@ -54,11 +55,17 @@ def correction_prompt(
     citation_lines = "\n".join(f"- {citation}" for citation in citation_examples) or "- None"
     command_lines = "\n".join(f"- {command}" for command in (verification_commands or [])) or "- None"
     correction = "; ".join(reasons) or "the response did not follow the schema"
+    prior = redact(previous_output).strip()[:6000] or "(no usable prior answer)"
     return (
         prompt
         + "\n\nCORRECTION PASS: Your previous answer was rejected because: "
         + correction
-        + ". Return the complete requested schema once. Use only supplied evidence; reject the task if evidence is insufficient.\n"
+        + ". Correct that same candidate. Do not switch files, symbols, claims, or task type. "
+        + "Repeat the same named code target in backticks in CLAIM so task identity can be checked. "
+        + "Return the complete requested schema once. Use only supplied evidence; reject the task if evidence is insufficient.\n"
+        + "Your rejected answer was:\n---\n"
+        + prior
+        + "\n---\n"
         + "Every EVIDENCE entry must use `path:line | exact source line`. Copy a path below character-for-character; "
         + "never invent a path, alter punctuation, or write `path:none`. Use one physical source line with ASCII digits only: "
         + "`src/app.py:123 | return value`. Never use a line range, Unicode dash, HTML `<br>`, Markdown bullet, or backticks around the entry. "
@@ -71,6 +78,23 @@ def correction_prompt(
         + "\nAllowed verification commands (copy at least one exactly):\n"
         + command_lines
     )
+
+
+def candidate_identity_terms(output: str) -> set[str]:
+    """Extract explicit code targets used to keep a correction on-task."""
+    terms = set()
+    claim = first_label_value(output or "", ["CLAIM"])
+    for value in re.findall(r"`([^`\n]{2,160})`", claim):
+        compact = value.strip().lower()
+        if re.search(r"[a-z_][a-z0-9_.:/\[\]-]*", compact):
+            terms.add(compact)
+    return terms
+
+
+def correction_preserves_identity(first_output: str, retry_output: str) -> bool:
+    first = candidate_identity_terms(first_output)
+    retry = candidate_identity_terms(retry_output)
+    return bool(first and retry and first & retry)
 
 
 def should_retry_local_output(
@@ -187,9 +211,14 @@ def dispatch_one(
         has_pinned_task_evidence(candidate_files, source_ref, evidence_sources, pinned_issue),
     ):
         retry_prompt = correction_prompt(
-            prompt, reasons, candidate_files, evidence_sources, verification_commands
+            prompt, reasons, candidate_files, evidence_sources, verification_commands,
+            first["res"].stdout,
         )
-        attempts.append(run_attempt(2, retry_prompt))
+        retry = run_attempt(2, retry_prompt)
+        if not correction_preserves_identity(first["res"].stdout, retry["res"].stdout):
+            retry["score"] = "REJECT"
+            retry["identity_drift"] = True
+        attempts.append(retry)
 
     selected = select_best_attempt(attempts)
     res = selected["res"]
@@ -230,7 +259,7 @@ def dispatch_one(
             proof_kind,
             evidence_sources,
             source_ref,
-        ),
+        ) + (["correction switched to a different named code target"] if selected.get("identity_drift") else []),
         "source_ref": source_ref,
         "evidence_sources": sanitize_evidence_sources(evidence_sources),
         "retry_count": len(attempts) - 1,
