@@ -82,6 +82,10 @@ class ReportingTests(unittest.TestCase):
             self.assertIn("Maybe this [MAYBE]", brief)
             self.assertIn("Deterministically proven worker findings:", brief)
             self.assertIn("Evidence-backed candidates that still need deterministic proof:", brief)
+            self.assertIn(
+                f"night-shift handoff --ledger {ledger} --item 1 --agent codex --run --allow-cloud",
+                brief,
+            )
 
     def test_morning_falls_back_to_factual_scan(self):
         with tempfile.TemporaryDirectory() as tmp:

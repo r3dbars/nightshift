@@ -10,7 +10,10 @@ from night_shift_redaction import redact
 
 ALLOWED_SCORES = {"KEEP", "MAYBE"}
 VERDICT_LINE = re.compile(r"(?m)^(CONFIRMED|REJECTED|NEEDS_INFO)\b")
-SOURCE_CITATION = re.compile(r"(?m)(?:^|\s)([A-Za-z0-9_.@+-]+(?:/[A-Za-z0-9_.@+-]+)*):(\d+)\b")
+RELATIVE_PATH = r"[A-Za-z0-9_.@+-]+(?:/[A-Za-z0-9_.@+-]+)*"
+SOURCE_CITATION = re.compile(rf"(?m)(?:^|[\s`])({RELATIVE_PATH}):(\d+)\b")
+MARKDOWN_LABEL_CITATION = re.compile(rf"\[({RELATIVE_PATH}):(\d+)\]\([^\n)]+\)")
+MARKDOWN_TARGET_CITATION = re.compile(rf"\[({RELATIVE_PATH})\]\(([^\n)]+):(\d+)\)")
 READY_LINE = re.compile(r"(?mi)^READY_FOR_IMPLEMENTATION:\s*(yes|no)\s*$")
 CANDIDATE_BOUNDARY = "NIGHT_SHIFT_END_CANDIDATE_DATA_7F3A"
 
@@ -123,6 +126,14 @@ def citation_exists(repo: Path, relative: str, line: int, source_ref: str = "") 
         return False
 
 
+def review_citations(output: str) -> list[tuple[str, str]]:
+    citations = [*SOURCE_CITATION.findall(output), *MARKDOWN_LABEL_CITATION.findall(output)]
+    for label, target, line in MARKDOWN_TARGET_CITATION.findall(output):
+        if target == label or target.endswith("/" + label):
+            citations.append((label, line))
+    return list(dict.fromkeys(citations))
+
+
 def validate_handoff_review(
     output: str,
     repo: Path | None = None,
@@ -133,12 +144,18 @@ def validate_handoff_review(
     verdicts = VERDICT_LINE.findall(output)
     if len(verdicts) != 1:
         reasons.append("review must return exactly one verdict line")
-    citations = SOURCE_CITATION.findall(output)
+    citations = review_citations(output)
     if not citations:
         reasons.append("review must cite a current repo-relative path and line")
-    elif allowed_files is not None and any(path not in set(allowed_files) for path, _ in citations):
-        reasons.append("review citation must be inside the materialized file allowlist")
-    elif repo and not all(citation_exists(repo, path, int(line), source_ref) for path, line in citations):
+    allowed_citations = citations
+    if citations and allowed_files is not None:
+        allowed = set(allowed_files)
+        allowed_citations = [(path, line) for path, line in citations if path in allowed]
+        if not allowed_citations:
+            reasons.append("review citation must be inside the materialized file allowlist")
+    if allowed_citations and repo and not all(
+        citation_exists(repo, path, int(line), source_ref) for path, line in allowed_citations
+    ):
         reasons.append("review citation must exist at the reviewed revision")
     if not READY_LINE.search(output):
         reasons.append("review must state READY_FOR_IMPLEMENTATION: yes/no")

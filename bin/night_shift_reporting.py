@@ -277,5 +277,11 @@ class ReportEngine:
         rejected = sorted((row for row in results if row["score"] == "REJECT"), key=lambda row: (-row["priority"], row["label"]))
         lines.extend(f"- {row['label']}: {row['summary']}" for row in rejected[:5])
         if reject == 0: lines.append("- None.")
-        lines.extend(["", "Needs user review:", "- Review only the top ranked KEEP/MAYBE item first; worker output is draft input, not truth.", "- Treat manual hardware/audio proof as UNKNOWN unless a human verified it.", "", "Safety:", "- No merges, releases, tags, notarization, deploys, appcast/cask updates, billing, credentials, or user-file cleanup were performed by this command.", "- Local and Windows outputs are drafts, not truth.", "", "Proof files:", f"- Repo scan: {ledger / 'repo-scan.md'}", f"- Work queue: {ledger / 'work-queue.md'}", f"- Harvest: {ledger / 'harvest.md'}", f"- Token report: {ledger / 'token-report.txt'}"])
+        lines.extend(["", "Needs user review:", "- Review only the top ranked KEEP/MAYBE item first; worker output is draft input, not truth."])
+        if work_items:
+            lines.append(
+                "- One-action independent review (read-only cloud; this command is explicit consent): "
+                f"`night-shift handoff --ledger {ledger} --item 1 --agent codex --run --allow-cloud`"
+            )
+        lines.extend(["- Treat manual hardware/audio proof as UNKNOWN unless a human verified it.", "", "Safety:", "- No merges, releases, tags, notarization, deploys, appcast/cask updates, billing, credentials, or user-file cleanup were performed by this command.", "- Local and Windows outputs are drafts, not truth.", "", "Proof files:", f"- Repo scan: {ledger / 'repo-scan.md'}", f"- Work queue: {ledger / 'work-queue.md'}", f"- Harvest: {ledger / 'harvest.md'}", f"- Token report: {ledger / 'token-report.txt'}"])
         (ledger / "morning.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

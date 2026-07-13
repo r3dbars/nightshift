@@ -1535,6 +1535,8 @@ buildThing() { return 1; }
                 night_shift.shutil.which = original_which
             self.assertIn("read-only", captured[0])
             self.assertNotIn("workspace-write", captured[0])
+            self.assertNotIn("--ask-for-approval", captured[0])
+            self.assertIn("--skip-git-repo-check", captured[0])
             self.assertEqual(review_files, ["src/app.py"])
             self.assertIn("[REDACTED_SECRET]", review_contents[0])
             self.assertNotIn("supersecretvalue", review_contents[0])
@@ -1593,6 +1595,36 @@ buildThing() { return 1; }
             ),
             [],
         )
+        self.assertEqual(
+            night_shift.validate_handoff_review(
+                "REJECTED\nFound at [src/app.py:2](src/app.py:2).\nREADY_FOR_IMPLEMENTATION: no"
+            ),
+            [],
+        )
+        self.assertEqual(
+            night_shift.validate_handoff_review(
+                "REJECTED\nFound at [src/app.py](src/app.py:2).\nREADY_FOR_IMPLEMENTATION: no"
+            ),
+            [],
+        )
+        self.assertEqual(
+            night_shift.validate_handoff_review(
+                "REJECTED\nFound at [src/app.py](/tmp/review/src/app.py:2).\nREADY_FOR_IMPLEMENTATION: no"
+            ),
+            [],
+        )
+        self.assertEqual(
+            night_shift.validate_handoff_review(
+                "REJECTED\nFound at `src/app.py:2-4`.\nREADY_FOR_IMPLEMENTATION: no"
+            ),
+            [],
+        )
+        self.assertIn(
+            "review must cite a current repo-relative path and line",
+            night_shift.validate_handoff_review(
+                "REJECTED\nSee [src/app.py](https://example.com/prefix-src/app.py:2).\nREADY_FOR_IMPLEMENTATION: no"
+            ),
+        )
 
     def test_handoff_prompt_candidate_cannot_close_untrusted_boundary(self):
         marker = night_shift.CANDIDATE_BOUNDARY
@@ -1623,6 +1655,12 @@ buildThing() { return 1; }
             output = "CONFIRMED\nprivate.py:1 | private\nREADY_FOR_IMPLEMENTATION: yes"
             reasons = night_shift.validate_handoff_review(output, repo, allowed_files=["allowed.py"])
             self.assertIn("review citation must be inside the materialized file allowlist", reasons)
+
+            mixed = "CONFIRMED\nallowed.py:1 | allowed\nSee docs/example.py:99 for context.\nREADY_FOR_IMPLEMENTATION: yes"
+            self.assertEqual(
+                night_shift.validate_handoff_review(mixed, repo, allowed_files=["allowed.py"]),
+                [],
+            )
 
     def test_inline_code_is_cleaned_for_morning_output(self):
         self.assertEqual(night_shift.clean_inline_code("`bash scripts/check-package.sh`"), "bash scripts/check-package.sh")
