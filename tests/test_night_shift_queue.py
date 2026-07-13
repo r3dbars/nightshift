@@ -2,12 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from night_shift_queue import QueueEvidenceIndex, contains_identifier, is_test_path
+from night_shift_queue import QueueEvidenceIndex, RepoRevisionAdapter, contains_identifier, is_test_path
 
 
 class QueueEvidenceTests(unittest.TestCase):
@@ -61,6 +62,54 @@ class QueueEvidenceTests(unittest.TestCase):
         self.assertFalse(is_test_path("src/contest_app.py"))
         self.assertTrue(contains_identifier("run()", "run"))
         self.assertFalse(contains_identifier("runtime = 1", "run"))
+
+    def test_malicious_refs_branches_and_paths_never_reach_git(self):
+        calls = []
+
+        def runner(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return SimpleNamespace(rc=1, stdout="", stderr="")
+
+        adapter = RepoRevisionAdapter(Path("/repo"), runner)
+        self.assertFalse(adapter.ensure_pr_ref("1;touch /tmp/pwn", "a" * 40))
+        self.assertFalse(adapter.ensure_pr_ref("1", "HEAD"))
+        self.assertFalse(adapter.ensure_branch_ref("--upload-pack=evil", "a" * 40))
+        self.assertFalse(adapter.ensure_branch_ref("feature/../main", "a" * 40))
+        self.assertFalse(adapter.file_exists("../secret", "a" * 40))
+        self.assertFalse(adapter.file_exists(".git/config", "a" * 40))
+        self.assertEqual(
+            [argv for argv, _ in calls],
+            [
+                ["git", "cat-file", "-e", f"{'a' * 40}^{{commit}}"],
+                ["git", "cat-file", "-e", f"{'a' * 40}^{{commit}}"],
+                ["git", "cat-file", "-e", f"{'a' * 40}^{{commit}}"],
+            ],
+        )
+        self.assertFalse(any("fetch" in argv for argv, _ in calls))
+
+    def test_fetch_uses_literal_allowlisted_refs_and_rechecks_commit(self):
+        calls = []
+        availability = iter([1, 0])
+
+        def runner(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if argv[1:3] == ["cat-file", "-e"]:
+                return SimpleNamespace(rc=next(availability), stdout="", stderr="")
+            return SimpleNamespace(rc=0, stdout="", stderr="")
+
+        ref = "b" * 40
+        adapter = RepoRevisionAdapter(Path("/repo"), runner)
+        self.assertTrue(adapter.ensure_pr_ref("42", ref))
+        self.assertEqual(calls[1][0], ["git", "fetch", "--quiet", "--no-tags", "origin", "refs/pull/42/head"])
+        self.assertEqual(calls[1][1]["timeout"], 120)
+
+    def test_log_paths_are_deduped_suffixes_and_list_files_requires_sha(self):
+        adapter = RepoRevisionAdapter(Path("/repo"), lambda *_args, **_kwargs: None)
+        self.assertEqual(
+            adapter.log_paths("error /workspace/src/app.py:4\nagain src/app.py"),
+            ["workspace/src/app.py", "src/app.py", "app.py"],
+        )
+        self.assertIsNone(adapter.list_files("HEAD"))
 
 
 if __name__ == "__main__":

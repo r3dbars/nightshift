@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from night_shift_selection import declared_symbols
@@ -20,6 +21,78 @@ def is_test_path(relative: str) -> bool:
 
 def contains_identifier(text: str, term: str) -> bool:
     return bool(re.search(rf"\b{re.escape(term)}\b", text))
+
+
+class RepoRevisionAdapter:
+    """Resolve immutable Git evidence without accepting arbitrary refs or paths."""
+
+    def __init__(self, repo: Path | None, run_cmd: Callable):
+        self.repo = repo
+        self.run_cmd = run_cmd
+
+    def file_exists(self, relative: str, ref: str) -> bool:
+        if not self.repo or not self._valid_sha(ref) or not self._valid_path(relative):
+            return False
+        result = self.run_cmd(["git", "cat-file", "-e", f"{ref}:{relative}"], cwd=self.repo, timeout=20)
+        return result.rc == 0
+
+    def ensure_pr_ref(self, number: str, ref: str) -> bool:
+        if not self.repo or not self._valid_sha(ref):
+            return False
+        if self._commit_exists(ref):
+            return True
+        if not str(number).isdigit():
+            return False
+        fetched = self.run_cmd(
+            ["git", "fetch", "--quiet", "--no-tags", "origin", f"refs/pull/{number}/head"],
+            cwd=self.repo,
+            timeout=120,
+        )
+        return fetched.rc == 0 and self._commit_exists(ref)
+
+    def ensure_branch_ref(self, branch: str, ref: str) -> bool:
+        if not self.repo or not self._valid_sha(ref):
+            return False
+        if self._commit_exists(ref):
+            return True
+        if not branch or branch.startswith("-") or ".." in branch or not re.fullmatch(r"[A-Za-z0-9._/-]+", branch):
+            return False
+        fetched = self.run_cmd(
+            ["git", "fetch", "--quiet", "--no-tags", "origin", f"refs/heads/{branch}"],
+            cwd=self.repo,
+            timeout=120,
+        )
+        return fetched.rc == 0 and self._commit_exists(ref)
+
+    def list_files(self, ref: str) -> list[str] | None:
+        if not self.repo or not self._valid_sha(ref):
+            return None
+        result = self.run_cmd(["git", "ls-tree", "-r", "--name-only", ref], cwd=self.repo, timeout=60)
+        return result.stdout.splitlines() if result.rc == 0 else None
+
+    @staticmethod
+    def log_paths(log_text: str) -> list[str]:
+        found = re.findall(
+            r"(?<![A-Za-z0-9_.@+-])((?:[A-Za-z0-9_.@+-]+/)+[A-Za-z0-9_.@+-]+\.[A-Za-z0-9]+)",
+            log_text,
+        )
+        suffixes: list[str] = []
+        for value in found:
+            parts = value.lstrip("/").split("/")
+            suffixes.extend("/".join(parts[index:]) for index in range(len(parts)))
+        return list(dict.fromkeys(suffixes))
+
+    def _commit_exists(self, ref: str) -> bool:
+        result = self.run_cmd(["git", "cat-file", "-e", f"{ref}^{{commit}}"], cwd=self.repo, timeout=20)
+        return result.rc == 0
+
+    @staticmethod
+    def _valid_sha(ref: str) -> bool:
+        return bool(ref and re.fullmatch(r"[0-9a-fA-F]{40}", ref))
+
+    @staticmethod
+    def _valid_path(relative: str) -> bool:
+        return bool(relative and not relative.startswith(("/", ".git/")) and ".." not in Path(relative).parts)
 
 
 class QueueEvidenceIndex:
