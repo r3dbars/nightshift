@@ -80,6 +80,16 @@ run evidence separate from model claims and from human/manual proof.
   draft routing. A malformed Python cleanup patch was rejected with the
   source checkout clean; this is recorded as a safety outcome, not a useful
   patch.
+- PRs #133 through #139 merged bounded large-test evidence, safe generated-test
+  imports, semantic proof wording, constructor guidance, bounded repair
+  prompts, focused owner source excerpts, and local test-import recognition.
+  The package gate passes 382 tests after these changes.
+- A fresh install/trust/autopilot run on the current merged `main` produced a
+  `VERIFIED_DRAFT` for an explicit `DraftEngine.cleanup` behavioral goal. The
+  candidate passed the real package gate before and after the patch, passed the
+  isolated sandbox gate with 383 tests, satisfied the semantic invocation
+  contract, and removed its worktree. Proof:
+  `docs/proofs/2026-07-13-explicit-goal-verified-draft.md`.
 
 ## Remaining Proof Gaps
 
@@ -89,3 +99,5 @@ run evidence separate from model claims and from human/manual proof.
   accepted outcomes across varied healthy repositories.
 - First-run and morning UX still need observation by a new user, not another
   automated script.
+- The new Night Shift proof raises task specificity and deterministic proof,
+  but does not yet establish repeated accepted output or draft-PR volume.
