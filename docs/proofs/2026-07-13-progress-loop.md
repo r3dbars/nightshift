@@ -21,6 +21,10 @@ run evidence separate from model claims and from human/manual proof.
   loopback wrapper proof.
 - PR #118 merged complete empty-run artifacts so no-compute and no-task runs
   retain harvest, queue, metrics, lifecycle, token, and morning files.
+- A second explicit goal on the current `main` produced a one-file
+  `VERIFIED_DRAFT` for the missing `morning_status` regression test. Fresh
+  publication verification opened PR #120, CI passed on Ubuntu and macOS, and
+  the exact head merged into `main`.
 
 ## Live Evidence
 
@@ -45,7 +49,7 @@ run evidence separate from model claims and from human/manual proof.
   is live, and its first completed portfolio brief is YELLOW with no unsafe
   task claimed. The run is still in progress and is not counted as complete
   repeat-use proof yet.
-- The current package gate passes 370 tests, including the wrapper error proof
+- The current package gate passes 371 tests, including the wrapper error proof
   and the complete empty-run artifact regression.
 
 ## Remaining Proof Gaps
