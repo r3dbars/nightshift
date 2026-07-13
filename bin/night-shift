@@ -1375,6 +1375,9 @@ def detect_test_commands(repo: Path, tracked: list[str], source_ref: str = "") -
                 script for script in ("test", *sorted(named_checks))
                 if script in scripts and (script == "test" or script.startswith("test:"))
             ]
+            behavioral_scripts.sort(
+                key=lambda script: verification_command_priority(["npm", "run", script])
+            )
             static_scripts = [
                 script for script in ("lint", "typecheck", "check", "verify", *sorted(named_checks))
                 if script in scripts and script not in behavioral_scripts
@@ -1415,6 +1418,25 @@ def detect_test_commands(repo: Path, tracked: list[str], source_ref: str = "") -
     if any(path.endswith((".sln", ".csproj")) for path in names):
         commands.append("dotnet test")
     return list(dict.fromkeys(commands))[:24]
+
+
+def verification_command_priority(command: list[str]) -> tuple[int, str]:
+    """Prefer focused deterministic tests over broad or environment-heavy checks."""
+    display = command_display(command)
+    low = display.lower()
+    if re.search(r"(?:^|\s)test$", low):
+        return 0, low
+    if re.search(r"(?:vitest|jest|pytest|unittest)", low):
+        return 1, low
+    if re.search(r"test:unit:[^\s]+", low):
+        return 2, low
+    if re.search(r"test:unit(?:\s|$)", low):
+        return 3, low
+    if re.search(r"test:(?:ai|eval|e2e|smoke|voice)|\b(?:ai|eval|e2e|smoke|headed|deployed|real)\b", low):
+        return 3, low
+    if "test" in low:
+        return 4, low
+    return 4, low
 
 
 def normalize_github_actions_log(raw: str) -> str:
@@ -2092,7 +2114,7 @@ def command_trust_repo(args) -> int:
     if not commands:
         print("NIGHTSHIFT_TRUST_REPO: RED | no safe deterministic verification command was detected")
         return 1
-    commands = commands[:1]
+    commands = sorted(commands, key=verification_command_priority)[:1]
     candidate_paths = [*scan.get("source_files", []), *scan.get("test_files", [])]
     allowed_paths = list(dict.fromkeys(path.split("/", 1)[0] for path in candidate_paths if "/" in path))[:12]
     if not allowed_paths:

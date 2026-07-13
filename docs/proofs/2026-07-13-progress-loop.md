@@ -68,6 +68,9 @@ run evidence separate from model claims and from human/manual proof.
   invented `npm run test` when no such package script existed. BetterFeedback
   now receives the real `npm run test:unit:vitest` verification command, with a
   regression test in the package gate.
+- The approval and scan paths now both surface that focused runner before
+  umbrella, AI, e2e, or smoke scripts. This keeps the morning instruction and
+  isolated preflight on the same command.
 
 ## Remaining Proof Gaps
 

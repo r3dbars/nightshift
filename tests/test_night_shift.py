@@ -4524,6 +4524,29 @@ buildThing() { return 1; }
             self.assertNotIn("npm run test", commands)
             self.assertIn("npm run test:unit:vitest", commands)
 
+    def test_detect_test_commands_surfaces_focused_runner_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(
+                json.dumps({"scripts": {
+                    "test:ai": "tsx scripts/eval.ts",
+                    "test:unit:core": "vitest run tests/unit",
+                    "test:unit:vitest": "vitest run",
+                    "lint": "eslint .",
+                }}),
+                encoding="utf-8",
+            )
+            commands = night_shift.detect_test_commands(repo, ["package.json"])
+            self.assertEqual(commands[0], "npm run test:unit:vitest")
+
+    def test_verification_prefers_focused_unit_checks(self):
+        priority = night_shift.verification_command_priority
+        self.assertLess(priority(["npm", "run", "test"]), priority(["npm", "run", "test:unit:vitest"]))
+        self.assertLess(priority(["npm", "run", "test:unit:vitest"]), priority(["npm", "run", "test:unit:core"]))
+        self.assertLess(priority(["npm", "run", "test:unit:core"]), priority(["npm", "run", "test:unit"]))
+        self.assertLess(priority(["npm", "run", "test:unit:vitest"]), priority(["npm", "run", "test:ai"]))
+        self.assertLess(priority(["npm", "run", "test:ai"]), priority(["npm", "run", "lint"]))
+
     def test_github_portfolio_prioritizes_failed_runs(self):
         original_run_cmd = night_shift.run_cmd
         now = night_shift.datetime.now(night_shift.timezone.utc).isoformat().replace("+00:00", "Z")
