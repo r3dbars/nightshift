@@ -27,6 +27,8 @@ run evidence separate from model claims and from human/manual proof.
   `VERIFIED_DRAFT` for the missing `morning_status` regression test. Fresh
   publication verification opened PR #120, CI passed on Ubuntu and macOS, and
   the exact head merged into `main`.
+- PR #154 merged the Swift-capable multi-architecture runner after both hosted
+  Ubuntu and macOS package gates passed.
 
 ## Live Evidence
 
@@ -51,8 +53,9 @@ run evidence separate from model claims and from human/manual proof.
   is live, and its first completed portfolio brief is YELLOW with no unsafe
   task claimed. The run is still in progress and is not counted as complete
   repeat-use proof yet.
-- The current package gate passes 371 tests, including the wrapper error proof
-  and the complete empty-run artifact regression.
+- The current package gate passes 389 tests, including the wrapper error proof,
+  complete empty-run artifact regression, direct-test invocation scope, and
+  runner routing regressions.
 - The repeatable blank-home recovery proof now passes from a temporary HOME
   outside any Git repo with no GitHub credentials: it returns clear `--repo`,
   Git-repo, and `gh auth login` next steps, exits safely, and saves no config.
