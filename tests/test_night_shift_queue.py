@@ -22,6 +22,7 @@ from night_shift_queue import (
 )
 from night_shift_portfolio import PortfolioEngine
 from night_shift_python_evidence import top_level_symbol_call_count_text
+from night_shift_js_evidence import top_level_symbol_call_count_text as js_symbol_call_count_text
 
 
 class QueueEvidenceTests(unittest.TestCase):
@@ -38,6 +39,30 @@ class QueueEvidenceTests(unittest.TestCase):
     def test_top_level_python_fixture_parameter_counts_as_usage(self):
         text = "def test_uses_fixture(helper):\n    assert helper\n"
         self.assertEqual(top_level_symbol_call_count_text(text, "helper"), 1)
+
+    def test_typescript_invocation_gap_uses_complete_regex_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "metrics.ts").write_text(
+                "export function formatPercent(value: number) { return `${value}%`; }\n",
+                encoding="utf-8",
+            )
+            (repo / "metrics.test.ts").write_text(
+                "describe('metrics', () => {});\n", encoding="utf-8"
+            )
+            scan = {
+                "tracked_files": ["metrics.ts", "metrics.test.ts"],
+                "source_files": ["metrics.ts"],
+                "test_files": ["metrics.test.ts"],
+                "coverage_test_files": ["metrics.test.ts"],
+            }
+            gap = QueueEvidenceIndex(repo, scan).coverage_gaps(["metrics.ts"])[0]
+            invocation = next(
+                value for key, value in gap[2].items() if key.startswith("invocation-index/")
+            )
+            self.assertIn("analysis=typescript-regex", invocation)
+            self.assertIn("call_matches=0", invocation)
+            self.assertEqual(js_symbol_call_count_text("formatPercent(42)", "formatPercent"), 1)
 
     def test_top_level_python_gap_gets_complete_ast_invocation_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

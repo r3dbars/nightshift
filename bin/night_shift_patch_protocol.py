@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import difflib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,12 @@ class PatchCheck:
     @property
     def valid(self) -> bool:
         return bool(self.patch and self.paths and not self.reasons)
+
+
+def typescript_import_path(source_file: str, test_file: str) -> str:
+    source = Path(source_file).with_suffix("")
+    relative = os.path.relpath(source, Path(test_file).parent).replace(os.sep, "/")
+    return relative if relative.startswith(".") else "./" + relative
 
 
 def extract_unified_diff(output: str) -> str:
@@ -56,6 +63,8 @@ def materialize_test_method_patch(
     added = [line[1:] for line in output.splitlines() if line.startswith("+") and not line.startswith("+++")]
     start = next((index for index, line in enumerate(added) if re.match(r"^    def test_[A-Za-z0-9_]+\(self[^)]*\):$", line)), None)
     if start is None:
+        return ""
+    if any(line.strip() for line in added[:start]):
         return ""
     end = next(
         (
@@ -108,6 +117,79 @@ def materialize_test_method_patch(
     if marker < 0:
         return ""
     revised = original[:marker].rstrip() + "\n\n" + "\n".join(method) + "\n" + original[marker:]
+    unified = "".join(difflib.unified_diff(
+        original.splitlines(keepends=True), revised.splitlines(keepends=True),
+        fromfile=f"a/{relative}", tofile=f"b/{relative}", n=3,
+    ))
+    return f"diff --git a/{relative} b/{relative}\n{unified}" if unified else ""
+
+
+def materialize_ts_test_case_patch(
+    output: str, original: str, relative: str, symbol: str,
+    expected_import: str | None = None,
+) -> str:
+    """Extract one conservative Vitest/Jest test block into an existing suite."""
+    added = [
+        line[1:] for line in output.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    ]
+    start = next(
+        (
+            index for index, line in enumerate(added)
+            if re.match(r"^\s*(?:it|test)\s*\(", line)
+        ),
+        None,
+    )
+    if start is None:
+        return ""
+    if any(line.strip() for line in added[:start]):
+        return ""
+    block: list[str] = []
+    brace_depth = 0
+    opened = False
+    end = None
+    for index in range(start, len(added)):
+        line = added[index]
+        block.append(line)
+        code = re.sub(r"(['\"])(?:\\.|(?!\1)[^\\])*\1", "", line)
+        brace_depth += code.count("{") - code.count("}")
+        opened = opened or "{" in code
+        if opened and brace_depth == 0 and re.search(r"}\s*\)\s*;?\s*$", code):
+            end = index
+            break
+    if end is None or len(block) > 60:
+        return ""
+    if any(line.strip() for line in added[end + 1:]):
+        return ""
+    if not re.search(rf"(?:\b{re.escape(symbol)}|\.{re.escape(symbol)})\s*\(", "\n".join(block)):
+        return ""
+    block_text = "\n".join(block)
+    if re.search(r"(?m)^\s*import\s+|\brequire\s*\(", block_text):
+        return ""
+    if expected_import:
+        imported = rf"await\s+import\(\s*['\"]{re.escape(expected_import)}['\"]\s*\)"
+        if not re.search(imported, block_text):
+            return ""
+        destructured = rf"(?:const|let|var)\s*\{{\s*{re.escape(symbol)}\s*\}}\s*=\s*{imported}"
+        namespace = rf"(?:const|let|var)\s+(?P<module>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*{imported}"
+        if not re.search(destructured, block_text):
+            namespace_match = re.search(namespace, block_text)
+            if not namespace_match or not re.search(
+                rf"\b{re.escape(namespace_match.group('module'))}\s*\.\s*{re.escape(symbol)}\s*\(",
+                block_text,
+            ):
+                return ""
+    if re.search(
+        r"(?i)\b(?:child_process|exec|spawn|eval|function\s*\(|process\.|fs\.|writefile|unlink|rm\s+-rf)\b",
+        "\n".join(block),
+    ):
+        return ""
+    marker = original.rfind("\n});")
+    if marker < 0:
+        marker = original.rfind("\n})")
+    if marker < 0:
+        return ""
+    revised = original[:marker].rstrip() + "\n\n" + "\n".join(block) + "\n" + original[marker:]
     unified = "".join(difflib.unified_diff(
         original.splitlines(keepends=True), revised.splitlines(keepends=True),
         fromfile=f"a/{relative}", tofile=f"b/{relative}", n=3,
@@ -204,7 +286,17 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
     owner = "" if owner == "none" else owner
     symbol = str(contract.get("symbol") or "")
     source_module = Path(str(contract.get("source_file") or "")).stem
-    import_guidance = (
+    is_typescript = contract.get("analysis") == "typescript-regex"
+    if is_typescript and symbol and candidate.get("files") and contract.get("source_file"):
+        test_path = Path(str(candidate["files"][0]))
+        source_path = Path(str(contract["source_file"]))
+        import_path = typescript_import_path(str(source_path), str(test_path))
+        import_guidance = (
+            f"Inside the new test block, dynamically import the exact source module with `await import('{import_path}')`; "
+            f"call `{symbol}` from that module. Do not add a module-scope import. "
+        )
+    else:
+        import_guidance = (
         f"If {owner} is not already imported, put `from {source_module} import {owner}` inside the new test method; "
         "do not edit global imports. "
         if owner and source_module else
@@ -212,7 +304,7 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
         "do not add imports at module or class scope. "
         if symbol and source_module else
         "If the target owner is not already imported, import it from the exact source module inside the new test method; do not edit global imports. "
-    )
+        )
     semantic_guidance: list[str] = []
     if semantic.get("minimum_target_invocations"):
         semantic_guidance.append(
@@ -248,6 +340,8 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
         signature_pattern = (
             rf"\b(?:async\s+)?def\s+{re.escape(symbol)}\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:"
             if owner else
+            rf"(?m)^\s*(?:export\s+)?(?:async\s+)?(?:def\s+{re.escape(symbol)}\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:|function\s+{re.escape(symbol)}\s*\([^)]*\)\s*(?::[^{{]+)?\s*\{{|(?:const|let|var)\s+{re.escape(symbol)}\s*=)"
+            if is_typescript else
             rf"(?m)^(?:async\s+)?def\s+{re.escape(symbol)}\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:"
         )
         signature = re.search(
@@ -272,7 +366,17 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             f"Record calls and assert {first} occurs before {second} using separate ordered assertions."
         )
     if candidate.get("draft_intent") == "test-strengthening":
-        edit_policy = (
+        if is_typescript:
+            edit_policy = (
+                "You may modify only one existing allowed TypeScript or JavaScript TEST file. Add exactly one focused "
+                "Vitest/Jest `it(...)` or `test(...)` block inside the existing suite. Dynamically import the exact "
+                "source module inside that block, call the exported target, and assert an observable result. Do not "
+                "change source, manifests, lockfiles, workflows, configuration, secrets, dependencies, or policy. "
+                "Do not add module-scope imports, filesystem or process side effects, network calls, database access, "
+                "shell commands, or new dependencies. Keep the patch under 60 added lines."
+            )
+        else:
+            edit_policy = (
             "You may modify only an existing allowed TEST file. Add a focused behavioral test "
             "that invokes the exact owner and symbol in the strengthening contract. Do not change "
             "source, manifests, lockfiles, workflows, configuration, secrets, dependencies, or policy. "
@@ -294,9 +398,9 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "Preserve exact argument types: compare a Path as a Path unless source explicitly converts it. "
             "For output-parsing tests, include every expected positive fixture in the sample output before asserting a non-empty result; "
             "to prove deduplication and a maximum limit, include enough matching fixtures to exercise both behaviors and assert the exact ordered result. "
-            "Assert exact observed call order, arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
-            "EXCERPT, preferably near the test file tail. Keep the patch under 80 changed lines."
-        )
+                "Assert exact observed call order, arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
+                "EXCERPT, preferably near the test file tail. Keep the patch under 80 changed lines."
+            )
     else:
         edit_policy = (
             "You may modify only an existing allowed file. Do not change tests, manifests, "

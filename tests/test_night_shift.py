@@ -24,7 +24,8 @@ LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
 from night_shift_drafts import MAX_VERIFICATION_REPAIRS, owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
-from night_shift_patch_protocol import materialize_test_method_patch
+from night_shift_patch_protocol import materialize_test_method_patch, materialize_ts_test_case_patch
+from night_shift_js_evidence import simple_exported_function, top_level_symbol_call_count_text as js_symbol_call_count_text
 from night_shift_python_evidence import semantic_test_contract_reasons
 
 
@@ -3628,6 +3629,94 @@ buildThing() { return 1; }
         duplicated = {**valid, "invocation-index/other.txt": next(iter(valid.values()))}
         self.assertIsNone(test_strengthening_contract(duplicated))
 
+    def test_strengthening_contract_accepts_complete_typescript_gap(self):
+        evidence = {
+            "invocation-index/analytics-formatPercent.txt": (
+                "symbol=formatPercent\nsource_file=app/analytics/analytics-metrics.ts\n"
+                "owner=none\nanalysis=typescript-regex\nsymbol=formatPercent call_matches=0\n"
+                "scan_complete=true"
+            )
+        }
+        contract = test_strengthening_contract(evidence)
+        self.assertEqual(contract["analysis"], "typescript-regex")
+        self.assertEqual(contract["owner"], "none")
+
+    def test_typescript_materializer_keeps_one_behavioral_test_inside_suite(self):
+        original = (
+            "import { describe, expect, it } from 'vitest';\n\n"
+            "describe('metrics', () => {\n"
+            "  it('keeps existing behavior', () => { expect(true).toBe(true); });\n"
+            "});\n"
+        )
+        worker = (
+            "--- a/tests/metrics.test.ts\n+++ b/tests/metrics.test.ts\n@@ -1 +1 @@\n"
+            "+  it('formats a percent', async () => {\n"
+            "+    const { formatPercent } = await import('../app/analytics/analytics-metrics');\n"
+            "+    expect(formatPercent(42.4)).toBe('42%');\n"
+            "+  });\n"
+        )
+        patch = materialize_ts_test_case_patch(
+            worker,
+            original,
+            "tests/metrics.test.ts",
+            "formatPercent",
+            "../app/analytics/analytics-metrics",
+        )
+        self.assertTrue(patch.startswith("diff --git a/tests/metrics.test.ts b/tests/metrics.test.ts"))
+        self.assertIn("+  it('formats a percent'", patch)
+        self.assertIn("+  });", patch)
+        self.assertEqual(
+            materialize_ts_test_case_patch(
+                worker.replace("+  it(", "+import { formatPercent } from './metrics';\n+  it("),
+                original,
+                "tests/metrics.test.ts",
+                "formatPercent",
+            ),
+            "",
+        )
+        self.assertEqual(
+            materialize_ts_test_case_patch(
+                worker.replace("../app/analytics/analytics-metrics", "../app/analytics/other-module"),
+                original,
+                "tests/metrics.test.ts",
+                "formatPercent",
+                "../app/analytics/analytics-metrics",
+            ),
+            "",
+        )
+
+    def test_typescript_evidence_and_pure_source_gate_are_conservative(self):
+        self.assertEqual(
+            js_symbol_call_count_text("expect(formatPercent(42)).toBe('42%');", "formatPercent"),
+            1,
+        )
+        self.assertEqual(js_symbol_call_count_text("// formatPercent(42)\n", "formatPercent"), 0)
+        self.assertTrue(simple_exported_function("export function formatPercent(value: number) { return `${value}%`; }", "formatPercent"))
+        self.assertFalse(simple_exported_function("export async function getData() { return fetch('/data'); }", "getData"))
+
+    def test_typescript_strengthening_candidate_requires_pure_export_and_zero_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app").mkdir()
+            (root / "tests").mkdir()
+            (root / "app" / "metrics.ts").write_text(
+                "export function formatPercent(value: number) { return `${Math.round(value)}%`; }\n",
+                encoding="utf-8",
+            )
+            test_path = root / "tests" / "metrics.test.ts"
+            test_path.write_text("describe('metrics', () => {});\n", encoding="utf-8")
+            contract = {
+                "symbol": "formatPercent", "source_file": "app/metrics.ts", "owner": "none",
+                "analysis": "typescript-regex", "call_matches": "0", "scan_complete": "true",
+            }
+            candidate = {
+                "draft_intent": "test-strengthening", "strengthening_contract": contract,
+                "files": ["tests/metrics.test.ts"], "context_files": ["app/metrics.ts", "tests/metrics.test.ts"],
+            }
+            self.assertEqual(valid_test_strengthening_candidate(candidate, root), contract)
+            test_path.write_text("expect(formatPercent(42)).toBe('42%');\n", encoding="utf-8")
+            self.assertIsNone(valid_test_strengthening_candidate(candidate, root))
+
     def test_owner_symbol_call_count_ignores_unrelated_same_named_methods(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "test_drafts.py"
@@ -4284,12 +4373,21 @@ buildThing() { return 1; }
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             (repo / "package.json").write_text(
-                json.dumps({"scripts": {"test": "vitest", "test:rls": "vitest rls", "check:routes": "tsx check.ts"}}),
+                json.dumps({"scripts": {
+                    "check:actions": "tsx check-actions.ts",
+                    "check:routes": "tsx check.ts",
+                    "test": "vitest",
+                    "test:rls": "vitest rls",
+                    "test:unit:vitest": "vitest run",
+                    "lint": "eslint .",
+                }}),
                 encoding="utf-8",
             )
             commands = night_shift.detect_test_commands(repo, ["package.json"])
             self.assertIn("npm run test:rls", commands)
             self.assertIn("npm run check:routes", commands)
+            self.assertLess(commands.index("npm run test:unit:vitest"), commands.index("npm run lint"))
+            self.assertLess(commands.index("npm run lint"), commands.index("npm run check:routes"))
 
     def test_github_portfolio_prioritizes_failed_runs(self):
         original_run_cmd = night_shift.run_cmd
