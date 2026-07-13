@@ -2861,6 +2861,13 @@ def resolve_autopilot_wake_goal(args, saved: dict) -> str:
 
 def command_autopilot(args) -> int:
     saved = load_config()
+    if getattr(args, "execute_drafts", None) is None:
+        args.execute_drafts = bool(config_value(saved, "execute_drafts", False))
+    args.mode = getattr(args, "mode", None) or config_value(saved, "mode", "night-shift")
+    args.scope = getattr(args, "scope", None) or config_value(saved, "scope", "github-recent")
+    args.permission = getattr(args, "permission", None) or config_value(saved, "permission", "brief")
+    args.guidance = getattr(args, "guidance", None) or config_value(saved, "guidance", "scan")
+    args.stop_after = getattr(args, "stop_after", None) or config_value(saved, "stop", "8h")
     if not getattr(args, "repo", None):
         args.repo = config_value(saved, "repo")
     resolve_autopilot_privacy(args, saved)
@@ -2877,18 +2884,18 @@ def command_autopilot(args) -> int:
         print("NIGHTSHIFT_AUTOPILOT: RED | --active-days and --max-repos must be positive")
         return 2
     apply_compute_overrides(args)
-    mode = getattr(args, "mode", "night-shift") or "night-shift"
+    mode = args.mode
     defaults = AUTOPILOT_DEFAULTS[mode]
     primary = require_git_repo(args.repo) if getattr(args, "repo", None) else None
     if getattr(args, "repo", None) and not primary:
         return 1
-    scope = getattr(args, "scope", "github-recent") or "github-recent"
-    max_repos = getattr(args, "max_repos", None) or defaults["repo_limit"]
+    scope = args.scope
+    max_repos = getattr(args, "max_repos", None) or config_value(saved, "max_repos", defaults["repo_limit"])
     priority_repos = PortfolioEngine.normalize_priority_repos(config_value(saved, "priority_repos", []))
-    active_days = getattr(args, "active_days", None) or 14
+    active_days = getattr(args, "active_days", None) or config_value(saved, "active_days", 14)
     task_limit = getattr(args, "task_limit", None) or defaults["task_limit"]
     poll_minutes = getattr(args, "poll_minutes", None) or defaults["poll_minutes"]
-    stop_after = getattr(args, "stop_after", None)
+    stop_after = args.stop_after
     deadline = stop_deadline(stop_after)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     # Only one unattended controller is allowed to schedule work at a time.
@@ -3001,8 +3008,8 @@ def command_autopilot(args) -> int:
                 child_args = argparse.Namespace(
                     repo=str(checkout),
                     mode=mode,
-                    permission=getattr(args, "permission", "brief"),
-                    guidance=getattr(args, "guidance", "scan"),
+                    permission=args.permission,
+                    guidance=args.guidance,
                     goal=getattr(args, "goal", ""),
                     max_local=None,
                     max_windows=None,
@@ -3034,7 +3041,7 @@ def command_autopilot(args) -> int:
                 )
                 if controller.may_draft(
                     cycle_row["repo"], getattr(args, "execute_drafts", False),
-                    getattr(args, "permission", "brief"),
+                    args.permission,
                 ):
                     candidate = select_draft_candidate(child_ledger, checkout)
                     draft_timeout = remaining_draft_timeout(
@@ -3056,7 +3063,7 @@ def command_autopilot(args) -> int:
                         )
                         controller.finish_draft_attempt(cycle_row, draft)
                         if controller.may_publish(
-                            getattr(args, "permission", "brief"),
+                            args.permission,
                             getattr(args, "allow_draft_prs", False),
                             str(draft.get("status") or ""),
                         ):
@@ -4270,24 +4277,33 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Example: night-shift autopilot --repo /path/to/project --scope github-recent --stop-after 8h",
     )
     autopilot.add_argument("--repo", required=False, help="primary local repo; defaults to saved setup or the current repo")
-    autopilot.add_argument("--scope", choices=["current", "github-recent"], default="github-recent")
-    autopilot.add_argument("--active-days", type=int, default=14)
+    autopilot.add_argument("--scope", choices=["current", "github-recent"], default=None)
+    autopilot.add_argument("--active-days", type=int, default=None)
     autopilot.add_argument("--max-repos", type=int, default=None)
     autopilot.add_argument("--task-limit", type=int, default=None, help="new unique tasks across each portfolio cycle")
     autopilot.add_argument("--poll-minutes", type=int, default=None, help="how often to recheck GitHub after the useful backlog is exhausted")
-    autopilot.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default="night-shift")
-    autopilot.add_argument("--permission", choices=["brief", "draft-local", "draft-prs"], default="brief")
-    autopilot.add_argument("--guidance", choices=["scan", "goal", "issues"], default="scan")
+    autopilot.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default=None)
+    autopilot.add_argument("--permission", choices=["brief", "draft-local", "draft-prs"], default=None)
+    autopilot.add_argument("--guidance", choices=["scan", "goal", "issues"], default=None)
     autopilot.add_argument("--goal", default="")
-    autopilot.add_argument("--stop-after", choices=sorted(STOP_SECONDS), default="8h")
+    autopilot.add_argument("--stop-after", choices=sorted(STOP_SECONDS), default=None)
     autopilot.add_argument("--timeout", type=int, default=900)
     autopilot.add_argument("--local-url", required=False)
     autopilot.add_argument("--local-model", required=False)
     autopilot.add_argument("--windows-url", required=False)
     autopilot.add_argument("--windows-model", required=False)
     autopilot.add_argument("--skip-smoke", action="store_true")
-    autopilot.add_argument("--execute-drafts", action="store_true", help=argparse.SUPPRESS)
-    autopilot.add_argument("--allow-draft-prs", action="store_true", help=argparse.SUPPRESS)
+    autopilot.add_argument(
+        "--execute-drafts",
+        action="store_true",
+        default=None,
+        help="use saved consent to test bounded patches in disposable worktrees; never edits the source checkout",
+    )
+    autopilot.add_argument(
+        "--allow-draft-prs",
+        action="store_true",
+        help="use saved one-time consent to open tested GitHub draft PRs; never merges or deploys",
+    )
     autopilot.add_argument("--once", action="store_true", help="run one portfolio cycle and stop")
     autopilot.set_defaults(func=command_autopilot)
 

@@ -500,6 +500,23 @@ RISK: low
         self.assertEqual(defaults["mode"], "night-shift")
         self.assertEqual(defaults["stop"], "8h")
 
+    def test_autopilot_help_exposes_bounded_draft_controls(self):
+        parser = night_shift.build_parser()
+        help_text = parser._subparsers._group_actions[0].choices["autopilot"].format_help()
+        self.assertIn("--execute-drafts", help_text)
+        self.assertIn("never edits the source checkout", help_text)
+        self.assertIn("--allow-draft-prs", help_text)
+        self.assertIn("never merges or deploys", help_text)
+
+    def test_autopilot_execution_defaults_to_saved_consent(self):
+        parser = night_shift.build_parser()
+        args = parser.parse_args(["autopilot", "--repo", str(ROOT), "--once"])
+        self.assertIsNone(args.execute_drafts)
+        self.assertFalse(args.allow_draft_prs)
+        self.assertIsNone(args.permission)
+        self.assertIsNone(args.scope)
+        self.assertIsNone(args.stop_after)
+
     def test_interactive_prompts_fail_closed_when_input_ends(self):
         with patch("builtins.input", side_effect=EOFError):
             self.assertEqual(night_shift.ask_text("Project", "/safe/default"), "/safe/default")
