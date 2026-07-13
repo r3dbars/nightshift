@@ -31,6 +31,8 @@ run evidence separate from model claims and from human/manual proof.
   Ubuntu and macOS package gates passed.
 - PR #155 merged the friendlier rejected-suggestion explanation after hosted
   Ubuntu and macOS package gates passed.
+- PR #156 merged guarded Swift/XCTest test selection after hosted Ubuntu and
+  macOS package gates passed.
 
 ## Live Evidence
 
@@ -55,7 +57,7 @@ run evidence separate from model claims and from human/manual proof.
   is live, and its first completed portfolio brief is YELLOW with no unsafe
   task claimed. The run is still in progress and is not counted as complete
   repeat-use proof yet.
-- The current package gate passes 389 tests, including the wrapper error proof,
+- The current package gate passes 394 tests, including the wrapper error proof,
   complete empty-run artifact regression, direct-test invocation scope, and
   runner routing regressions.
 - The repeatable blank-home recovery proof now passes from a temporary HOME
