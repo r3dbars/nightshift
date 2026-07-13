@@ -1339,6 +1339,85 @@ buildThing() { return 1; }
         self.assertEqual(ready[0]["feedback_adjustment"], 0)
         self.assertEqual(skipped, [])
 
+    def test_validated_review_outcomes_apply_only_to_exact_candidate_revision(self):
+        tasks = [
+            {"slug": "first", "fingerprint": "reject-me", "ladder_priority": 300},
+            {"slug": "second", "fingerprint": "confirm-me", "ladder_priority": 300},
+            {"slug": "third", "fingerprint": "untouched", "ladder_priority": 300},
+        ]
+        outcomes = [
+            {
+                "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "reject-me",
+                "valid_review": True, "verdict": "REJECTED",
+            },
+            {
+                "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "confirm-me",
+                "valid_review": True, "verdict": "CONFIRMED",
+            },
+            {
+                "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "untouched",
+                "valid_review": False, "verdict": "REJECTED",
+            },
+        ]
+        ready, skipped = night_shift.apply_review_outcomes(tasks, outcomes, "/repo", "a" * 40)
+        self.assertEqual([row["slug"] for row in ready], ["second", "third"])
+        self.assertEqual(ready[0]["selection_priority"], 330)
+        self.assertEqual(skipped[0]["fingerprint"], "reject-me")
+        self.assertEqual(skipped[0]["category"], "review-outcome")
+
+        new_revision, new_skips = night_shift.apply_review_outcomes(tasks, outcomes, "/repo", "b" * 40)
+        self.assertEqual(len(new_revision), 3)
+        self.assertEqual(new_skips, [])
+
+    def test_review_outcome_needs_valid_exact_fingerprint(self):
+        task = {"slug": "same-family", "fingerprint": "new", "ladder_priority": 300}
+        outcomes = [{
+            "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "old",
+            "valid_review": True, "verdict": "REJECTED",
+        }]
+        ready, skipped = night_shift.apply_review_outcomes([task], outcomes, "/repo", "a" * 40)
+        self.assertEqual(ready, [task])
+        self.assertEqual(skipped, [])
+
+    def test_review_outcomes_preserve_manual_feedback_ordering(self):
+        tasks = [
+            {
+                "slug": "preferred", "fingerprint": "one", "ladder_priority": 300,
+                "feedback_adjustment": 25,
+            },
+            {
+                "slug": "ordinary", "fingerprint": "two", "ladder_priority": 300,
+                "feedback_adjustment": 0,
+            },
+        ]
+        ready, skipped = night_shift.apply_review_outcomes(tasks, [], "/repo", "a" * 40)
+        self.assertEqual([row["slug"] for row in ready], ["preferred", "ordinary"])
+        self.assertEqual(skipped, [])
+
+    def test_review_outcome_history_preserves_verdict_transitions(self):
+        base = {
+            "ledger": "/ledger", "item": 1, "fingerprint": "abc",
+            "source_ref": "a" * 40,
+        }
+        rejected = {**base, "verdict": "REJECTED"}
+        self.assertFalse(night_shift.should_record_review_outcome([rejected], dict(rejected)))
+        self.assertTrue(night_shift.should_record_review_outcome(
+            [rejected], {**base, "verdict": "NEEDS_INFO"}
+        ))
+
+    def test_latest_valid_review_verdict_controls_exact_candidate(self):
+        task = {"slug": "candidate", "fingerprint": "abc", "ladder_priority": 300}
+        base = {
+            "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "abc",
+            "valid_review": True,
+        }
+        ready, skipped = night_shift.apply_review_outcomes(
+            [task], [{**base, "verdict": "REJECTED"}, {**base, "verdict": "NEEDS_INFO"}],
+            "/repo", "a" * 40,
+        )
+        self.assertEqual(ready[0]["review_outcome"], "NEEDS_INFO")
+        self.assertEqual(skipped, [])
+
     def test_feedback_command_persists_family_and_fingerprint(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1571,6 +1650,7 @@ buildThing() { return 1; }
                 "rank": 1, "score": "MAYBE", "summary": "Review pinned code",
                 "evidence": "app.py:1 | first", "files": ["app.py"],
                 "tests": "python -m pytest", "source_ref": source_ref,
+                "fingerprint": "pinned-candidate",
             }]), encoding="utf-8")
             args = SimpleNamespace(
                 ledger=str(ledger), latest=False, item=1, agent="codex",
@@ -1578,6 +1658,8 @@ buildThing() { return 1; }
             )
             original_which = night_shift.shutil.which
             original_run = night_shift.run_cmd
+            original_outcomes = night_shift.REVIEW_OUTCOMES_PATH
+            night_shift.REVIEW_OUTCOMES_PATH = root / "review-outcomes.jsonl"
             reviewed = []
             night_shift.shutil.which = lambda name: "/usr/bin/codex" if name == "codex" else original_which(name)
             try:
@@ -1600,8 +1682,14 @@ buildThing() { return 1; }
             finally:
                 night_shift.run_cmd = original_run
                 night_shift.shutil.which = original_which
+                night_shift.REVIEW_OUTCOMES_PATH = original_outcomes
             self.assertIn("independent read-only review complete", output.getvalue())
             self.assertEqual(reviewed, ["first\n"])
+            outcome = json.loads((root / "review-outcomes.jsonl").read_text(encoding="utf-8"))
+            self.assertEqual(outcome["fingerprint"], "pinned-candidate")
+            self.assertEqual(outcome["source_ref"], source_ref)
+            self.assertEqual(outcome["verdict"], "CONFIRMED")
+            self.assertTrue(outcome["valid_review"])
 
     def test_handoff_refuses_unavailable_pinned_revision(self):
         with tempfile.TemporaryDirectory() as tmp:

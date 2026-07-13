@@ -37,8 +37,8 @@ from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, materialize_review_files, select_handoff_item, validate_handoff_review
-from night_shift_feedback import apply_task_feedback, task_family
+from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
+from night_shift_feedback import apply_review_outcomes, apply_task_feedback, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_selection import (
     declared_symbols,
@@ -112,6 +112,7 @@ CONFIG_DIR = CODEX_HOME / "night-shift"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 REPO_APPROVALS_ROOT = CONFIG_DIR / "repo-approvals"
 FEEDBACK_PATH = CONFIG_DIR / "feedback.jsonl"
+REVIEW_OUTCOMES_PATH = CONFIG_DIR / "review-outcomes.jsonl"
 TASK_HISTORY_PATH = CONFIG_DIR / "task-history.jsonl"
 TASK_ATTEMPTS_PATH = CONFIG_DIR / "task-attempts.jsonl"
 AUTOPILOT_LOCK_PATH = CONFIG_DIR / "autopilot.lock"
@@ -1388,6 +1389,20 @@ def load_feedback() -> list[dict]:
     return rows[-200:]
 
 
+def load_review_outcomes() -> list[dict]:
+    if not REVIEW_OUTCOMES_PATH.exists():
+        return []
+    rows: list[dict] = []
+    for line in REVIEW_OUTCOMES_PATH.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            value = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(value, dict):
+            rows.append(value)
+    return rows[-500:]
+
+
 def feedback_context(repo: Path | None) -> str:
     if not repo:
         return "No prior feedback for this repo."
@@ -2087,7 +2102,10 @@ def command_run(args) -> int:
     attempts = latest_attempts(TASK_ATTEMPTS_PATH)
     for item in queue:
         item["fingerprint"] = task_fingerprint(repo_name, scan.get("head", ""), item)
-    skipped: list[dict] = [*readiness_skips, *feedback_skips]
+    queue, review_skips = apply_review_outcomes(
+        queue, load_review_outcomes(), str(root), str(scan.get("head") or "")
+    )
+    skipped: list[dict] = [*readiness_skips, *feedback_skips, *review_skips]
     eligible = []
     for item in queue:
         allowed, reason = may_attempt(attempts.get(item["fingerprint"]), item["fingerprint"], scan.get("head", ""))
@@ -3552,6 +3570,22 @@ def command_handoff(args) -> int:
         detail = "; ".join(review_reasons)[:240]
         print(f"NIGHTSHIFT_HANDOFF: YELLOW | coding-agent review was not usable: {detail} | output={output_path}")
         return 1
+    outcome = {
+        "created_at": metadata["completed_at"],
+        "fingerprint": str(item.get("fingerprint") or ""),
+        "ledger": str(ledger),
+        "repo": str(repo),
+        "source_ref": source_ref,
+        "valid_review": True,
+        "verdict": handoff_review_verdict(review_output),
+    }
+    if outcome["fingerprint"] and outcome["source_ref"] and outcome["verdict"]:
+        existing = load_review_outcomes()
+        outcome["item"] = args.item
+        if should_record_review_outcome(existing, outcome):
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            with REVIEW_OUTCOMES_PATH.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(outcome, sort_keys=True) + "\n")
     print(f"NIGHTSHIFT_HANDOFF: GREEN | independent read-only review complete | output={output_path}")
     return 0
 
