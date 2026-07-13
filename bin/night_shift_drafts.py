@@ -11,7 +11,12 @@ from typing import Callable
 
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
 from night_shift_models import output_token_budget
-from night_shift_sandbox import sandbox_command, sandbox_patch_command
+from night_shift_sandbox import (
+    patch_input_directory,
+    sandbox_artifacts_directory,
+    sandbox_command,
+    sandbox_patch_command,
+)
 from night_shift_patch_protocol import (
     materialize_test_method_patch,
     materialize_ts_test_case_patch,
@@ -489,6 +494,30 @@ class DraftEngine:
             proof_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             return result
 
+        def run_isolated_patch(sandbox_dir: Path, verify_timeout: int):
+            patch_input = patch_input_directory(worktree, sandbox_dir)
+            shared_artifacts = sandbox_artifacts_directory(worktree, sandbox_dir)
+            for name in ("changed-paths.txt", "applied.patch", "verification.txt", "verification.rc"):
+                output = sandbox_dir / name
+                if output.exists():
+                    output.unlink()
+            try:
+                return self.run_cmd(
+                    sandbox_patch_command(
+                        worktree, patch_path, sandbox_dir, verification_argv, profile, dependency_source,
+                    ),
+                    cwd=worktree,
+                    timeout=min(verify_timeout, profile.max_seconds),
+                    pid_log=parent_ledger / "processes.tsv",
+                )
+            finally:
+                for name in ("changed-paths.txt", "applied.patch", "verification.txt", "verification.rc"):
+                    output = shared_artifacts / name
+                    if output.is_file():
+                        shutil.copyfile(output, sandbox_dir / name)
+                shutil.rmtree(shared_artifacts, ignore_errors=True)
+                shutil.rmtree(patch_input, ignore_errors=True)
+
         verification_argv = tuple(candidate.get("verification_argv") or ())
         if verification_argv not in profile.commands:
             return finish({"status": "REJECT", "reason": "verification is not approved by the repo profile"})
@@ -665,14 +694,7 @@ class DraftEngine:
         if verify_timeout <= 0:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="stop limit reached before isolated verification")
             return finish({"status": "REJECT", "reason": "stop limit reached before isolated verification", "baseline_rc": baseline.rc})
-        verified = self.run_cmd(
-            sandbox_patch_command(
-                worktree, patch_path, sandbox_dir, verification_argv, profile, dependency_source,
-            ),
-            cwd=worktree,
-            timeout=min(verify_timeout, profile.max_seconds),
-            pid_log=parent_ledger / "processes.tsv",
-        )
+        verified = run_isolated_patch(sandbox_dir, verify_timeout)
         if verified.rc != 0 and strengthening:
             repair_sandbox = sandbox_dir
             for attempt in range(1, MAX_VERIFICATION_REPAIRS + 1):
@@ -736,13 +758,7 @@ class DraftEngine:
                 patch_path.write_text(repaired_patch, encoding="utf-8")
                 retry_sandbox = proof_dir / f"{safe_task}-verification-sandbox-{attempt}"
                 retry_sandbox.mkdir(parents=True, exist_ok=True)
-                verified = self.run_cmd(
-                    sandbox_patch_command(
-                        worktree, patch_path, retry_sandbox, verification_argv, profile, dependency_source,
-                    ),
-                    cwd=worktree, timeout=min(retry_timeout, profile.max_seconds),
-                    pid_log=parent_ledger / "processes.tsv",
-                )
+                verified = run_isolated_patch(retry_sandbox, retry_timeout)
                 sandbox_dir = retry_sandbox
                 repair_sandbox = retry_sandbox
                 proposed = repaired

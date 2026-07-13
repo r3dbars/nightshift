@@ -193,7 +193,7 @@ def fixed_patch_script() -> str:
         "cd /work; rm -rf .git; git init -q; "
         "git config user.email night-shift@localhost; git config user.name 'Night Shift'; "
         "git add -A; git commit -qm baseline; "
-        "git apply --recount --whitespace=error /input/candidate.patch; git diff --check; "
+        "git apply --recount --whitespace=error /patch-input/candidate.patch; git diff --check; "
         "git diff --name-only > /artifacts/changed-paths.txt; "
         "git diff --binary > /artifacts/applied.patch; set +e; \"$@\" > /artifacts/verification.txt 2>&1; "
         "rc=$?; printf '%s\\n' \"$rc\" > /artifacts/verification.rc; exit \"$rc\""
@@ -337,6 +337,18 @@ def prepare_node_dependencies(
     return True, str(cache_dir / "node_modules")
 
 
+def patch_input_directory(source: Path, artifacts: Path) -> Path:
+    """Return a Docker-visible, per-run directory for the candidate patch."""
+    digest = hashlib.sha256(str(artifacts.resolve()).encode("utf-8")).hexdigest()[:16]
+    return source.resolve().parent / f".night-shift-patch-input-{digest}"
+
+
+def sandbox_artifacts_directory(source: Path, artifacts: Path) -> Path:
+    """Return a Docker-visible, per-run directory for isolated runner output."""
+    digest = hashlib.sha256(str(artifacts.resolve()).encode("utf-8")).hexdigest()[:16]
+    return source.resolve().parent / f".night-shift-sandbox-artifacts-{digest}"
+
+
 def sandbox_patch_command(
     source: Path,
     patch: Path,
@@ -357,6 +369,16 @@ def sandbox_patch_command(
     # runtime give /work to that UID; forcing nobody:nogroup makes mode 700
     # inaccessible without CAP_DAC_OVERRIDE.
     tmpfs_options = "rw,exec,nosuid,size=512m,mode=700"
+    patch_input = patch_input_directory(source, artifacts)
+    shared_artifacts = sandbox_artifacts_directory(source, artifacts)
+    if patch_input.exists():
+        shutil.rmtree(patch_input)
+    if shared_artifacts.exists():
+        shutil.rmtree(shared_artifacts)
+    if patch.exists():
+        patch_input.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(patch, patch_input / "candidate.patch")
+    shared_artifacts.mkdir(parents=True, exist_ok=True)
     return [
         runtime, "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
@@ -364,8 +386,8 @@ def sandbox_patch_command(
         "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"/work:{tmpfs_options}",
         "--tmpfs", "/tmp:rw,exec,nosuid,size=256m,mode=1777",
         *dependency_volume(dependency_source),
-        "--volume", f"{source.resolve()}:/source:ro", "--volume", f"{patch.resolve()}:/input/candidate.patch:ro",
-        "--volume", f"{artifacts.resolve()}:/artifacts:rw", "--workdir", "/work",
+        "--volume", f"{source.resolve()}:/source:ro", "--volume", f"{patch_input.resolve()}:/patch-input:ro",
+        "--volume", f"{shared_artifacts.resolve()}:/artifacts:rw", "--workdir", "/work",
         "--env", "HOME=/tmp", "--env", "GIT_CONFIG_NOSYSTEM=1", profile.image,
         "sh", "-ceu", fixed_patch_script(), "night-shift-verify", *command,
     ]

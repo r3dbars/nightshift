@@ -3519,8 +3519,12 @@ buildThing() { return 1; }
             self.assertIn("--pull", command)
             self.assertEqual(command[command.index("--pull") + 1], "never")
             self.assertIn(f"{root.resolve()}:/source:ro", command)
+            patch_input = __import__("night_shift_sandbox").patch_input_directory(root, root / "artifacts")
+            self.assertIn(f"{patch_input.resolve()}:/patch-input:ro", command)
+            shared_artifacts = __import__("night_shift_sandbox").sandbox_artifacts_directory(root, root / "artifacts")
+            self.assertIn(f"{shared_artifacts.resolve()}:/artifacts:rw", command)
             self.assertIn("rm -rf .git; git init -q", __import__("night_shift_sandbox").fixed_patch_script())
-            self.assertIn("git apply --recount --whitespace=error", __import__("night_shift_sandbox").fixed_patch_script())
+            self.assertIn("git apply --recount --whitespace=error /patch-input/candidate.patch", __import__("night_shift_sandbox").fixed_patch_script())
             read_only_check = __import__("night_shift_sandbox").sandbox_command(root, ("true",), profile)
             self.assertIn("PYTHONDONTWRITEBYTECODE=1", read_only_check)
             self.assertIn(f"{root.resolve()}:/source:ro", read_only_check)
@@ -3893,7 +3897,7 @@ buildThing() { return 1; }
                     return night_shift.CmdResult(" ".join(args), 0, patch, "")
                 if Path(args[0]).name in {"docker", "podman"}:
                     volumes = [args[index + 1] for index, value in enumerate(args) if value == "--volume"]
-                    if any(value.endswith(":/input/candidate.patch:ro") for value in volumes):
+                    if any(value.endswith(":/patch-input:ro") for value in volumes):
                         artifact_volume = next(value for value in volumes if value.endswith(":/artifacts:rw"))
                         artifact_dir = Path(artifact_volume.removesuffix(":/artifacts:rw"))
                         artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -4365,7 +4369,7 @@ buildThing() { return 1; }
                     return night_shift.CmdResult("worker", 0, patch, "")
                 if Path(parts[0]).name in {"docker", "podman"}:
                     volumes = [parts[index + 1] for index, value in enumerate(parts) if value == "--volume"]
-                    patch_run = any(value.endswith(":/input/candidate.patch:ro") for value in volumes)
+                    patch_run = any(value.endswith(":/patch-input:ro") for value in volumes)
                     if patch_run:
                         artifact_dir = Path(next(
                             value for value in volumes if value.endswith(":/artifacts:rw")
