@@ -19,6 +19,7 @@ from night_shift_selection import (
 
 
 MAX_SOURCE_BYTES = 262_144
+MAX_COVERAGE_FILE_BYTES = 524_288
 MAX_TEST_CORPUS_BYTES = 8_388_608
 
 CODE_EXTENSIONS = {".py", ".js", ".ts", ".tsx", ".jsx", ".swift", ".go", ".rs", ".rb", ".java", ".kt", ".cs", ".c", ".cc", ".cpp", ".h"}
@@ -306,7 +307,7 @@ class QueueEvidenceIndex:
             if corpus_bytes >= MAX_TEST_CORPUS_BYTES:
                 corpus_complete = False
                 break
-            file_limit = min(MAX_SOURCE_BYTES, MAX_TEST_CORPUS_BYTES - corpus_bytes)
+            file_limit = min(MAX_COVERAGE_FILE_BYTES, MAX_TEST_CORPUS_BYTES - corpus_bytes)
             text, indexed = self._read_coverage_text(path, file_limit)
             if not indexed:
                 corpus_complete = False
@@ -402,7 +403,7 @@ class QueueEvidenceIndex:
             if total_bytes >= MAX_TEST_CORPUS_BYTES:
                 complete = False
                 break
-            limit = min(MAX_SOURCE_BYTES, MAX_TEST_CORPUS_BYTES - total_bytes)
+            limit = min(MAX_COVERAGE_FILE_BYTES, MAX_TEST_CORPUS_BYTES - total_bytes)
             text, indexed = self._read_coverage_text(path, limit)
             if not indexed:
                 complete = False

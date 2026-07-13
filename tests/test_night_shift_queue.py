@@ -228,6 +228,24 @@ class QueueEvidenceTests(unittest.TestCase):
             incomplete = QueueEvidenceIndex(repo, scan).coverage_gaps(["src.py"])
             self.assertIn("scan_complete=false", next(iter(incomplete[0][2].values())))
 
+    def test_coverage_indexes_a_large_but_bounded_test_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "src.py").write_text("def public_api():\n    return 1\n", encoding="utf-8")
+            (repo / "test_src.py").write_text(
+                "# bounded fixture\n" + "x" * 262_144,
+                encoding="utf-8",
+            )
+            scan = {
+                "tracked_files": ["src.py", "test_src.py"],
+                "source_files": ["src.py"],
+                "test_files": ["test_src.py"],
+                "coverage_test_files": ["test_src.py"],
+            }
+            gaps = QueueEvidenceIndex(repo, scan).coverage_gaps(["src.py"])
+            evidence = next(iter(gaps[0][2].values()))
+            self.assertIn("scan_complete=true", evidence)
+
     def test_python_method_coverage_gap_includes_owner_aware_invocation_and_source_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
