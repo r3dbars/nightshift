@@ -124,6 +124,33 @@ class ReportingTests(unittest.TestCase):
                 f"night-shift handoff --ledger {ledger} --item 1 --agent codex --run --allow-cloud",
                 brief,
             )
+            self.assertIn("Teach Night Shift (one quick vote):", brief)
+            self.assertIn(
+                f"night-shift feedback --ledger {ledger} --item 1 --useful",
+                brief,
+            )
+            self.assertIn(
+                f"night-shift feedback --ledger {ledger} --item 1 --not-useful --note \"one short reason\"",
+                brief,
+            )
+            self.assertIn("stays on this computer", brief)
+
+    def test_morning_reports_current_learning_for_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            feedback = [
+                {"repo": "/repo", "family": "tests", "fingerprint": "one", "verdict": "useful"},
+                {"repo": "/repo", "family": "docs", "fingerprint": "two", "verdict": "not-useful"},
+                {"repo": "/other", "family": "tests", "fingerprint": "three", "verdict": "useful"},
+            ]
+            self.engine(feedback=feedback).write_morning(
+                ledger, "quiet", [result()], 100, "GREEN", {"status": "ok", "repo": "/repo"}
+            )
+            brief = (ledger / "morning.md").read_text()
+            self.assertIn(
+                "Learning signals for this repo: useful=1 not useful=1 history events=2",
+                brief,
+            )
 
     def test_morning_falls_back_to_factual_scan(self):
         with tempfile.TemporaryDirectory() as tmp:
