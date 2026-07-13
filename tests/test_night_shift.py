@@ -550,11 +550,13 @@ CONFIDENCE: high
             }
             pack = night_shift.task_evidence_pack(repo, task, "summary")
             prompt = night_shift.local_prompt("attack", "Review safely", pack, task)
-            self.assertNotIn(".env", prompt)
-            self.assertNotIn(".ssh/id_rsa", prompt)
-            self.assertNotIn("hiddenvalue123456", prompt)
-            self.assertNotIn("abcdefghijklmnopqrstuvwxyz", prompt)
-            self.assertIn("[REDACTED_SECRET]", prompt)
+            windows = night_shift.windows_prompt("attack", "Review safely", pack, task)
+            for lane_prompt in (prompt, windows):
+                self.assertNotIn(".env", lane_prompt)
+                self.assertNotIn(".ssh/id_rsa", lane_prompt)
+                self.assertNotIn("hiddenvalue123456", lane_prompt)
+                self.assertNotIn("abcdefghijklmnopqrstuvwxyz", lane_prompt)
+                self.assertIn("[REDACTED_SECRET]", lane_prompt)
 
     def test_unsafe_directive_is_rejected_even_when_worker_says_not_safe(self):
         output = (
