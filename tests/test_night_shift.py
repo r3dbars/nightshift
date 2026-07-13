@@ -2038,7 +2038,7 @@ buildThing() { return 1; }
                 "GREEN",
             )
             brief = (ledger / "morning.md").read_text(encoding="utf-8")
-            self.assertIn("Nothing needs your review from this shift.", brief)
+            self.assertIn("nothing was strong enough to put on your review list", brief)
             self.assertIn("night-shift start --yes", brief)
             self.assertNotIn("Your morning choices:", brief)
 

@@ -199,8 +199,8 @@ class PortfolioReportEngine:
         else:
             lines.extend([
                 "", "What to do next:",
-                "- Nothing needs your review from this shift.",
-                "- Run `night-shift start --yes` tonight. Night Shift will rescan fresh repo activity and try again.",
+                "- Good news: I checked the repos, but nothing was strong enough to put on your review list this shift.",
+                "- Run `night-shift start --yes` tonight. I will rescan fresh repo activity and try again.",
             ])
         lines.extend([
             "", "Run totals:", f"- Repositories visited: {len(latest_by_repo)}",
