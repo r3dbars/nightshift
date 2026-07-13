@@ -41,6 +41,7 @@ from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handof
 from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
+from night_shift_autopilot import AutopilotCycleState
 from night_shift_selection import (
     declared_symbols,
     model_ready_tasks,
@@ -368,10 +369,7 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
 
 
 def autopilot_action_required(cycle_rows: list[dict]) -> bool:
-    return not cycle_rows or any(
-        row.get("rc") != 0 or (row.get("publish") or {}).get("status") == "REMOTE_CLEANUP_REQUIRED"
-        for row in cycle_rows
-    )
+    return AutopilotCycleState(Path("."), rows=cycle_rows).action_required()
 
 
 def friendly_setup_row(name: str, state: str, message: str) -> str | None:
@@ -2597,16 +2595,13 @@ def command_autopilot(args) -> int:
     AUTOPILOT_STATE_PATH.write_text(
         json.dumps({"pid": os.getpid(), "ledger": str(ledger), "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}, indent=2)
         + "\n", encoding="utf-8")
-    cycle_rows: list[dict] = []
-    drafted_repos: set[str] = set()
+    controller = AutopilotCycleState(ledger)
     prepared_cache: list[tuple[dict, Path]] | None = None
-    cycle = 0
-    status = "GREEN"
     try:
         while not stop_file.exists():
             if deadline_reached(deadline, stop_file):
                 break
-            cycle += 1
+            cycle = controller.start_cycle()
             if prepared_cache is None:
                 if scope == "github-recent":
                     portfolio = discover_github_portfolio(primary, active_days=active_days, max_repos=max_repos)
@@ -2632,10 +2627,9 @@ def command_autopilot(args) -> int:
             else:
                 prepared = prepared_cache
             if not prepared:
-                status = "YELLOW"
+                controller.no_prepared_repositories()
                 break
             per_repo_limit = max(1, task_limit // len(prepared))
-            cycle_had_work = False
             for item, checkout in prepared:
                 if stop_file.exists() or deadline_reached(deadline, stop_file):
                     break
@@ -2669,29 +2663,23 @@ def command_autopilot(args) -> int:
                 rc = command_run(child_args)
                 child_ledger = Path(child_args.result_ledger)
                 child_morning = child_ledger / "morning.md"
-                if rc != 0 or morning_status(child_morning) != "GREEN":
-                    status = "YELLOW"
                 planned = parse_json_text((child_ledger / "planned-work-queue.json").read_text(encoding="utf-8"), [])
-                cycle_had_work = cycle_had_work or bool(planned)
-                cycle_row = {
-                    "cycle": cycle,
-                    "repo": item.get("slug", str(checkout)),
-                    "checkout": str(checkout.expanduser().resolve()),
-                    "ledger": str(child_ledger),
-                    "rc": rc,
-                    "new_tasks": len(planned),
-                }
-                if (
-                    getattr(args, "execute_drafts", False)
-                    and getattr(args, "permission", "brief") == "draft-prs"
-                    and cycle_row["repo"] not in drafted_repos
+                cycle_row = controller.record_child(
+                    repo=item.get("slug", str(checkout)), checkout=checkout,
+                    child_ledger=child_ledger, return_code=rc,
+                    child_is_green=morning_status(child_morning) == "GREEN",
+                    planned_count=len(planned),
+                )
+                if controller.may_draft(
+                    cycle_row["repo"], getattr(args, "execute_drafts", False),
+                    getattr(args, "permission", "brief"),
                 ):
                     candidate = select_draft_candidate(child_ledger, checkout)
                     draft_timeout = remaining_draft_timeout(
                         getattr(args, "timeout", 900), deadline, stop_file
                     )
                     if candidate and draft_timeout > 0:
-                        cycle_row["draft"] = run_isolated_draft(
+                        draft = run_isolated_draft(
                             checkout,
                             cycle_row["repo"],
                             candidate,
@@ -2704,7 +2692,7 @@ def command_autopilot(args) -> int:
                             deadline,
                             stop_file,
                         )
-                        draft = cycle_row["draft"]
+                        controller.finish_draft_attempt(cycle_row, draft)
                         if (
                             getattr(args, "allow_draft_prs", False)
                             and draft.get("status") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
@@ -2713,18 +2701,17 @@ def command_autopilot(args) -> int:
                             proof_path = Path(str(draft.get("proof") or ""))
                             if profile and proof_path.parent.exists():
                                 publish_dir = proof_path.parent / f"{proof_path.stem}-publish"
-                                cycle_row["publish"] = publish_engine().publish(
+                                publish = publish_engine().publish(
                                     checkout, cycle_row["repo"], draft, profile, publish_dir
                                 )
-                                if cycle_row["publish"].get("status") == "REMOTE_CLEANUP_REQUIRED":
-                                    status = "YELLOW"
-                        drafted_repos.add(cycle_row["repo"])
-                cycle_rows.append(cycle_row)
-                (ledger / "cycles.json").write_text(json.dumps(cycle_rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            portfolio_brief(ledger, cycle_rows, status)
+                                controller.attach_publish(cycle_row, publish)
+                    else:
+                        controller.finish_draft_attempt(cycle_row, None)
+                controller.append(cycle_row)
+            portfolio_brief(ledger, controller.rows, controller.status)
             if getattr(args, "once", False):
                 break
-            if not cycle_had_work:
+            if not controller.cycle_had_work:
                 sleep_for = poll_minutes * 60
                 if deadline:
                     sleep_for = min(sleep_for, max(0, int(deadline - time.time())))
@@ -2735,7 +2722,7 @@ def command_autopilot(args) -> int:
                 prepared_cache = None
             if deadline_reached(deadline, stop_file):
                 break
-        portfolio_brief(ledger, cycle_rows, status)
+        portfolio_brief(ledger, controller.rows, controller.status)
     finally:
         try:
             active = parse_json_text(AUTOPILOT_STATE_PATH.read_text(encoding="utf-8"), {})
@@ -2744,10 +2731,10 @@ def command_autopilot(args) -> int:
         except OSError:
             pass
         lock_context.__exit__(None, None, None)
-    print(f"NIGHTSHIFT_AUTOPILOT: {status} | cycles={cycle} | ledger={ledger}")
+    print(f"NIGHTSHIFT_AUTOPILOT: {controller.status} | cycles={controller.cycle} | ledger={ledger}")
     print(f"Morning brief: night-shift report --ledger {ledger}")
-    action_required = autopilot_action_required(cycle_rows)
-    return 0 if status == "GREEN" or not action_required else 1
+    action_required = controller.action_required()
+    return 0 if controller.status == "GREEN" or not action_required else 1
 
 
 def resolve_start_repo(args, saved: dict) -> tuple[str, str]:
