@@ -167,6 +167,10 @@ class NightShiftQualityTests(unittest.TestCase):
             "semantic_contract": {"minimum_target_invocations": 1},
         }, "def confidence_bonus(output: str) -> int:\n    pass\n", ("python",))
         self.assertNotIn("from night_shift_evidence import none", none_owner_prompt)
+        self.assertIn(
+            "from night_shift_evidence import confidence_bonus` inside the new test method",
+            none_owner_prompt,
+        )
         self.assertIn("exact pinned signature: def confidence_bonus(output: str) -> int:", none_owner_prompt)
         dedent_prompt = __import__("night_shift_patch_protocol").patch_prompt({
             "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
@@ -187,6 +191,7 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn(
             "from night_shift_drafts import DraftEngine` inside the new test method", prompt
         )
+        self.assertIn("Any new import must be inside the new test method", prompt)
         self.assertIn("assert the returned value directly", prompt)
         self.assertIn("does not create filesystem side effects", prompt)
         self.assertIn("calls.append(list(cmd))", prompt)
