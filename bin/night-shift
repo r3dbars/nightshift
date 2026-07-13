@@ -2880,7 +2880,13 @@ def command_autopilot(args) -> int:
             continue
         if not getattr(args, name, None):
             setattr(args, name, config_value(saved, name))
-    if getattr(args, "active_days", 14) < 1 or (getattr(args, "max_repos", None) is not None and args.max_repos < 1):
+    requested_active_days = getattr(args, "active_days", None)
+    requested_max_repos = getattr(args, "max_repos", None)
+    if (
+        requested_active_days is not None and requested_active_days < 1
+    ) or (
+        requested_max_repos is not None and requested_max_repos < 1
+    ):
         print("NIGHTSHIFT_AUTOPILOT: RED | --active-days and --max-repos must be positive")
         return 2
     apply_compute_overrides(args)
@@ -2893,6 +2899,9 @@ def command_autopilot(args) -> int:
     max_repos = getattr(args, "max_repos", None) or config_value(saved, "max_repos", defaults["repo_limit"])
     priority_repos = PortfolioEngine.normalize_priority_repos(config_value(saved, "priority_repos", []))
     active_days = getattr(args, "active_days", None) or config_value(saved, "active_days", 14)
+    if active_days < 1 or max_repos < 1:
+        print("NIGHTSHIFT_AUTOPILOT: RED | saved active-days and max-repos must be positive")
+        return 2
     task_limit = getattr(args, "task_limit", None) or defaults["task_limit"]
     poll_minutes = getattr(args, "poll_minutes", None) or defaults["poll_minutes"]
     stop_after = args.stop_after
