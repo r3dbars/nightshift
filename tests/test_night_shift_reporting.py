@@ -53,10 +53,27 @@ class ReportingTests(unittest.TestCase):
             metrics = json.loads((ledger / "outcome-metrics.json").read_text())
             self.assertEqual(metrics["accepted_candidates"], 1)
             self.assertEqual(metrics["human_feedback_events"], 1)
+            self.assertEqual(metrics["current_feedback_preferences"], 1)
+            self.assertEqual(metrics["current_useful_preferences"], 1)
+            self.assertEqual(metrics["current_not_useful_preferences"], 0)
             self.assertEqual(metrics["cooldown_or_repeat_skips"], 1)
             lifecycle = (ledger / "task-lifecycle.md").read_text()
             self.assertIn("- VERIFIED: 1", lifecycle)
             self.assertIn("- REJECTED: 1", lifecycle)
+
+    def test_outcome_metrics_snapshot_latest_changed_feedback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            feedback = [
+                {"repo": "/repo", "family": "tests", "fingerprint": "same", "verdict": "useful"},
+                {"repo": "/repo", "family": "tests", "fingerprint": "same", "verdict": "not-useful"},
+            ]
+            self.engine(feedback=feedback).write_outcome_metrics(ledger, [], [])
+            metrics = json.loads((ledger / "outcome-metrics.json").read_text())
+            self.assertEqual(metrics["human_feedback_events"], 2)
+            self.assertEqual(metrics["current_feedback_preferences"], 1)
+            self.assertEqual(metrics["current_useful_preferences"], 0)
+            self.assertEqual(metrics["current_not_useful_preferences"], 1)
 
     def test_harvest_and_work_queue_rank_and_dedupe(self):
         with tempfile.TemporaryDirectory() as tmp:

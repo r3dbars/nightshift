@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from night_shift_evidence import action_type, artifact_priority
+from night_shift_feedback import latest_feedback_events
 from night_shift_redaction import redact, sanitize_evidence_sources, sanitize_task_for_ledger
 
 
@@ -57,7 +58,7 @@ class ReportEngine:
 
     def feedback_adjustment(self, key: str, repo: str = "") -> int:
         adjustment = 0
-        for row in self.load_feedback():
+        for row in latest_feedback_events(self.load_feedback()):
             if row.get("key") != key or (repo and row.get("repo") != repo):
                 continue
             adjustment += 20 if row.get("verdict") == "useful" else -120
@@ -147,6 +148,8 @@ class ReportEngine:
     def write_outcome_metrics(self, ledger: Path, results: list[dict], skipped: list[dict]) -> None:
         tokens = sum(int(row.get("tokens") or 0) for row in results)
         accepted = sum(1 for row in results if row.get("score") in {"KEEP", "MAYBE"})
+        feedback_history = self.load_feedback()
+        current_feedback = latest_feedback_events(feedback_history)
         metrics = {
             "attempted": len(results), "accepted_candidates": accepted,
             "rejected": sum(1 for row in results if row.get("score") == "REJECT"),
@@ -155,7 +158,15 @@ class ReportEngine:
             "cooldown_or_repeat_skips": sum(1 for row in skipped if row.get("category") in {"cooldown", "repeat"}),
             "estimated_tokens": tokens,
             "accepted_per_1000_tokens": round(accepted * 1000 / tokens, 4) if tokens else 0,
-            "patches_promoted": 0, "human_feedback_events": len(self.load_feedback()),
+            "patches_promoted": 0,
+            "human_feedback_events": len(feedback_history),
+            "current_feedback_preferences": len(current_feedback),
+            "current_useful_preferences": sum(
+                row.get("verdict") == "useful" for row in current_feedback
+            ),
+            "current_not_useful_preferences": sum(
+                row.get("verdict") == "not-useful" for row in current_feedback
+            ),
         }
         (ledger / "outcome-metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
