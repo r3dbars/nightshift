@@ -1,14 +1,32 @@
 from __future__ import annotations
 
+import json
+import os
 import re
 from collections.abc import Callable
 from pathlib import Path
 
-from night_shift_selection import declared_symbols
+from night_shift_portfolio import parse_json_text
+from night_shift_selection import (
+    declared_symbols,
+    relevant_tests_for_source,
+    task_selection_priority,
+    unchecked_issue_actions,
+)
 
 
 MAX_SOURCE_BYTES = 262_144
 MAX_TEST_CORPUS_BYTES = 8_388_608
+
+CODE_EXTENSIONS = {".py", ".js", ".ts", ".tsx", ".jsx", ".swift", ".go", ".rs", ".rb", ".java", ".kt", ".cs", ".c", ".cc", ".cpp", ".h"}
+
+TASK_LADDER = {
+    "repair": 500,
+    "finish": 400,
+    "strengthen": 300,
+    "understand": 200,
+    "index": 100,
+}
 
 
 def is_test_path(relative: str) -> bool:
@@ -21,6 +39,26 @@ def is_test_path(relative: str) -> bool:
 
 def contains_identifier(text: str, term: str) -> bool:
     return bool(re.search(rf"\b{re.escape(term)}\b", text))
+
+
+def task_file_priority(path: str) -> int:
+    name = Path(path).name.lower()
+    suffix = Path(path).suffix.lower()
+    if name.startswith("test_") or "/test" in path.lower() or "/spec" in path.lower():
+        return 0
+    if suffix in CODE_EXTENSIONS or path.startswith("bin/"):
+        return 1
+    if path.startswith((".github/", "docs/")) or suffix in {".md", ".rst"}:
+        return 3
+    if name.startswith(".") or suffix in {".json", ".lock", ".png", ".jpg", ".jpeg"}:
+        return 4
+    return 2
+
+
+def narrow_task_files(files: list[str], limit: int = 6) -> list[str]:
+    unique = list(dict.fromkeys(path for path in files if path and not path.startswith(".git/")))
+    ranked = sorted(enumerate(unique), key=lambda row: (task_file_priority(row[1]), row[0]))
+    return [path for _, path in ranked[:limit]]
 
 
 class RepoRevisionAdapter:
@@ -195,3 +233,289 @@ class QueueEvidenceIndex:
         if len(raw) > max_bytes or b"\x00" in raw[:4096]:
             return "", False
         return raw.decode("utf-8", errors="replace"), True
+
+
+def build_repo_work_queue(
+    repo: Path | None,
+    scan: dict,
+    mode: str,
+    permission: str,
+    guidance: str = "scan",
+    goal_text: str = "",
+    *,
+    run_cmd: Callable,
+    detect_test_commands: Callable,
+) -> list[dict]:
+    queue: list[dict] = []
+
+    def add(
+        slug: str,
+        kind: str,
+        prompt: str,
+        reason: str,
+        files: list[str] | None = None,
+        ladder: str = "strengthen",
+        preferred_lane: str = "local",
+        proof_kind: str = "source",
+        signal: str = "",
+        evidence_sources: dict[str, str] | None = None,
+        source_ref: str = "",
+        commands: list[str] | None = None,
+        executable: bool = False,
+        signal_strength: int = 0,
+    ) -> None:
+        if slug in {item["slug"] for item in queue}:
+            return
+        queue.append(
+            {
+                "slug": slug,
+                "kind": kind,
+                "prompt": prompt,
+                "reason": reason,
+                "files": narrow_task_files(files or []),
+                "verification_commands": commands if commands is not None else test_commands,
+                "ladder": ladder,
+                "ladder_priority": TASK_LADDER[ladder],
+                "preferred_lane": preferred_lane,
+                "proof_kind": proof_kind,
+                "signal": signal,
+                "evidence_sources": evidence_sources or {},
+                "source_ref": source_ref,
+                "executable": executable,
+                "signal_strength": signal_strength,
+            }
+        )
+
+    recent = scan.get("recent_files") or []
+    tests = scan.get("test_files") or []
+    docs = scan.get("doc_files") or []
+    todos = scan.get("todo_sample") or []
+    test_commands = scan.get("test_commands") or []
+    source_files = scan.get("source_files") or []
+    tracked_files = scan.get("tracked_files") or []
+    recent_source = [path for path in recent if path in source_files]
+    pull_requests = parse_json_text(scan.get("github_open_prs_raw", ""), [])
+    issues = parse_json_text(scan.get("github_open_issues_raw", ""), [])
+    failed_runs = sorted(
+        parse_json_text(scan.get("github_failed_runs_raw", ""), []),
+        key=lambda run: run.get("updatedAt", ""),
+        reverse=True,
+    )
+    failed_logs = parse_json_text(scan.get("github_failed_logs_raw", ""), [])
+
+    evidence_index = QueueEvidenceIndex(repo, scan)
+    read_current_text = evidence_index.read_current_text
+    issue_candidate_files = evidence_index.issue_candidate_files
+    coverage_gaps = evidence_index.coverage_gaps(recent_source)
+    revisions = RepoRevisionAdapter(repo, run_cmd)
+    todo_files = []
+    for line in todos:
+        match = re.match(r"^(.+?):\d+:", line)
+        if match:
+            value = match.group(1)
+            if repo and value.startswith(str(repo) + os.sep):
+                value = str(Path(value).relative_to(repo))
+            todo_files.append(value)
+    todo_files = list(dict.fromkeys(todo_files))
+
+    if guidance == "goal" and goal_text.strip():
+        add(
+            "mission-brief",
+            "mission",
+            f"Turn this user mission into the smallest safe repo task: {goal_text.strip()}",
+            "User supplied a specific mission.",
+            recent_source[:6],
+            ladder="repair",
+            preferred_lane="local",
+        )
+    if coverage_gaps:
+        gap_path, gap_symbol, gap_evidence = coverage_gaps[0]
+        add(
+            "recent-change-test-gap",
+            "tests",
+            f"Inspect only `{gap_symbol}` in `{gap_path}`. Cite that exact source line plus the supplied coverage-index evidence. Reject if the index is incomplete or this exact gap is unsupported.",
+            "This declared symbol has no textual match in the tracked test corpus.",
+            [gap_path] + relevant_tests_for_source(gap_path, tests, read_current_text)[:4],
+            ladder="strengthen",
+            preferred_lane="local",
+            evidence_sources=gap_evidence,
+        )
+    if test_commands:
+        add(
+            "test-command-proof",
+            "proof",
+            "Check whether the detected test commands are the right proof path for a small morning PR. Identify the fastest command and the gap it proves.",
+            "Night Shift should hand the user exact verification commands.",
+            (tests + recent)[:12],
+            ladder="strengthen",
+        )
+    if docs:
+        add(
+            "docs-command-drift",
+            "docs",
+            "Find one stale or confusing setup command, quickstart step, or report command in the docs. Prefer beginner-facing fixes.",
+            "Docs are safe overnight work and make the project easier to run.",
+            docs[:20],
+            ladder="strengthen",
+        )
+    if todos:
+        add(
+            "todo-risk-triage",
+            "triage",
+            "Cluster TODO/FIXME/HACK comments into one morning-ready issue candidate with exact files and risk.",
+            "TODOs often contain real small chores if they are deduped.",
+            todo_files[:20],
+            ladder="understand",
+        )
+    for run in failed_runs[:2]:
+        database_id = run.get("databaseId") or "unknown"
+        source_ref = str(run.get("headSha") or "")
+        log_row = next((row for row in failed_logs if (row.get("run") or {}).get("databaseId") == run.get("databaseId")), {})
+        log_text = str(log_row.get("log", ""))
+        log_evidence_path = f"github-actions/run-{database_id}.log"
+        matching_pr = next(
+            (pr for pr in pull_requests if pr.get("headRefName") == run.get("headBranch")),
+            {},
+        )
+        if source_ref and repo:
+            if matching_pr.get("number"):
+                revisions.ensure_pr_ref(str(matching_pr["number"]), source_ref)
+            else:
+                revisions.ensure_branch_ref(str(run.get("headBranch") or ""), source_ref)
+        pr_files = [row.get("path", "") for row in matching_pr.get("files") or [] if row.get("path")]
+        signal_files = [path for path in revisions.log_paths(log_text) if revisions.file_exists(path, source_ref)][:8]
+        workflow_files = [path for path in scan.get("tracked_files") or [] if path.startswith(".github/workflows/")][:4]
+        candidate_files = list(dict.fromkeys(signal_files + pr_files + workflow_files + recent[:8]))
+        if source_ref:
+            candidate_files = [path for path in candidate_files if revisions.file_exists(path, source_ref)]
+        candidate_files = candidate_files[:32]
+        branch_commands = test_commands
+        if repo and source_ref:
+            ref_files = revisions.list_files(source_ref)
+            if ref_files is not None:
+                branch_commands = detect_test_commands(repo, ref_files, source_ref) or test_commands
+        add(
+            f"failed-ci-{database_id}",
+            "tests",
+            f"Use failed GitHub run {database_id} and its supplied failed-step log to identify one narrow repair. Reject if the log does not name a concrete failing file, test, or command.",
+            "A recent failed workflow is a stronger signal than a generic code scan.",
+            candidate_files,
+            ladder="repair",
+            preferred_lane="windows",
+            proof_kind="test",
+            signal=json.dumps({"run": run, "failed_log_evidence": log_evidence_path}, sort_keys=True),
+            evidence_sources={log_evidence_path: log_text} if log_text else {},
+            source_ref=source_ref,
+            commands=branch_commands,
+            executable=True,
+        )
+    issue_rows = []
+    for issue in issues[:20]:
+        candidate_files, matched_terms = issue_candidate_files(issue)
+        issue_rows.append((issue, candidate_files, matched_terms, len(unchecked_issue_actions(issue))))
+    issue_rows.sort(key=lambda row: (row[3] > 1, -row[2], -len(row[1])))
+    selected_issue_rows = issue_rows[:3]
+    if mode == "afterburner":
+        tracker = next((row for row in issue_rows if row[3] > 1), None)
+        if tracker and tracker not in selected_issue_rows:
+            selected_issue_rows = [*selected_issue_rows[:2], tracker]
+    for issue, issue_files, matched_terms, _ in selected_issue_rows:
+        number = issue.get("number") or "unknown"
+        add(
+            f"issue-{number}-next-action",
+            "issue",
+            f"Map GitHub issue #{number} to supplied source and propose the smallest verifiable next action. Reject it if the issue is stale or the source does not support it.",
+            "Open issues describe work a maintainer has already chosen to track.",
+            issue_files,
+            ladder="finish",
+            preferred_lane="windows",
+            signal=json.dumps(issue, sort_keys=True),
+            signal_strength=matched_terms,
+        )
+    for pr in pull_requests[:5]:
+        number = pr.get("number") or "unknown"
+        pr_files = [row.get("path", "") for row in pr.get("files") or [] if row.get("path")]
+        pr_source_ref = str(pr.get("headRefOid") or "")
+        if pr_source_ref and revisions.ensure_pr_ref(str(number), pr_source_ref):
+            pr_files = [path for path in pr_files if revisions.file_exists(path, pr_source_ref)]
+        elif pr_source_ref:
+            pr_files = []
+            pr_source_ref = ""
+        checks = pr.get("statusCheckRollup") or []
+        failed_check = any(row.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for row in checks)
+        state = "requested changes" if pr.get("reviewDecision") == "CHANGES_REQUESTED" else "failed checks" if failed_check else "open draft" if pr.get("isDraft") else "open review"
+        add(
+            f"pr-{number}-review",
+            "triage",
+            f"Review PR #{number} as a {state}. Compare its supplied files and checks with current source, then name one exact next action or reject it as already healthy.",
+            "Open PRs are real repo work, not generic suggestions.",
+            pr_files[:12] or recent[:8],
+            ladder="finish",
+            preferred_lane="windows" if failed_check or pr.get("reviewDecision") == "CHANGES_REQUESTED" else "local",
+            signal=json.dumps(pr, sort_keys=True),
+            commands=test_commands or ["git status --short"],
+            source_ref=pr_source_ref,
+        )
+    for index, (path, symbol, gap_evidence) in enumerate(coverage_gaps[:12], start=1):
+        safe = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-").lower()[:48]
+        add(
+            f"changed-file-proof-{index:02d}-{safe}",
+            "tests",
+            f"Inspect only `{symbol}` in `{path}`. Cite that exact source line plus the supplied coverage-index evidence. Do not discuss another function; reject when the index is incomplete or this exact gap is unsupported.",
+            "A declared source symbol with no textual test match is a bounded coverage lead, not proof of a gap.",
+            [path] + relevant_tests_for_source(path, tests, read_current_text)[:5],
+            ladder="strengthen",
+            preferred_lane="local",
+            proof_kind="test",
+            executable=bool(test_commands),
+            evidence_sources=gap_evidence,
+        )
+
+    for index in range(0, min(len(tests), 24), 4):
+        batch = tests[index : index + 4]
+        add(
+            f"test-contract-map-{index // 4 + 1:02d}",
+            "map",
+            "Map what these tests actually prove, which production files they exercise, and one evidence-backed blind spot. Reject invented gaps.",
+            "A durable test-to-code map makes future overnight work faster and less repetitive.",
+            batch + recent_source[:4],
+            ladder="understand",
+            preferred_lane="local",
+            proof_kind="source",
+            commands=["git status --short"],
+        )
+
+    for index, path in enumerate(docs[:12], start=1):
+        safe = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-").lower()[:48]
+        add(
+            f"docs-command-check-{index:02d}-{safe}",
+            "docs",
+            "Check this documentation file for commands, paths, or promises that can be compared directly with tracked files and CLI help. Report only exact contradictions.",
+            "Documentation verification is safe background work with a clear source of truth.",
+            [path] + recent[:4],
+            ladder="strengthen",
+            preferred_lane="local",
+            proof_kind="source",
+            commands=["git status --short"],
+        )
+
+    for index in range(0, min(len(source_files), 60), 6):
+        batch = source_files[index : index + 6]
+        add(
+            f"source-map-{index // 6 + 1:02d}",
+            "map",
+            "Build a compact ownership and dependency map for only these files. Name public entry points, tests, and risky boundaries using exact citations; do not propose changes without evidence.",
+            "Repository understanding compounds across nights and gives later coding tasks better context.",
+            batch + tests[:3],
+            ladder="index",
+            preferred_lane="local",
+            proof_kind="source",
+            commands=["git status --short"],
+        )
+
+    limit = {"quiet": 10, "night-shift": 40, "afterburner": 100}.get(mode, 40)
+    for item in queue:
+        item["selection_priority"] = task_selection_priority(item)
+    # Python's sort is stable, so equal-priority tasks keep live-signal recency
+    # and insertion order instead of being reordered by arbitrary IDs.
+    return sorted(queue, key=lambda item: -item["selection_priority"])[:limit]
