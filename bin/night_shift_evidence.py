@@ -164,6 +164,26 @@ def evidence_validation_reasons(
     claim_words = {
         word.rstrip("s") for word in re.findall(r"[a-z0-9]+", claim.lower()) if len(word) >= 4 and word not in stop
     }
+    target_sources = {
+        match.group(1).strip()
+        for path, text in supplied_sources.items()
+        if path.startswith(("coverage-index/", "invocation-index/"))
+        for match in re.finditer(r"(?m)^source_file=(.+)$", str(text))
+    }
+    pinned_context_quotes: dict[str, set[str]] = {}
+    for path, text in supplied_sources.items():
+        if not path.startswith("goal-source/"):
+            continue
+        source_matches = re.findall(r"(?m)^source_file=(.+)$", str(text))
+        if len(source_matches) != 1:
+            continue
+        context_source = source_matches[0].strip()
+        if context_source not in target_sources:
+            continue
+        pinned_context_quotes.setdefault(context_source, set()).update(
+            match.group(1).strip()
+            for match in re.finditer(r"(?m)^source_line=\d+\s*\|\s*(.+)$", str(text))
+        )
     valid_entries = 0
     for relative, raw_line, raw_quote in entries:
         if allowed and relative not in allowed:
@@ -195,19 +215,20 @@ def evidence_validation_reasons(
         ))
         if intent_claim and (not source_intent or denied_intent_claim != source_denied_intent):
             return [f"cited line does not support claimed intent: {relative}:{raw_line}"]
+        enrich_metric = relative.startswith(("coverage-index/", "invocation-index/"))
         relevance_text = (
             f"{source_line}\n{supplied_sources[relative]}"
-            if relative in supplied_sources else source_line
+            if relative in supplied_sources and enrich_metric else source_line
         )
         source_words = {
             word.rstrip("s") for word in re.findall(r"[a-z0-9]+", relevance_text.lower()) if len(word) >= 4 and word not in stop
         }
         if claim_words & source_words:
             valid_entries += 1
-        else:
-            return [f"cited line does not support the claim: {relative}:{raw_line}"]
-    if valid_entries != len(entries):
-        return ["not every cited line supports the claim"]
+        elif source_line.strip() not in pinned_context_quotes.get(relative, set()):
+            return [f"cited line is not pinned context for the claimed target: {relative}:{raw_line}"]
+    if valid_entries == 0:
+        return ["no cited line supports the claim"]
     return []
 
 
