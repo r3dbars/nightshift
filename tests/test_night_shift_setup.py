@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from night_shift_setup import detected_tools, mode_counts, setup_has_changed, start_preview
+from night_shift_setup import autonomy_copy, detected_tools, mode_counts, permission_label, setup_has_changed, start_preview
 
 
 MODE_DEFAULTS = {
@@ -95,6 +95,11 @@ class SetupPolicyTests(unittest.TestCase):
             MODE_DEFAULTS,
         )
         self.assertIn("Stay quiet during 09:00-17:00", preview)
+
+    def test_draft_pr_copy_matches_the_actual_permission_boundary(self):
+        self.assertIn("Open tested draft PRs", permission_label("draft-prs"))
+        self.assertIn("never merge", permission_label("draft-prs"))
+        self.assertIn("after you allow it", autonomy_copy("draft-prs"))
 
     def test_timestamp_does_not_turn_repeat_setup_into_a_change(self):
         saved = {"schema_version": 4, "updated_at": "before", "preferences": {"mode": "quiet"}}

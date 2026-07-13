@@ -50,7 +50,7 @@ not-useful votes suppress that task family in Normal mode. Afterburner can still
 inspect suppressed families, and feedback can never make an ungrounded task
 eligible.
 
-The wizard starts like a tiny decision brief:
+The normal wizard starts like a tiny decision brief:
 
 ```text
 Welcome to Night Shift.
@@ -65,17 +65,23 @@ We are choosing four things:
 Safe default: local, read-only, no pushes, no merges, no releases.
 ```
 
-Then it asks beginner questions in this order:
+The normal path asks only whether to start. If you choose `--advanced`, the
+extra questions are still plain English and have safe defaults:
 
-1. Which project should Night Shift start from?
-2. Should it watch only this project or recently active GitHub repos?
-3. What would make tomorrow morning a win?
-4. What should Night Shift aim at first?
-5. Where is repo context allowed to go tonight?
-6. What is Night Shift allowed to prepare?
-7. If drafts are allowed, may it make tested patches in disposable worktrees?
-8. How much energy should it use?
-9. When should it stop?
+1. Should it watch only this project or recently active GitHub repos?
+2. Are there any `owner/repo` projects to prioritize?
+3. When should scheduled Night Shift runs stay quiet?
+4. What would make tomorrow morning a win?
+5. What should Night Shift aim at first?
+6. Where is repo context allowed to go tonight?
+7. What is Night Shift allowed to prepare?
+8. If drafts are allowed, may it make tested patches in disposable worktrees?
+9. How much energy should it use?
+10. When should it stop?
+
+You do not need to know model names, server URLs, GitHub commands, or repo
+internals to get started. Night Shift detects what it can and continues with a
+planning brief when no AI worker is ready.
 
 Then it shows a summary before launching:
 
