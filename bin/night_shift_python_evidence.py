@@ -4,6 +4,56 @@ from __future__ import annotations
 import ast
 
 
+def top_level_symbol_call_count_text(text: str, symbol: str) -> int | None:
+    """Conservatively count direct, imported, aliased, and attribute calls."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+    direct_names = {symbol}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == symbol:
+                    direct_names.add(alias.asname or alias.name)
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            targets: list[ast.expr] = []
+            value: ast.expr | None = None
+            if isinstance(node, ast.Assign):
+                targets, value = node.targets, node.value
+            elif isinstance(node, ast.AnnAssign):
+                targets, value = [node.target], node.value
+            elif isinstance(node, ast.NamedExpr):
+                targets, value = [node.target], node.value
+            if (
+                isinstance(value, ast.Name)
+                and value.id in direct_names
+            ):
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id not in direct_names:
+                        direct_names.add(target.id)
+                        changed = True
+    calls = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.arg) and node.arg == symbol:
+            calls += 1
+            continue
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if isinstance(function, ast.Name) and function.id in direct_names:
+            calls += 1
+        elif (
+            isinstance(function, ast.Attribute)
+            and function.attr == symbol
+        ):
+            calls += 1
+    return calls
+
+
 def owner_symbol_call_count_text(text: str, owner: str, symbol: str) -> int | None:
     try:
         tree = ast.parse(text)

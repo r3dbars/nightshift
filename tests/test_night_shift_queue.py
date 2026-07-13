@@ -21,9 +21,72 @@ from night_shift_queue import (
     symbol_is_test_addressable,
 )
 from night_shift_portfolio import PortfolioEngine
+from night_shift_python_evidence import top_level_symbol_call_count_text
 
 
 class QueueEvidenceTests(unittest.TestCase):
+    def test_top_level_python_calls_count_direct_alias_and_module_forms(self):
+        text = (
+            "from pkg.tools import helper as renamed\n"
+            "import pkg.tools as tools\n"
+            "rebound = helper\n"
+            "helper()\nrenamed()\ntools.helper()\npkg.tools.helper()\nrebound()\n"
+        )
+        self.assertEqual(top_level_symbol_call_count_text(text, "helper"), 5)
+        self.assertIsNone(top_level_symbol_call_count_text("def broken(:", "helper"))
+
+    def test_top_level_python_fixture_parameter_counts_as_usage(self):
+        text = "def test_uses_fixture(helper):\n    assert helper\n"
+        self.assertEqual(top_level_symbol_call_count_text(text, "helper"), 1)
+
+    def test_top_level_python_gap_gets_complete_ast_invocation_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "tools.py").write_text(
+                "def helper(value):\n    return value + 1\n", encoding="utf-8"
+            )
+            (repo / "test_tools.py").write_text(
+                "def test_other():\n    assert True\n", encoding="utf-8"
+            )
+            scan = {
+                "tracked_files": ["tools.py", "test_tools.py"],
+                "source_files": ["tools.py"],
+                "test_files": ["test_tools.py"],
+                "coverage_test_files": ["test_tools.py"],
+            }
+            gap = QueueEvidenceIndex(repo, scan).coverage_gaps(["tools.py"])[0]
+            invocation = next(
+                value for key, value in gap[2].items() if key.startswith("invocation-index/")
+            )
+            self.assertIn("owner=none", invocation)
+            self.assertIn("analysis=python-ast", invocation)
+            self.assertIn("call_matches=0", invocation)
+
+    def test_top_level_python_incomplete_ast_scan_is_not_executable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "tools.py").write_text(
+                "def helper(value):\n    return value + 1\n", encoding="utf-8"
+            )
+            (repo / "test_tools.py").write_text("def broken(:\n", encoding="utf-8")
+            scan = {
+                "recent_files": ["tools.py"],
+                "tracked_files": ["tools.py", "test_tools.py"],
+                "source_files": ["tools.py"],
+                "test_files": ["test_tools.py"],
+                "coverage_test_files": ["test_tools.py"],
+                "test_commands": ["python -m unittest"],
+            }
+            queue = build_repo_work_queue(
+                repo, scan, "night-shift", "draft-local",
+                run_cmd=lambda *args, **kwargs: SimpleNamespace(rc=1, stdout="", stderr=""),
+                detect_test_commands=lambda *args, **kwargs: [],
+            )
+            task = next(item for item in queue if item["slug"].startswith("changed-file-proof-"))
+            evidence = "\n".join(task["evidence_sources"].values())
+            self.assertIn("scan_complete=false", evidence)
+            self.assertFalse(task["executable"])
+
     def test_js_ts_addressability_excludes_private_top_level_helpers(self):
         source = (
             "function startOfDay(date: Date) { return date; }\n"
