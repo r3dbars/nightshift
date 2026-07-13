@@ -14,7 +14,7 @@ verified draft, a real draft PR that was reviewed and merged, a useful feedback
 event, a disposable soak rehearsal, a native eight-hour launch, two verified
 draft outcomes, fail-closed worker wrappers, and complete empty-run artifacts.
 PRs #157 and #158 then added copy-ready feedback commands to both single-repo
-and portfolio morning briefs; the current package gate passes 396 tests.
+and portfolio morning briefs; the current package gate passes 399 tests.
 The real two-lane feedback-brief run is recorded in
 [`2026-07-13-feedback-brief-real-run.md`](proofs/2026-07-13-feedback-brief-real-run.md).
 PR #159 added an optional local elapsed-time signal from viewed brief to vote;
@@ -23,6 +23,9 @@ its disposable CLI proof is recorded in
 PR #160 made direct `autopilot` honor the saved plan and exposed its draft
 controls; its fail-closed execution proof is recorded in
 [`2026-07-13-direct-autopilot-draft-rejection.md`](proofs/2026-07-13-direct-autopilot-draft-rejection.md).
+PR #161 made isolated draft patch and evidence mounts portable on macOS; its
+deterministic real-run proof is recorded in
+[`2026-07-13-sandbox-shared-artifacts.md`](proofs/2026-07-13-sandbox-shared-artifacts.md).
 The full 10-hour soak and native eight-hour launch are running but are not
 counted until they finish. The latest real BetterFeedback runs also proved
 runner-native dependency preparation, automatic cache reuse, a repaired

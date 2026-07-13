@@ -43,6 +43,12 @@ run evidence separate from model claims and from human/manual proof.
   bounded draft controls; hosted Ubuntu/macOS checks passed and a real
   malformed worker patch was rejected in isolated execution. Proof:
   `docs/proofs/2026-07-13-direct-autopilot-draft-rejection.md`.
+- PR #161 made isolated draft patch and evidence mounts portable on macOS;
+  hosted Ubuntu/macOS checks passed and the deterministic real sandbox proof
+  saw the candidate patch, reported the changed path, preserved the applied
+  patch, and recorded verification rc 0. A model-driven saved-plan replay
+  still rejected a citation-mismatched candidate safely. Proof:
+  `docs/proofs/2026-07-13-sandbox-shared-artifacts.md`.
 - A fresh two-lane analysis-only run against current `main` displayed the new
   feedback commands and repo-scoped learning snapshot in a real morning brief;
   it produced two honest `MAYBE` candidates and no source change. Proof:
@@ -81,6 +87,12 @@ run evidence separate from model claims and from human/manual proof.
   `docs/proofs/2026-07-13-feedback-timing.md`.
 - The current package gate now passes 399 tests, including direct-autopilot
   saved-plan and visible safety-control coverage.
+- The post-PR #161 real sandbox proof now passes with a temporary ledger path:
+  the container reads a staged patch from the shared worktree root, writes
+  changed-path, applied-patch, verification-output, and verification-rc
+  evidence, and leaves the source checkout unchanged. A saved-plan model
+  replay rejected a bad citation/patch and created no PR; that remains a
+  safety result rather than an accepted outcome.
 - The repeatable blank-home recovery proof now passes from a temporary HOME
   outside any Git repo with no GitHub credentials: it returns clear `--repo`,
   Git-repo, and `gh auth login` next steps, exits safely, and saves no config.
