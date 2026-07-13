@@ -76,7 +76,7 @@ def verification_correction_prompt(patch: str, failure_output: str) -> str:
         "returncode). Match exact source argument types too: a Path object is not its string form. "
         "The corrected diff must make a real textual change; never replace a line with identical text. "
         "Fix the exact latest failure without weakening assertions.\n\n"
-        f"CURRENT PATCH:\n{patch[-8000:]}\n\nFAILURE OUTPUT:\n{failure_output[-5000:]}"
+        f"CURRENT PATCH:\n{patch[-4000:]}\n\nFAILURE OUTPUT:\n{failure_output[-3000:]}"
     )
 
 
@@ -351,6 +351,9 @@ class DraftEngine:
         delegate = shutil.which("maestro-delegate") or str(codex_home / "bin" / "maestro-delegate")
         context_files = candidate.get("context_files") or candidate["files"]
         source = self.source_excerpt(repo, source_ref, context_files)
+        if correction:
+            # Keep bounded repair calls below small local model context limits.
+            source = source[:10000]
         prompt = patch_prompt(candidate, source, command)
         if correction:
             prompt += "\n\n" + correction
