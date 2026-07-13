@@ -227,9 +227,6 @@ def friendly_hint(prog: str, message: str = "") -> str:
 
 
 def load_config() -> dict:
-    prepared_cache: list[tuple[dict, Path]] | None = None
-    portfolio_cache: list[dict] = []
-    next_portfolio_refresh = 0.0
     try:
         config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
@@ -2655,6 +2652,9 @@ def command_autopilot(args) -> int:
     except Exception:
         lock_context.__exit__(*sys.exc_info())
         raise
+    prepared_cache: list[tuple[dict, Path]] | None = None
+    portfolio_cache: list[dict] = []
+    next_portfolio_refresh = 0.0
     try:
         while not stop_file.exists():
             if deadline_reached(deadline, stop_file):

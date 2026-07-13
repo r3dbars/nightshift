@@ -33,8 +33,13 @@ history retains only the latest 256 cycle snapshots.
 
 ## Verification
 
-Snapshot tests prove two changing cycles remain independently visible, and
-`scripts/check-package.sh` passed 312 tests and package checks.
+Snapshot tests prove two changing cycles remain independently visible. After a
+review caught a misplaced cache declaration, a real bounded controller smoke
+completed one current-repo cycle, wrote `portfolio-snapshots.jsonl`, skipped
+weak signals at zero model calls, produced an honest YELLOW brief, and exited
+zero. Its parent ledger is
+`night-shift-20260713T093121Z-autopilot`. `scripts/check-package.sh` then passed
+313 tests and package checks.
 
 ## Proof boundary
 
