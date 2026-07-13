@@ -47,6 +47,26 @@ class NightShiftQualityTests(unittest.TestCase):
         finally:
             night_shift.BIN = original_bin
 
+    def test_temporary_mac_codex_home_uses_a_colima_shared_worktree_root(self):
+        original_root = night_shift.WORKTREE_ROOT
+        original_system = night_shift.platform.system
+        try:
+            night_shift.WORKTREE_ROOT = Path("/tmp/night-shift-proof/worktrees")
+            night_shift.platform.system = lambda: "Darwin"
+            with patch.dict(os.environ, {"USER": "redbars"}):
+                expected = (
+                    Path("/Users/redbars/.codex/night-shift/worktrees")
+                    if Path("/Users/redbars").is_dir()
+                    else Path("/tmp/night-shift-proof/worktrees")
+                )
+                self.assertEqual(
+                    night_shift.shared_worktree_root(),
+                    expected,
+                )
+        finally:
+            night_shift.WORKTREE_ROOT = original_root
+            night_shift.platform.system = original_system
+
     def test_semantic_contract_rejects_partial_test_and_accepts_complete_test(self):
         contract = {
             "minimum_target_invocations": 2,
