@@ -17,11 +17,20 @@ from night_shift_queue import (
     contains_identifier,
     goal_semantic_contract,
     is_test_path,
+    python_owned_methods,
 )
 from night_shift_portfolio import PortfolioEngine
 
 
 class QueueEvidenceTests(unittest.TestCase):
+    def test_python_owned_methods_ignore_top_level_and_private_functions(self):
+        self.assertEqual(
+            python_owned_methods(
+                "def top(): pass\nclass Engine:\n    def run(self): pass\n    def _private(self): pass\n"
+            ),
+            [("Engine", "run")],
+        )
+
     def test_goal_semantic_contract_preserves_explicit_outcome_and_order_requirements(self):
         contract = goal_semantic_contract(
             "Add a test proving ordered remove and prune calls and both boolean return outcomes"
@@ -71,6 +80,51 @@ class QueueEvidenceTests(unittest.TestCase):
             scan["coverage_test_files"] = ["test_src.py", "missing_test.py"]
             incomplete = QueueEvidenceIndex(repo, scan).coverage_gaps(["src.py"])
             self.assertIn("scan_complete=false", next(iter(incomplete[0][2].values())))
+
+    def test_python_method_coverage_gap_includes_owner_aware_invocation_and_source_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "src.py").write_text(
+                "class Engine:\n    def cleanup(self):\n        return True\n", encoding="utf-8"
+            )
+            (repo / "test_src.py").write_text("def test_other(): pass\n", encoding="utf-8")
+            scan = {
+                "tracked_files": ["src.py", "test_src.py"], "source_files": ["src.py"],
+                "test_files": ["test_src.py"], "coverage_test_files": ["test_src.py"],
+            }
+            gap = QueueEvidenceIndex(repo, scan).coverage_gaps(["src.py"])[0]
+            self.assertEqual(gap[:2], ("src.py", "cleanup"))
+            evidence = gap[2]
+            invocation = next(value for key, value in evidence.items() if key.startswith("invocation-index/"))
+            self.assertIn("owner=Engine", invocation)
+            self.assertIn("analysis=python-ast", invocation)
+            self.assertIn("call_matches=0", invocation)
+            self.assertTrue(any(key.startswith("goal-source/") for key in evidence))
+
+    def test_owner_scoped_gap_and_source_survive_same_name_collisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "src.py").write_text(
+                "def save():\n    return 0\n\n"
+                "class Alpha:\n    def save(self):\n        return 1\n\n"
+                "class Beta:\n    def save(self):\n        return 2\n",
+                encoding="utf-8",
+            )
+            (repo / "test_src.py").write_text(
+                "from src import Alpha\nalpha = Alpha()\nalpha.save()\n", encoding="utf-8"
+            )
+            scan = {
+                "tracked_files": ["src.py", "test_src.py"], "source_files": ["src.py"],
+                "test_files": ["test_src.py"], "coverage_test_files": ["test_src.py"],
+            }
+            gap = QueueEvidenceIndex(repo, scan).coverage_gaps(["src.py"])[0]
+            invocation = next(
+                value for key, value in gap[2].items() if key.startswith("invocation-index/")
+            )
+            source = next(value for key, value in gap[2].items() if key.startswith("goal-source/"))
+            self.assertIn("owner=Beta", invocation)
+            self.assertIn("source_line=9 | def save(self):", source)
+            self.assertNotIn("source_line=1 | def save():", source)
 
     def test_binary_source_is_not_treated_as_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

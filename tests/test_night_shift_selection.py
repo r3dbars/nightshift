@@ -21,6 +21,24 @@ from night_shift_feedback import apply_task_feedback
 
 
 class SelectionTests(unittest.TestCase):
+    def test_owner_aware_ast_gap_outranks_textual_coverage_absence(self):
+        base = {
+            "slug": "changed-file-proof-01", "kind": "tests",
+            "ladder_priority": 300, "proof_kind": "test",
+            "files": ["src/app.py", "tests/test_app.py"],
+            "verification_commands": ["python3 -m unittest"],
+        }
+        textual = {**base, "evidence_sources": {
+            "coverage-index/app.txt": "identifier_matches=0\nscan_complete=true"
+        }}
+        owned = {**base, "evidence_sources": {
+            "coverage-index/app.txt": "identifier_matches=0\nscan_complete=true",
+            "invocation-index/app.txt": (
+                "owner=Engine\nanalysis=python-ast\nsymbol=run call_matches=0\nscan_complete=true"
+            ),
+        }}
+        self.assertGreater(task_selection_priority(owned), task_selection_priority(textual))
+
     def test_python_symbols_exclude_nested_helpers(self):
         symbols = declared_symbols(
             "def public_function():\n"

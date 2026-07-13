@@ -66,7 +66,7 @@ def owner_symbol_call_count_text(text: str, owner: str, symbol: str) -> int | No
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         return {target.id for target in targets if isinstance(target, ast.Name)}
 
-    def owner_constructor(node: ast.AST | None, qualifiers: set[str]) -> bool:
+    def direct_owner_constructor(node: ast.AST | None, qualifiers: set[str]) -> bool:
         return isinstance(node, ast.Call) and (
             (isinstance(node.func, ast.Name) and node.func.id in aliases)
             or (
@@ -76,6 +76,29 @@ def owner_symbol_call_count_text(text: str, owner: str, symbol: str) -> int | No
                 and node.func.value.id in qualifiers
             )
         )
+
+    def owner_constructor(
+        node: ast.AST | None, qualifiers: set[str], factory_methods: set[str]
+    ) -> bool:
+        if direct_owner_constructor(node, qualifiers):
+            return True
+        return bool(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in factory_methods
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "self"
+        )
+
+    def proven_class_factories(node: ast.ClassDef, qualifiers: set[str]) -> set[str]:
+        proven: set[str] = set()
+        for child in node.body:
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            returns = [value for value in ast.walk(child) if isinstance(value, ast.Return)]
+            if len(returns) == 1 and direct_owner_constructor(returns[0].value, qualifiers):
+                proven.add(child.name)
+        return proven
 
     def compound_rebindings(node: ast.AST) -> set[str]:
         names: set[str] = set()
@@ -96,15 +119,24 @@ def owner_symbol_call_count_text(text: str, owner: str, symbol: str) -> int | No
         return names
 
     def scan(
-        body: list[ast.stmt], initial: set[str] | None = None, qualifiers: set[str] | None = None
+        body: list[ast.stmt], initial: set[str] | None = None,
+        qualifiers: set[str] | None = None, factory_methods: set[str] | None = None,
     ) -> int:
         instances = set(initial or ())
         active_qualifiers = set(trusted_qualifiers if qualifiers is None else qualifiers)
+        active_factories = set(factory_methods or ())
         count = 0
         for statement in body:
             if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 rebound = set().union(*(compound_rebindings(item) for item in statement.body))
-                count += scan(statement.body, qualifiers=active_qualifiers - rebound)
+                nested_factories = (
+                    proven_class_factories(statement, active_qualifiers - rebound)
+                    if isinstance(statement, ast.ClassDef) else active_factories
+                )
+                count += scan(
+                    statement.body, qualifiers=active_qualifiers - rebound,
+                    factory_methods=nested_factories,
+                )
                 continue
             compound = isinstance(
                 statement, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try)
@@ -120,14 +152,16 @@ def owner_symbol_call_count_text(text: str, owner: str, symbol: str) -> int | No
             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                 names = assigned_names(statement)
                 instances.difference_update(names)
-                if owner_constructor(statement.value, active_qualifiers):
+                if owner_constructor(statement.value, active_qualifiers, active_factories):
                     instances.update(names)
             elif isinstance(statement, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try)):
                 branches = []
                 for attribute in ("body", "orelse", "finalbody"):
                     branches.append(getattr(statement, attribute, []))
                 branches.extend(handler.body for handler in getattr(statement, "handlers", []))
-                count += sum(scan(branch, instances, active_qualifiers) for branch in branches)
+                count += sum(
+                    scan(branch, instances, active_qualifiers, active_factories) for branch in branches
+                )
                 instances.difference_update(compound_rebindings(statement))
         return count
 

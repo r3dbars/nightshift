@@ -61,6 +61,12 @@ def task_selection_priority(task: dict) -> int:
     files = task.get("files") or []
     commands = task.get("verification_commands") or []
     complete_index = "scan_complete=true" in evidence and "identifier_matches=0" in evidence
+    owner_aware_gap = (
+        "analysis=python-ast" in evidence
+        and "call_matches=0" in evidence
+        and "scan_complete=true" in evidence
+        and bool(re.search(r"(?m)^owner=(?!none$).+", evidence))
+    )
     pinned_failed_ci = (
         str(task.get("slug") or "").startswith("failed-ci-")
         and task.get("proof_kind") == "test"
@@ -73,6 +79,8 @@ def task_selection_priority(task: dict) -> int:
         return priority + 2000
     if pinned_failed_ci:
         return priority + 1000
+    if owner_aware_gap and files and commands:
+        return priority + 800
     if complete_index and files and commands:
         return priority + 500
     return priority + min(100, max(0, int(task.get("signal_strength") or 0)) * 10)

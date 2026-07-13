@@ -2861,6 +2861,24 @@ buildThing() { return 1; }
             )
             self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
             path.write_text(
+                "from drafts import DraftEngine\n"
+                "class Tests:\n"
+                "    def engine(self):\n        return DraftEngine()\n"
+                "    def test_cleanup(self):\n"
+                "        engine = self.engine()\n        engine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 1)
+            path.write_text(
+                "from drafts import DraftEngine\n"
+                "class Tests:\n"
+                "    def engine(self):\n        return Other()\n"
+                "    def test_cleanup(self):\n"
+                "        engine = self.engine()\n        engine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
                 "import importlib.util\nnight_shift = importlib.util.module_from_spec(spec)\n"
                 "def test_cleanup():\n    engine = night_shift.DraftEngine(run, root, stamp)\n"
                 "    engine.cleanup(repo, worktree)\n",

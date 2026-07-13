@@ -60,6 +60,24 @@ def contains_identifier(text: str, term: str) -> bool:
     return bool(re.search(rf"\b{re.escape(term)}\b", text))
 
 
+def python_owned_methods(text: str) -> list[tuple[str, str]]:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    methods: list[tuple[str, str]] = []
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        methods.extend(
+            (node.name, child.name)
+            for child in node.body
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and not child.name.startswith("_")
+        )
+    return methods
+
+
 def task_file_priority(path: str) -> int:
     name = Path(path).name.lower()
     suffix = Path(path).suffix.lower()
@@ -222,16 +240,35 @@ class QueueEvidenceIndex:
         test_corpus = "\n".join(corpus_parts)
         gaps: list[tuple[str, str, dict[str, str]]] = []
         for path in recent_source:
-            symbols = declared_symbols(self.read_current_text(path))
+            source_text = self.read_current_text(path)
+            symbols = declared_symbols(source_text)
             preferred = [symbol for symbol in (preferred_symbols or []) if symbol in symbols]
-            ordered_symbols = list(dict.fromkeys(preferred + symbols))
-            missing = next(
-                (
-                    symbol for symbol in ordered_symbols
-                    if not symbol.startswith("_") and not re.search(rf"\b{re.escape(symbol)}\b", test_corpus)
-                ),
-                "",
+            owned_methods = python_owned_methods(source_text) if Path(path).suffix == ".py" else []
+            ordered_symbols = list(dict.fromkeys(
+                preferred + [symbol for _owner, symbol in owned_methods] + symbols
+            ))
+            owner = ""
+            owned_invocation: dict[str, str] = {}
+            preferred_owned = sorted(
+                owned_methods,
+                key=lambda row: (0 if row[1] in preferred else 1, owned_methods.index(row)),
             )
+            missing = ""
+            for candidate_owner, candidate_symbol in preferred_owned:
+                invocation = self.invocation_gap(path, candidate_symbol, candidate_owner)
+                invocation_text = "\n".join(invocation.values())
+                if "call_matches=0" in invocation_text and "scan_complete=true" in invocation_text:
+                    owner, missing, owned_invocation = candidate_owner, candidate_symbol, invocation
+                    break
+            if not missing:
+                missing = next(
+                    (
+                        symbol for symbol in ordered_symbols
+                        if not symbol.startswith("_")
+                        and not re.search(rf"\b{re.escape(symbol)}\b", test_corpus)
+                    ),
+                    "",
+                )
             if not missing:
                 continue
             safe_source = re.sub(r"[^A-Za-z0-9_.-]+", "-", path).strip("-")
@@ -245,6 +282,9 @@ class QueueEvidenceIndex:
                 "identifier_matches=0",
                 f"scan_complete={'true' if corpus_complete and corpus_files_scanned == len(coverage_test_paths) else 'false'}",
             ])}
+            if owner:
+                evidence.update(owned_invocation)
+                evidence.update(self.symbol_source_evidence(path, missing, owner))
             gaps.append((path, missing, evidence))
         return gaps
 
@@ -291,17 +331,30 @@ class QueueEvidenceIndex:
             f"scan_complete={'true' if coverage_test_paths and complete and scanned == len(coverage_test_paths) else 'false'}",
         ])}
 
-    def symbol_source_evidence(self, source_path: str, symbol: str) -> dict[str, str]:
+    def symbol_source_evidence(
+        self, source_path: str, symbol: str, owner: str = ""
+    ) -> dict[str, str]:
         lines = self.read_current_text(source_path).splitlines()
         declaration = None
         if Path(source_path).suffix == ".py":
             try:
                 tree = ast.parse("\n".join(lines))
-                node = next(
-                    value for value in ast.walk(tree)
-                    if isinstance(value, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                    and value.name == symbol
-                )
+                if owner:
+                    owner_node = next(
+                        value for value in tree.body
+                        if isinstance(value, ast.ClassDef) and value.name == owner
+                    )
+                    node = next(
+                        value for value in owner_node.body
+                        if isinstance(value, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and value.name == symbol
+                    )
+                else:
+                    node = next(
+                        value for value in tree.body
+                        if isinstance(value, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                        and value.name == symbol
+                    )
                 declaration = node.lineno - 1
             except (SyntaxError, StopIteration):
                 return {}
@@ -621,10 +674,24 @@ def build_repo_work_queue(
         )
     for index, (path, symbol, gap_evidence) in enumerate(coverage_gaps[:12], start=1):
         safe = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-").lower()[:48]
+        has_owned_ast_gap = any(
+            key.startswith("invocation-index/")
+            and "analysis=python-ast" in value
+            and "owner=none" not in value
+            and "call_matches=0" in value
+            and "scan_complete=true" in value
+            for key, value in gap_evidence.items()
+        )
         add(
             f"changed-file-proof-{index:02d}-{safe}",
             "tests",
-            f"Inspect only `{symbol}` in `{path}`. Cite that exact source line plus the supplied coverage-index evidence. Do not discuss another function; reject when the index is incomplete or this exact gap is unsupported.",
+            (
+                f"Add one focused behavioral test for `{symbol}` in `{path}` using the supplied owner-aware "
+                "zero-invocation and source evidence. Return ACTION_TYPE: draft-pr-candidate and name the "
+                "existing test file to change. Reject if a safe observable behavior cannot be asserted."
+                if has_owned_ast_gap else
+                f"Inspect only `{symbol}` in `{path}`. Cite that exact source line plus the supplied coverage-index evidence. Do not discuss another function; reject when the index is incomplete or this exact gap is unsupported."
+            ),
             "A declared source symbol with no textual test match is a bounded coverage lead, not proof of a gap.",
             [path] + relevant_tests_for_source(path, tests, read_current_text)[:5],
             ladder="strengthen",
@@ -632,6 +699,7 @@ def build_repo_work_queue(
             proof_kind="test",
             executable=bool(test_commands),
             evidence_sources=gap_evidence,
+            semantic_contract={"minimum_target_invocations": 1} if has_owned_ast_gap else {},
         )
 
     for index in range(0, min(len(tests), 24), 4):
