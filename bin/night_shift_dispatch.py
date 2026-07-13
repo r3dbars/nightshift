@@ -1,0 +1,223 @@
+from __future__ import annotations
+
+import re
+import time
+from collections.abc import Callable
+from pathlib import Path
+
+from night_shift_evidence import (
+    UNSAFE_APPROVAL_RE,
+    action_type,
+    clean_inline_code,
+    concrete_paths,
+    first_label_value,
+    output_quality_reasons,
+    score_output,
+    summarize_output,
+)
+from night_shift_redaction import redact
+
+
+def coverage_citation_examples(evidence_sources: dict[str, str] | None) -> list[str]:
+    examples: list[str] = []
+    for path, source in (evidence_sources or {}).items():
+        if not path.startswith("coverage-index/"):
+            continue
+        for line_number, line in enumerate(str(source).splitlines(), start=1):
+            if line.strip():
+                examples.append(f"{path}:{line_number} | {line}")
+    return examples[:12]
+
+
+def correction_prompt(
+    prompt: str,
+    reasons: list[str],
+    candidate_files: list[str] | None = None,
+    evidence_sources: dict[str, str] | None = None,
+    verification_commands: list[str] | None = None,
+) -> str:
+    allowed_paths = list(dict.fromkeys((candidate_files or []) + list((evidence_sources or {}).keys())))
+    path_lines = "\n".join(f"- {path}" for path in allowed_paths) or "- None"
+    citation_examples = coverage_citation_examples(evidence_sources)
+    citation_lines = "\n".join(f"- {citation}" for citation in citation_examples) or "- None"
+    command_lines = "\n".join(f"- {command}" for command in (verification_commands or [])) or "- None"
+    correction = "; ".join(reasons) or "the response did not follow the schema"
+    return (
+        prompt
+        + "\n\nCORRECTION PASS: Your previous answer was rejected because: "
+        + correction
+        + ". Return the complete requested schema once. Use only supplied evidence; reject the task if evidence is insufficient.\n"
+        + "Every EVIDENCE entry must use `path:line | exact source line`. Copy a path below character-for-character; "
+        + "never invent a path, alter punctuation, or write `path:none`. Do not add prose-only evidence bullets.\n"
+        + "Make CLAIM no broader than the literal cited line. Do not infer intent, root cause, or that a proposed change will fix the full issue.\n"
+        + "Allowed evidence paths:\n"
+        + path_lines
+        + "\nCopy-ready deterministic citations (copy only the relevant one or two exactly):\n"
+        + citation_lines
+        + "\nAllowed verification commands (copy at least one exactly):\n"
+        + command_lines
+    )
+
+
+def should_retry_local_output(
+    lane: str, rc: int, score: str, output: str, evidence_backed: bool = False
+) -> bool:
+    return (
+        (lane == "local" or (lane == "windows" and evidence_backed))
+        and rc == 0
+        and score == "REJECT"
+        and action_type(output) != "reject"
+        and not UNSAFE_APPROVAL_RE.search(output)
+    )
+
+
+def has_pinned_task_evidence(
+    candidate_files: list[str] | None,
+    source_ref: str,
+    evidence_sources: dict[str, str] | None,
+    pinned_issue: bool = False,
+) -> bool:
+    return bool(evidence_sources) or bool(pinned_issue and candidate_files and source_ref)
+
+
+def select_best_attempt(attempts: list[dict]) -> dict:
+    rank = {"REJECT": 0, "MAYBE": 1, "KEEP": 2}
+    return max(
+        enumerate(attempts),
+        key=lambda indexed: (
+            rank[indexed[1]["score"]],
+            -indexed[1]["res"].rc,
+            indexed[0],
+        ),
+    )[1]
+
+
+def dispatch_one(
+    lane: str,
+    label: str,
+    prompt: str,
+    ledger: Path,
+    mode: str,
+    timeout=900,
+    candidate_files: list[str] | None = None,
+    verification_commands: list[str] | None = None,
+    repo: Path | None = None,
+    proof_kind: str = "source",
+    evidence_sources: dict[str, str] | None = None,
+    source_ref: str = "",
+    pinned_issue: bool = False,
+    *,
+    run_cmd: Callable,
+    delegate: Path,
+    mode_defaults: dict,
+    env: dict,
+    parse_proof: Callable,
+    read_meta: Callable,
+) -> dict:
+    env = dict(env)
+    defaults = mode_defaults[mode]
+    env.setdefault("MAESTRO_LOCAL_MAX_TOKENS", str(defaults["local_max_tokens"]))
+    env.setdefault("MAESTRO_WINDOWS_MAX_TOKENS", str(defaults["windows_max_tokens"]))
+    start = time.time()
+    safe_label = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-") or "task"
+
+    def run_attempt(attempt: int, attempt_prompt: str) -> dict:
+        attempt_label = label if attempt == 1 else f"{label}-retry"
+        result = run_cmd(
+            [delegate, lane, "--label", attempt_label, "--", attempt_prompt],
+            timeout=timeout,
+            env=env,
+            pid_log=ledger / "processes.tsv",
+        )
+        proof = parse_proof(result.stderr)
+        meta = read_meta(proof)
+        attempt_artifact = ledger / "artifacts" / f"{safe_label}-{lane}-attempt-{attempt}.md"
+        attempt_artifact.write_text(redact(result.stdout).strip() + "\n", encoding="utf-8")
+        (ledger / "artifacts" / f"{safe_label}-{lane}-attempt-{attempt}.stderr.txt").write_text(
+            redact(result.stderr).strip() + "\n", encoding="utf-8"
+        )
+        return {
+            "res": result,
+            "proof": proof or "",
+            "meta": meta,
+            "score": score_output(
+                result.rc,
+                result.stdout,
+                candidate_files,
+                verification_commands,
+                repo,
+                proof_kind,
+                evidence_sources,
+                source_ref,
+            ),
+            "artifact": attempt_artifact,
+        }
+
+    attempts = [run_attempt(1, prompt)]
+    first = attempts[0]
+    reasons = output_quality_reasons(
+        first["res"].rc,
+        first["res"].stdout,
+        candidate_files,
+        verification_commands,
+        repo,
+        proof_kind,
+        evidence_sources,
+        source_ref,
+    )
+    if should_retry_local_output(
+        lane,
+        first["res"].rc,
+        first["score"],
+        first["res"].stdout,
+        has_pinned_task_evidence(candidate_files, source_ref, evidence_sources, pinned_issue),
+    ):
+        retry_prompt = correction_prompt(
+            prompt, reasons, candidate_files, evidence_sources, verification_commands
+        )
+        attempts.append(run_attempt(2, retry_prompt))
+
+    selected = select_best_attempt(attempts)
+    res = selected["res"]
+    score = selected["score"]
+    artifact = ledger / "artifacts" / f"{safe_label}-{lane}.md"
+    artifact.write_text(redact(res.stdout).strip() + "\n", encoding="utf-8")
+    proofs = [item["proof"] for item in attempts if item["proof"]]
+    total_tokens = sum(int(item["meta"].get("total_tokens_estimate") or 0) for item in attempts)
+    input_tokens = sum(int(item["meta"].get("prompt_tokens_estimate") or item["meta"].get("input_tokens") or 0) for item in attempts)
+    output_tokens = sum(int(item["meta"].get("output_tokens_estimate") or item["meta"].get("output_tokens") or 0) for item in attempts)
+    return {
+        "lane": lane,
+        "label": label,
+        "rc": res.rc,
+        "timed_out": res.timed_out,
+        "seconds": round(time.time() - start, 2),
+        "proof": selected["proof"],
+        "proofs": proofs,
+        "artifact": str(artifact),
+        "score": score,
+        "priority": 0,
+        "tokens": total_tokens,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "summary": summarize_output(res.stdout),
+        "action_type": action_type(res.stdout),
+        "evidence": first_label_value(res.stdout, ["EVIDENCE"]),
+        "files": concrete_paths(res.stdout, candidate_files),
+        "tests": clean_inline_code(first_label_value(res.stdout, ["TESTS_TO_RUN", "TESTS TO RUN", "VERIFICATION"])),
+        "expected_result": clean_inline_code(first_label_value(res.stdout, ["EXPECTED_RESULT", "EXPECTED RESULT"])),
+        "quality_reasons": output_quality_reasons(
+            res.rc,
+            res.stdout,
+            candidate_files,
+            verification_commands,
+            repo,
+            proof_kind,
+            evidence_sources,
+            source_ref,
+        ),
+        "source_ref": source_ref,
+        "retry_count": len(attempts) - 1,
+        "output": res.stdout,
+        "output_preview": " ".join(res.stdout.strip().split())[:240],
+    }
