@@ -61,6 +61,7 @@ class QueueEvidenceTests(unittest.TestCase):
                 value for key, value in gap[2].items() if key.startswith("invocation-index/")
             )
             self.assertIn("analysis=typescript-regex", invocation)
+            self.assertIn("scope=test-files-only", invocation)
             self.assertIn("call_matches=0", invocation)
             self.assertEqual(js_symbol_call_count_text("formatPercent(42)", "formatPercent"), 1)
 

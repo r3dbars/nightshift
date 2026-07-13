@@ -458,6 +458,7 @@ class QueueEvidenceIndex:
             f"source_file={source_path}",
             f"owner={owner or 'none'}",
             f"analysis={analysis}",
+            "scope=test-files-only",
             f"tracked_test_files={len(coverage_test_paths)}",
             f"files_scanned={scanned}",
             f"symbol={symbol} call_matches={calls}",
@@ -843,7 +844,7 @@ def build_repo_work_queue(
             (
                 (
                     f"Add one focused behavioral test for `{symbol}` in `{path}` using the supplied "
-                    f"{'exact imported' if is_typescript_gap else 'owner-aware'} zero-invocation and source evidence. "
+                    f"{'exact imported' if is_typescript_gap else 'owner-aware'} direct-test-call and source evidence. "
                     "Return ACTION_TYPE: draft-pr-candidate and name the existing test file to change. "
                     "Reject if a safe observable behavior cannot be asserted."
                     if has_supported_gap else
