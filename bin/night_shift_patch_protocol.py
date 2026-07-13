@@ -14,6 +14,7 @@ from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
 
 DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
 PATH_LINE = re.compile(r"^(---|\+\+\+) (?:a|b)/(.+)$")
+SAFE_TEST_IMPORT_MODULES = {"pathlib", "tempfile", "types", "unittest.mock"}
 
 
 @dataclass(frozen=True)
@@ -64,8 +65,26 @@ def materialize_test_method_patch(
     start = next((index for index, line in enumerate(added) if re.match(r"^    def test_[A-Za-z0-9_]+\(self[^)]*\):$", line)), None)
     if start is None:
         return ""
-    if any(line.strip() for line in added[:start]):
-        return ""
+    prefix_imports: list[str] = []
+    for line in added[:start]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            prefix_tree = ast.parse(stripped)
+        except SyntaxError:
+            return ""
+        if len(prefix_tree.body) != 1 or not isinstance(prefix_tree.body[0], ast.ImportFrom):
+            return ""
+        import_node = prefix_tree.body[0]
+        if import_node.module not in SAFE_TEST_IMPORT_MODULES:
+            return ""
+        names = [alias.asname or alias.name.split(".", 1)[0] for alias in import_node.names]
+        prefix_imports.append(
+            "        " + stripped
+            if any(re.search(rf"\b{re.escape(name)}\b", "\n".join(added[start:] )) for name in names)
+            else ""
+        )
     end = next(
         (
             index for index in range(start + 1, len(added))
@@ -74,6 +93,9 @@ def materialize_test_method_patch(
         len(added),
     )
     method = added[start:end]
+    moved_imports = [line for line in prefix_imports if line]
+    if moved_imports:
+        method = [method[0], *moved_imports, *method[1:]]
     while method and not method[-1].strip():
         method.pop()
     if not method or len(method) > 80:
@@ -99,7 +121,7 @@ def materialize_test_method_patch(
             return ""
         if isinstance(node, ast.ImportFrom) and (
             node.level != 0
-            or node.module not in allowed
+            or (node.module not in allowed and node.module not in SAFE_TEST_IMPORT_MODULES)
             or any(alias.name == "*" for alias in node.names)
         ):
             return ""
