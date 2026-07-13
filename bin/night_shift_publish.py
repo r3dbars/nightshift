@@ -98,6 +98,31 @@ class PublishEngine:
         url = str(rows[0].get("url") or "")
         return ("present", url) if url else ("unknown", "")
 
+    def _find_patch_pr_history(
+        self, worktree: Path, repo_name: str, branch: str, fingerprint: str
+    ) -> tuple[str, str]:
+        found = self.run_cmd(
+            [
+                "gh", "pr", "list", "--repo", repo_name, "--state", "all",
+                "--json", "url,headRefName", "--limit", "100",
+            ],
+            cwd=worktree,
+            timeout=60,
+        )
+        if found.rc != 0:
+            return "unknown", ""
+        try:
+            rows = json.loads(found.stdout)
+        except (TypeError, ValueError):
+            return "unknown", ""
+        old_suffix = f"-{fingerprint}"
+        for row in rows:
+            head = str(row.get("headRefName") or "")
+            if head == branch or (head.startswith("night-shift/") and head.endswith(old_suffix)):
+                url = str(row.get("url") or "")
+                return ("present", url) if url else ("unknown", "")
+        return "absent", ""
+
     def publish(
         self,
         repo: Path,
@@ -165,7 +190,9 @@ class PublishEngine:
         if self._already_published(fingerprint):
             return finish({"status": "REJECT", "reason": "this exact verified patch was already published"})
         branch = f"night-shift/{fingerprint}"
-        prior_pr_state, prior_pr_url = self._find_pr(repo, repo_name, branch, state="all")
+        prior_pr_state, prior_pr_url = self._find_patch_pr_history(
+            repo, repo_name, branch, fingerprint
+        )
         if prior_pr_state == "present":
             return finish({
                 "status": "REJECT",
