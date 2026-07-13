@@ -148,3 +148,7 @@ run evidence separate from model claims and from human/manual proof.
   The immediate `--yes` repeat reused setup unchanged and asked no questions.
   Proof:
   `docs/proofs/2026-07-13-first-run-ux.md`.
+- An empty temporary home also completed the copied install path: a clean shell
+  resolved the installed command, a second install stayed idempotent, and the
+  installed command completed setup with GitHub and Claude absent. Proof:
+  `docs/proofs/2026-07-13-fresh-install.md`.
