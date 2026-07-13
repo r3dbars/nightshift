@@ -107,7 +107,9 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
         edit_policy = (
             "You may modify only an existing allowed TEST file. Add a focused behavioral test "
             "that invokes the exact owner and symbol in the strengthening contract. Do not change "
-            "source, manifests, lockfiles, workflows, configuration, secrets, dependencies, or policy."
+            "source, manifests, lockfiles, workflows, configuration, secrets, dependencies, or policy. "
+            "Reuse existing imports and test helpers; add no dependency. Assert exact observed call order, "
+            "arguments, and both requested outcomes. Keep the patch under 80 changed lines."
         )
     else:
         edit_policy = (

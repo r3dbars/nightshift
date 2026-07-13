@@ -2900,6 +2900,7 @@ buildThing() { return 1; }
             )
             self.assertEqual(calls[0][0][1], "local")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MODEL"], "local-coder")
+            self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MAX_TOKENS"], "8192")
 
     def test_isolated_draft_falls_back_to_mac_when_windows_is_absent(self):
         original_profile = night_shift.load_repo_profile

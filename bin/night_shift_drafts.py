@@ -259,9 +259,11 @@ class DraftEngine:
         if patch_lane == "local":
             env["MAESTRO_LOCAL_BASE_URL"] = worker_url.rstrip("/")
             env["MAESTRO_LOCAL_MODEL"] = worker_model
+            env["MAESTRO_LOCAL_MAX_TOKENS"] = "8192"
         else:
             env["WINDOWS_WORKER_BASE_URL"] = worker_url.rstrip("/")
             env["WINDOWS_WORKER_MODEL"] = worker_model
+            env["MAESTRO_WINDOWS_MAX_TOKENS"] = "8192"
         return self.run_cmd(
             [delegate, patch_lane, "--label", f"{safe_task}-patch", "--", prompt],
             cwd=repo,
