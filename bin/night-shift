@@ -38,7 +38,7 @@ from night_shift_state import append_attempt, exclusive_lock, latest_attempts, l
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
-from night_shift_feedback import apply_review_outcomes, apply_task_feedback, should_record_review_outcome, task_family
+from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_selection import (
     declared_symbols,
@@ -2535,6 +2535,32 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
     display_status = status
     if status == "GREEN":
         display_status = "GREEN" if proven or not new_candidates else "YELLOW"
+    morning_items: list[dict] = []
+    for repo_name, row in sorted(latest_by_repo.items()):
+        child = Path(row.get("ledger", ""))
+        try:
+            child_items = json.loads((child / "work-queue.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            child_items = []
+        if not child_items or not isinstance(child_items[0], dict):
+            continue
+        item = child_items[0]
+        labels = item.get("labels") or []
+        morning_items.append({
+            "rank": len(morning_items) + 1,
+            "repo": repo_name,
+            "repo_path": row.get("repo_path") or row.get("checkout") or "",
+            "child_ledger": str(child),
+            "key": item.get("key", ""),
+            "family": task_family(labels[0] if labels else str(item.get("key", "")).split(":", 1)[0]),
+            "fingerprint": item.get("fingerprint", ""),
+            "source_ref": item.get("source_ref", ""),
+            "summary": item.get("summary", ""),
+            "score": item.get("score", ""),
+        })
+    (ledger / "morning-items.json").write_text(
+        json.dumps(morning_items, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     lines = [
         "# Night Shift Portfolio Brief",
         "",
@@ -2569,6 +2595,16 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
             lines.append(f"  Draft PR: {publish.get('pr_url') or publish.get('reason', 'not opened')}")
             if publish.get("status") == "REMOTE_CLEANUP_REQUIRED":
                 lines.append("  ACTION REQUIRED: check GitHub and close/delete the reported draft PR or branch.")
+    if morning_items:
+        lines.extend(["", "Your morning choices:"])
+        for item in morning_items[:3]:
+            lines.append(f"{item['rank']}. {item['repo']}: {item['summary']} [{item['score']}]")
+        lines.extend([
+            "",
+            "Teach the next shift with the exact number shown above:",
+            f"- Useful: `night-shift feedback --ledger {ledger} --item 1 --useful`",
+            f"- Not useful: `night-shift feedback --ledger {ledger} --item 1 --not-useful`",
+        ])
     lines.extend(
         [
             "",
@@ -3618,7 +3654,11 @@ def command_feedback(args) -> int:
         print("NIGHTSHIFT_FEEDBACK: RED | --item must be 1 or greater")
         return 2
     ledger = select_ledger(args)
-    queue_path = ledger / "work-queue.json" if ledger else None
+    morning_path = ledger / "morning-items.json" if ledger else None
+    queue_path = (
+        morning_path if morning_path and morning_path.exists()
+        else ledger / "work-queue.json" if ledger else None
+    )
     if not ledger or not queue_path or not queue_path.exists():
         print("NIGHTSHIFT_FEEDBACK: RED | no work queue found; use --latest or --ledger <path>")
         return 1
@@ -3634,19 +3674,30 @@ def command_feedback(args) -> int:
         mode = {}
     verdict = "useful" if args.useful else "not-useful"
     labels = item.get("labels") or []
-    family = task_family(labels[0] if labels else str(item.get("key", "")).split(":", 1)[0])
+    family = item.get("family") or task_family(
+        labels[0] if labels else str(item.get("key", "")).split(":", 1)[0]
+    )
     row = {
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "repo": mode.get("repo", ""),
+        "repo": item.get("repo_path") or item.get("repo") or mode.get("repo", ""),
         "ledger": str(ledger),
+        "child_ledger": item.get("child_ledger", ""),
         "rank": args.item,
         "key": item.get("key", ""),
         "family": family,
         "fingerprint": item.get("fingerprint", ""),
+        "source_ref": item.get("source_ref", ""),
         "summary": item.get("summary", ""),
         "verdict": verdict,
         "note": args.note or "",
     }
+    existing = load_feedback()
+    if not should_record_feedback_event(existing, row):
+        print(
+            f"NIGHTSHIFT_FEEDBACK: GREEN | item={args.item} | verdict={verdict} | "
+            "already saved; no duplicate vote added"
+        )
+        return 0
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with FEEDBACK_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, sort_keys=True) + "\n")

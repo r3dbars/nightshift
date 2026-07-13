@@ -26,7 +26,16 @@ def task_family(slug: str) -> str:
 def feedback_score(events: list[dict], repo: str, family: str) -> tuple[int, int, int]:
     useful = 0
     not_useful = 0
-    for event in events:
+    latest: dict[tuple, dict] = {}
+    for index, event in enumerate(events):
+        candidate = event.get("fingerprint") or event.get("key")
+        if not candidate and event.get("ledger") and event.get("rank"):
+            candidate = f"{event['ledger']}:{event['rank']}"
+        identity = (
+            event.get("repo"), event.get("family"), candidate or f"legacy:{index}",
+        )
+        latest[identity] = event
+    for event in latest.values():
         if event.get("repo") != repo or event.get("family") != family:
             continue
         if event.get("verdict") == "useful":
@@ -35,6 +44,17 @@ def feedback_score(events: list[dict], repo: str, family: str) -> tuple[int, int
             not_useful += 1
     adjustment = max(-40, min(50, useful * 25 - not_useful * 20))
     return adjustment, useful, not_useful
+
+
+def should_record_feedback_event(existing: list[dict], event: dict) -> bool:
+    identity = (
+        event.get("ledger"), event.get("rank"), event.get("fingerprint"), event.get("verdict")
+    )
+    return not any(
+        (row.get("ledger"), row.get("rank"), row.get("fingerprint"), row.get("verdict"))
+        == identity
+        for row in existing
+    )
 
 
 def apply_task_feedback(

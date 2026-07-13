@@ -170,6 +170,53 @@ class NightShiftQualityTests(unittest.TestCase):
             self.assertIn("Human usefulness review remains", brief)
             self.assertNotIn("no deterministic outcome", brief)
 
+    def test_portfolio_feedback_marks_the_exact_displayed_child_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "parent"
+            child = root / "child"
+            ledger.mkdir()
+            child.mkdir()
+            (child / "work-queue.json").write_text(json.dumps([{
+                "key": "failed-ci-42:tests:patch-plan",
+                "labels": ["failed-ci-42"],
+                "fingerprint": "exact-candidate",
+                "source_ref": "a" * 40,
+                "summary": "Repair the failing CI assertion",
+                "score": "MAYBE",
+            }]), encoding="utf-8")
+            night_shift.portfolio_brief(ledger, [{
+                "repo": "owner/repo", "repo_path": "/repo", "ledger": str(child),
+                "new_tasks": 1,
+            }], "YELLOW")
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("1. owner/repo: Repair the failing CI assertion [MAYBE]", brief)
+            items = json.loads((ledger / "morning-items.json").read_text(encoding="utf-8"))
+            self.assertEqual(items[0]["fingerprint"], "exact-candidate")
+
+            original = night_shift.FEEDBACK_PATH
+            night_shift.FEEDBACK_PATH = root / "feedback.jsonl"
+            try:
+                args = SimpleNamespace(
+                    ledger=str(ledger), latest=False, item=1,
+                    useful=True, not_useful=False, note="worth fixing",
+                )
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(night_shift.command_feedback(args), 0)
+                event = json.loads(night_shift.FEEDBACK_PATH.read_text(encoding="utf-8"))
+                self.assertEqual(event["repo"], "/repo")
+                self.assertEqual(event["child_ledger"], str(child))
+                self.assertEqual(event["family"], "failed-ci")
+                self.assertEqual(event["fingerprint"], "exact-candidate")
+                self.assertEqual(event["source_ref"], "a" * 40)
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(night_shift.command_feedback(args), 0)
+                self.assertEqual(
+                    len(night_shift.FEEDBACK_PATH.read_text(encoding="utf-8").splitlines()), 1
+                )
+            finally:
+                night_shift.FEEDBACK_PATH = original
+
     def test_evidence_module_parses_and_prioritizes_worker_results(self):
         output = """CLAIM: Add a focused regression test
 ACTION_TYPE: patch-plan
@@ -1338,6 +1385,20 @@ buildThing() { return 1; }
         self.assertEqual(ranked[0]["slug"], "changed-file-proof-01-src-app")
         self.assertEqual(ranked[0]["feedback_adjustment"], 25)
         self.assertEqual(skipped, [])
+
+    def test_feedback_counts_one_latest_verdict_per_exact_candidate(self):
+        base = {
+            "repo": "/repo", "family": "failed-ci", "fingerprint": "same",
+            "ledger": "/ledger", "rank": 1,
+        }
+        duplicate = {**base, "verdict": "useful"}
+        changed = {**base, "verdict": "not-useful"}
+        self.assertFalse(night_shift.should_record_feedback_event([duplicate], duplicate))
+        self.assertTrue(night_shift.should_record_feedback_event([duplicate], changed))
+        adjustment, useful, not_useful = night_shift.feedback_score(
+            [duplicate, duplicate, changed], "/repo", "failed-ci"
+        )
+        self.assertEqual((adjustment, useful, not_useful), (-20, 0, 1))
 
     def test_complete_deterministic_evidence_outranks_broad_mission(self):
         mission = {
