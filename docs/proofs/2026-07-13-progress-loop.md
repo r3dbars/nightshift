@@ -21,6 +21,8 @@ run evidence separate from model claims and from human/manual proof.
   loopback wrapper proof.
 - PR #118 merged complete empty-run artifacts so no-compute and no-task runs
   retain harvest, queue, metrics, lifecycle, token, and morning files.
+- The current hardware pass adds bounded, opt-in private-LAN discovery for
+  Ollama and LM Studio, with explicit confirmation before saving a match.
 - A second explicit goal on the current `main` produced a one-file
   `VERIFIED_DRAFT` for the missing `morning_status` regression test. Fresh
   publication verification opened PR #120, CI passed on Ubuntu and macOS, and
@@ -54,6 +56,9 @@ run evidence separate from model claims and from human/manual proof.
 - The repeatable blank-home recovery proof now passes from a temporary HOME
   outside any Git repo with no GitHub credentials: it returns clear `--repo`,
   Git-repo, and `gh auth login` next steps, exits safely, and saves no config.
+- The live LAN discovery proof found the real private Windows Ollama worker at
+  `192.168.7.201:11434` and selected `qwen3-coder:30b-32k`; no repo context was
+  sent. Proof: `docs/proofs/2026-07-13-lan-discovery.md`.
 
 ## Remaining Proof Gaps
 

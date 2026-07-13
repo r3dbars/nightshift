@@ -4829,6 +4829,41 @@ buildThing() { return 1; }
         finally:
             night_shift.post_url_json = original_post
 
+    def test_private_lan_addresses_reject_public_and_local_neighbors(self):
+        arp = (
+            "? (192.168.7.201) at aa:bb on en0\n"
+            "? (8.8.8.8) at aa:bb on en0\n"
+            "? (169.254.1.2) at aa:bb on en0\n"
+        )
+        self.assertEqual(
+            night_shift.private_lan_addresses(arp, "inet 192.168.7.83 netmask 0xffffff00"),
+            ["192.168.7.201"],
+        )
+
+    def test_lan_discovery_is_private_bounded_and_model_list_only(self):
+        original_neighbors = night_shift.lan_neighbor_addresses
+        original_read = night_shift.read_url_json
+        calls = []
+        try:
+            night_shift.lan_neighbor_addresses = lambda: ["192.168.7.201", "8.8.8.8"]
+
+            def fake_read(url, **_kwargs):
+                calls.append(url)
+                if url == "http://192.168.7.201:11434/v1/models":
+                    return {"data": [{"id": "qwen3-coder:30b"}]}
+                raise OSError("offline")
+
+            night_shift.read_url_json = fake_read
+            matches = night_shift.discover_lan_workers()
+            self.assertEqual(matches[0]["url"], "http://192.168.7.201:11434/v1")
+            self.assertEqual(matches[0]["model"], "qwen3-coder:30b")
+            self.assertTrue(all("/models" in url for url in calls))
+            self.assertTrue(all("8.8.8.8" not in url for url in calls))
+            self.assertLessEqual(len(calls), 2)
+        finally:
+            night_shift.lan_neighbor_addresses = original_neighbors
+            night_shift.read_url_json = original_read
+
     def test_extract_unified_diff_with_quoted_diff_block(self):
         from night_shift_patch_protocol import extract_unified_diff
 
