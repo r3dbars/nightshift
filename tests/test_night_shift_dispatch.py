@@ -303,8 +303,26 @@ class CorrectionPromptTests(unittest.TestCase):
         })
         self.assertEqual(
             examples,
-            ["coverage-index/app.py-run.txt:1 | symbol=run", "coverage-index/app.py-run.txt:2 | identifier_matches=0"],
+            ["coverage-index/app.py-run.txt:2 | identifier_matches=0", "coverage-index/app.py-run.txt:1 | symbol=run"],
         )
+
+    def test_copy_ready_examples_represent_every_evidence_source(self):
+        examples = coverage_citation_examples({
+            "coverage-index/app.py-run.txt": (
+                "symbol=run\nsource_file=app.py\ntracked_test_files=20\nfiles_scanned=20\n"
+                "identifier_matches=0\nscan_complete=true"
+            ),
+            "goal-source/app.py-run.txt": (
+                "source_file=app.py\nsource_line=8 | def run(self):\nsource_line=9 | return True"
+            ),
+            "invocation-index/app.py-run.txt": (
+                "symbol=run\nsource_file=app.py\nowner=Engine\nanalysis=python-ast\n"
+                "tracked_test_files=20\nfiles_scanned=20\nsymbol=run call_matches=0\nscan_complete=true"
+            ),
+        })
+        self.assertIn("coverage-index/app.py-run.txt:5 | identifier_matches=0", examples)
+        self.assertIn("app.py:8 | def run(self):", examples)
+        self.assertIn("invocation-index/app.py-run.txt:7 | symbol=run call_matches=0", examples)
 
 
 class RetryPolicyHelperTests(unittest.TestCase):
