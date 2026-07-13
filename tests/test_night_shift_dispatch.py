@@ -292,6 +292,14 @@ class CorrectionPromptTests(unittest.TestCase):
         self.assertTrue(correction_preserves_identity(
             "CLAIM: test `Engine.run`", "CLAIM: correct evidence for `Engine.run`"
         ))
+        self.assertTrue(correction_preserves_identity(
+            "CLAIM: `cleanup` lacks a behavioral test",
+            "CLAIM: The cleanup method removes a worktree",
+        ))
+        for target in ("Engine.run", "src/worker.py", "Result[list[str]]", "task-run"):
+            self.assertTrue(correction_preserves_identity(
+                f"CLAIM: test `{target}`", f"CLAIM: preserve {target} behavior"
+            ))
         self.assertFalse(correction_preserves_identity(
             "CLAIM: test `Engine.run`", "CLAIM: test `Other.stop`"
         ))

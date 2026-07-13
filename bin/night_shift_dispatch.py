@@ -112,15 +112,19 @@ def candidate_identity_terms(output: str) -> set[str]:
     claim = first_label_value(output or "", ["CLAIM"])
     for value in re.findall(r"`([^`\n]{2,160})`", claim):
         compact = value.strip().lower()
-        if re.search(r"[a-z_][a-z0-9_.:/\[\]-]*", compact):
+        if re.fullmatch(r"[a-z_][a-z0-9_.:/\[\]-]*", compact):
             terms.add(compact)
     return terms
 
 
 def correction_preserves_identity(first_output: str, retry_output: str) -> bool:
     first = candidate_identity_terms(first_output)
-    retry = candidate_identity_terms(retry_output)
-    return bool(first and retry and first & retry)
+    retry_claim = first_label_value(retry_output or "", ["CLAIM"])
+    retry_terms = {
+        term.lower().rstrip(".,:;")
+        for term in re.findall(r"[A-Za-z_][A-Za-z0-9_.:/\[\]-]*", retry_claim)
+    }
+    return bool(first and first & retry_terms)
 
 
 def should_retry_local_output(
