@@ -555,6 +555,104 @@ ACTION_TYPE: patch-plan
                 night_shift.evidence_validation_reasons(output, repo, ["app.py"]), []
             )
 
+    def test_exact_context_citation_may_support_action_without_repeating_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "cleanup.py").write_text(
+                "def cleanup():\n    return removed.rc == 0\nbanana fruit salad recipe\n",
+                encoding="utf-8",
+            )
+            output = """CLAIM: `cleanup` has zero test invocations
+EVIDENCE: invocation-index/cleanup.txt:3 | call_matches=0
+EVIDENCE: cleanup.py:2 | return removed.rc == 0
+FILES_TO_TOUCH: tests/test_cleanup.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: cleanup returns True after successful removal
+ACTION_TYPE: draft-pr-candidate
+"""
+            reasons = night_shift.evidence_validation_reasons(
+                output,
+                repo,
+                ["tests/test_cleanup.py", "cleanup.py"],
+                proof_kind="test",
+                evidence_sources={
+                    "invocation-index/cleanup.txt": (
+                        "symbol=cleanup\nsource_file=cleanup.py\ncall_matches=0"
+                    ),
+                    "goal-source/cleanup.txt": (
+                        "source_file=cleanup.py\nsource_line=2 | return removed.rc == 0"
+                    ),
+                },
+            )
+            self.assertEqual(reasons, [])
+
+            unrelated = output.replace(
+                "cleanup.py:2 | return removed.rc == 0",
+                "cleanup.py:3 | banana fruit salad recipe",
+            )
+            unrelated_sources = {
+                "invocation-index/cleanup.txt": (
+                    "symbol=cleanup\nsource_file=cleanup.py\ncall_matches=0"
+                ),
+                "goal-source/cleanup.txt": (
+                    "source_file=cleanup.py\nsource_line=2 | return removed.rc == 0"
+                ),
+            }
+            self.assertIn(
+                "cited line is not pinned context for the claimed target: cleanup.py:3",
+                night_shift.evidence_validation_reasons(
+                    unrelated,
+                    repo,
+                    ["tests/test_cleanup.py", "cleanup.py"],
+                    proof_kind="test",
+                    evidence_sources=unrelated_sources,
+                ),
+            )
+
+            (repo / "other.py").write_text(
+                "def other():\n    return removed.rc == 0\n", encoding="utf-8"
+            )
+            cross_target = output.replace("cleanup.py:2", "other.py:2")
+            cross_sources = {
+                **unrelated_sources,
+                "invocation-index/other.txt": (
+                    "symbol=other\nsource_file=other.py\ncall_matches=0"
+                ),
+                "goal-source/other.txt": (
+                    "source_file=other.py\nsource_line=1 | def other():"
+                ),
+            }
+            self.assertIn(
+                "cited line is not pinned context for the claimed target: other.py:2",
+                night_shift.evidence_validation_reasons(
+                    cross_target,
+                    repo,
+                    ["tests/test_cleanup.py", "cleanup.py", "other.py"],
+                    proof_kind="test",
+                    evidence_sources=cross_sources,
+                ),
+            )
+
+            mixed_sources = {
+                "invocation-index/cleanup.txt": (
+                    "symbol=cleanup\nsource_file=cleanup.py\ncall_matches=0"
+                ),
+                "goal-source/mixed.txt": (
+                    "source_file=cleanup.py\nsource_line=1 | def cleanup():\n"
+                    "source_file=other.py\nsource_line=2 | return removed.rc == 0"
+                ),
+            }
+            self.assertIn(
+                "cited line is not pinned context for the claimed target: cleanup.py:2",
+                night_shift.evidence_validation_reasons(
+                    output,
+                    repo,
+                    ["tests/test_cleanup.py", "cleanup.py"],
+                    proof_kind="test",
+                    evidence_sources=mixed_sources,
+                ),
+            )
+
     def test_slash_separated_status_values_are_not_repo_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
