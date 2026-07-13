@@ -74,6 +74,28 @@ class SetupPolicyTests(unittest.TestCase):
         self.assertIn("night-shift doctor --repo /repo", preview)
         self.assertLessEqual(len(preview.splitlines()), 21)
 
+    def test_preview_shows_explicit_repo_priorities(self):
+        preview = start_preview(
+            {
+                "project": {"repo": "/repo"},
+                "preferences": {"priority_repos": ["owner/important"]},
+            },
+            [],
+            MODE_DEFAULTS,
+        )
+        self.assertIn("Prioritize: owner/important", preview)
+
+    def test_preview_shows_quiet_hours_without_claiming_worker_shutdown(self):
+        preview = start_preview(
+            {
+                "project": {"repo": "/repo"},
+                "preferences": {"quiet_hours": "09:00-17:00"},
+            },
+            [],
+            MODE_DEFAULTS,
+        )
+        self.assertIn("Stay quiet during 09:00-17:00", preview)
+
     def test_timestamp_does_not_turn_repeat_setup_into_a_change(self):
         saved = {"schema_version": 4, "updated_at": "before", "preferences": {"mode": "quiet"}}
         proposed = {**saved, "updated_at": "after"}

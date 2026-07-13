@@ -108,6 +108,8 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]], mode_defaults:
     privacy_route = prefs.get("privacy_route", "mac-only")
     tools = detected_tools(rows, privacy_route) or ["no worker AI found yet; planning brief only"]
     scope = prefs.get("scope", "github-recent")
+    priority_repos = [str(item) for item in (prefs.get("priority_repos") or []) if str(item).strip()]
+    quiet_hours = str(prefs.get("quiet_hours") or "").strip()
     patch_plan = (
         "Make test-gated patches in disposable copies"
         if execute_drafts
@@ -121,6 +123,8 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]], mode_defaults:
     lines = [
         "Night Shift preview", "", f"Project: {repo}", "", "Tonight:",
         "- Scan your recently active GitHub repos" if scope == "github-recent" else "- Scan this project",
+        *([f"- Prioritize: {', '.join(priority_repos)}"] if priority_repos else []),
+        *([f"- Stay quiet during {quiet_hours}"] if quiet_hours else []),
         f"- Use {', '.join(tools)}",
         f"- Look for {wake_goal_label(wake_goal).lower()}",
         f"- Use {mode_label(mode).lower()} effort and {stop_label(stop).lower()}",

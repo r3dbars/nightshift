@@ -3113,6 +3113,37 @@ buildThing() { return 1; }
                 night_shift._active_autopilot, night_shift.write_last_nightly, night_shift.command_autopilot,
             ) = originals
 
+    def test_nightly_skips_cleanly_during_quiet_hours(self):
+        writes = []
+        originals = (
+            night_shift.load_config, night_shift.snooze_until,
+            night_shift.write_last_nightly, night_shift.datetime,
+            night_shift.command_autopilot,
+        )
+        try:
+            night_shift.load_config = lambda: {
+                "repo": "/tmp/repo",
+                "preferences": {"quiet_hours": "9:00-17:00"},
+            }
+            night_shift.snooze_until = lambda: None
+            night_shift.write_last_nightly = lambda *args: writes.append(args)
+            night_shift.datetime = type(
+                "FixedDateTime", (), {"now": staticmethod(lambda: originals[3](2026, 7, 13, 12, 0))}
+            )
+            night_shift.command_autopilot = lambda args: self.fail("quiet hours must not launch autopilot")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                rc = night_shift.command_nightly(SimpleNamespace(once=False))
+            self.assertEqual(rc, 0)
+            self.assertEqual(writes, [("SKIPPED_QUIET_HOURS", "quiet hours 09:00-17:00")])
+            self.assertIn("NIGHTSHIFT_NIGHTLY: GREEN | skipped | quiet hours 09:00-17:00", output.getvalue())
+        finally:
+            (
+                night_shift.load_config, night_shift.snooze_until,
+                night_shift.write_last_nightly, night_shift.datetime,
+                night_shift.command_autopilot,
+            ) = originals
+
     def test_nightly_treats_lost_lock_race_as_clean_skip(self):
         writes = []
         originals = (
@@ -4447,10 +4478,33 @@ buildThing() { return 1; }
         night_shift.run_cmd = fake_run
         try:
             portfolio = night_shift.discover_github_portfolio(None, active_days=14, max_repos=2)
+            prioritized = night_shift.discover_github_portfolio(
+                None, active_days=14, max_repos=2, priority_repos=["owner/calm"],
+            )
         finally:
             night_shift.run_cmd = original_run_cmd
         self.assertEqual(portfolio[0]["slug"], "owner/broken")
         self.assertGreater(portfolio[0]["score"], portfolio[1]["score"])
+        self.assertEqual(prioritized[0]["slug"], "owner/calm")
+        self.assertTrue(prioritized[0]["priority"])
+
+    def test_priority_repo_normalization_rejects_invalid_or_duplicate_slugs(self):
+        self.assertEqual(
+            night_shift.PortfolioEngine.normalize_priority_repos(
+                ["Owner/Repo.git", "owner/repo", "owner/../escape", "", "owner/other"]
+            ),
+            ["Owner/Repo", "owner/other"],
+        )
+
+    def test_quiet_hours_parse_normalize_and_cross_midnight(self):
+        self.assertEqual(night_shift.normalize_quiet_hours(" 9:00-17:00 "), "09:00-17:00")
+        self.assertEqual(night_shift.normalize_quiet_hours("09:00 - 17:00"), "09:00-17:00")
+        self.assertFalse(night_shift.quiet_hours_active("09:00-17:00", night_shift.datetime(2026, 7, 13, 8, 59)))
+        self.assertTrue(night_shift.quiet_hours_active("09:00-17:00", night_shift.datetime(2026, 7, 13, 12, 0)))
+        self.assertTrue(night_shift.quiet_hours_active("22:00-06:00", night_shift.datetime(2026, 7, 13, 23, 0)))
+        self.assertTrue(night_shift.quiet_hours_active("22:00-06:00", night_shift.datetime(2026, 7, 13, 5, 59)))
+        self.assertFalse(night_shift.quiet_hours_active("22:00-06:00", night_shift.datetime(2026, 7, 13, 12, 0)))
+        self.assertTrue(night_shift.quiet_hours_active("09:00-09:00", night_shift.datetime(2026, 7, 13, 12, 0)))
 
     def test_portfolio_ignores_stale_branch_failures_and_caps_draft_backlog(self):
         now = night_shift.datetime.now(night_shift.timezone.utc).isoformat().replace("+00:00", "Z")

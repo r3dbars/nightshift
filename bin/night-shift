@@ -269,6 +269,8 @@ def config_value(config: dict, key: str, default=None):
         "scope",
         "active_days",
         "max_repos",
+        "priority_repos",
+        "quiet_hours",
         "execute_drafts",
         "allow_cloud_reasoning",
         "allow_remote_lan_worker",
@@ -278,6 +280,36 @@ def config_value(config: dict, key: str, default=None):
     if key in {"local_url", "local_model", "windows_url", "windows_model"}:
         return config.get("legacy", {}).get(key, default)
     return default
+
+
+def parse_quiet_hours(value: str | None) -> tuple[int, int] | None:
+    match = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*", value or "")
+    if not match:
+        return None
+    start_hour, start_minute, end_hour, end_minute = (int(item) for item in match.groups())
+    if any(hour > 23 for hour in (start_hour, end_hour)) or any(minute > 59 for minute in (start_minute, end_minute)):
+        return None
+    return start_hour * 60 + start_minute, end_hour * 60 + end_minute
+
+
+def normalize_quiet_hours(value: str | None) -> str:
+    parsed = parse_quiet_hours(value)
+    if parsed is None:
+        return ""
+    start, end = parsed
+    return f"{start // 60:02d}:{start % 60:02d}-{end // 60:02d}:{end % 60:02d}"
+
+
+def quiet_hours_active(value: str | None, now: datetime | None = None) -> bool:
+    parsed = parse_quiet_hours(value)
+    if parsed is None:
+        return False
+    start, end = parsed
+    current = now or datetime.now()
+    minute = current.hour * 60 + current.minute
+    if start == end:
+        return True
+    return start <= minute < end if start < end else minute >= start or minute < end
 
 
 def configured_scope(config: dict) -> str:
@@ -1050,8 +1082,14 @@ def discover_github_portfolio(
     primary_repo: Path | None,
     active_days: int = 14,
     max_repos: int = 3,
+    priority_repos: list[str] | None = None,
 ) -> list[dict]:
-    return portfolio_engine().discover(primary_repo, active_days=active_days, max_repos=max_repos)
+    return portfolio_engine().discover(
+        primary_repo,
+        active_days=active_days,
+        max_repos=max_repos,
+        priority_repos=priority_repos,
+    )
 
 
 def ensure_portfolio_checkout(item: dict, primary_repo: Path | None) -> tuple[Path | None, str]:
@@ -2604,6 +2642,7 @@ def command_autopilot(args) -> int:
         return 1
     scope = getattr(args, "scope", "github-recent") or "github-recent"
     max_repos = getattr(args, "max_repos", None) or defaults["repo_limit"]
+    priority_repos = PortfolioEngine.normalize_priority_repos(config_value(saved, "priority_repos", []))
     active_days = getattr(args, "active_days", None) or 14
     task_limit = getattr(args, "task_limit", None) or defaults["task_limit"]
     poll_minutes = getattr(args, "poll_minutes", None) or defaults["poll_minutes"]
@@ -2642,6 +2681,7 @@ def command_autopilot(args) -> int:
                     "scope": scope,
                     "repo": str(primary) if primary else "",
                     "max_repos": max_repos,
+                    "priority_repos": priority_repos,
                     "active_days": active_days,
                     "task_limit": task_limit,
                     "poll_minutes": poll_minutes,
@@ -2676,7 +2716,12 @@ def command_autopilot(args) -> int:
             now = time.time()
             if prepared_cache is None or now >= next_portfolio_refresh:
                 if scope == "github-recent":
-                    portfolio = discover_github_portfolio(primary, active_days=active_days, max_repos=max_repos)
+                    portfolio = discover_github_portfolio(
+                        primary,
+                        active_days=active_days,
+                        max_repos=max_repos,
+                        priority_repos=priority_repos,
+                    )
                 else:
                     portfolio = [
                         {
@@ -2917,6 +2962,8 @@ def command_start(args) -> int:
     scope = args.scope or recommended["scope"]
     active_days = args.active_days or config_value(saved, "active_days", 14)
     max_repos = args.max_repos or config_value(saved, "max_repos", AUTOPILOT_DEFAULTS[mode]["repo_limit"])
+    priority_repos = PortfolioEngine.normalize_priority_repos(config_value(saved, "priority_repos", []))
+    quiet_hours = normalize_quiet_hours(config_value(saved, "quiet_hours", ""))
     execute_drafts = bool(getattr(args, "execute_drafts", False) or config_value(saved, "execute_drafts", False))
     allow_draft_prs = bool(getattr(args, "allow_draft_prs", False) or config_value(saved, "allow_draft_prs", False))
     if permission != "draft-prs":
@@ -2932,6 +2979,15 @@ def command_start(args) -> int:
             ],
             scope if scope in {"github-recent", "current"} else "github-recent",
         )
+        priority_text = ask_text(
+            "Any GitHub repos to prioritize? Use owner/repo, separated by commas, or press Enter for none",
+            ", ".join(priority_repos),
+        )
+        priority_repos = PortfolioEngine.normalize_priority_repos(priority_text.split(","))
+        quiet_hours = normalize_quiet_hours(ask_text(
+            "When should Night Shift stay quiet? Use HH:MM-HH:MM, or press Enter for none",
+            quiet_hours,
+        ))
         wake_goal = ask_choice(
             "What would make tomorrow morning a win?",
             [
@@ -3026,6 +3082,8 @@ def command_start(args) -> int:
             "scope": scope,
             "active_days": active_days,
             "max_repos": max_repos,
+            "priority_repos": priority_repos,
+            "quiet_hours": quiet_hours,
             "execute_drafts": execute_drafts,
             "allow_draft_prs": allow_draft_prs,
         },
@@ -3351,6 +3409,11 @@ def command_nightly(args) -> int:
     if snoozed:
         write_last_nightly("SKIPPED", f"snoozed until {snoozed}")
         print(f"NIGHTSHIFT_NIGHTLY: GREEN | skipped | snoozed until {snoozed}")
+        return 0
+    quiet_hours = normalize_quiet_hours(config_value(config, "quiet_hours", ""))
+    if quiet_hours_active(quiet_hours):
+        write_last_nightly("SKIPPED_QUIET_HOURS", f"quiet hours {quiet_hours}")
+        print(f"NIGHTSHIFT_NIGHTLY: GREEN | skipped | quiet hours {quiet_hours}")
         return 0
     pending = unreviewed_briefs()
     if len(pending) >= UNREVIEWED_CAP:

@@ -69,6 +69,19 @@ class PortfolioEngine:
             return None
         return match.group("owner"), match.group("repo")
 
+    @classmethod
+    def normalize_priority_repos(cls, value) -> list[str]:
+        values = [value] if isinstance(value, str) else (value or [])
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in values:
+            slug = str(item).strip().removesuffix(".git")
+            key = slug.casefold()
+            if cls.GITHUB_SLUG_RE.fullmatch(slug) and key not in seen:
+                normalized.append(slug)
+                seen.add(key)
+        return normalized
+
     @staticmethod
     def select_ranked_rows(rows: list[dict], max_repos: int) -> list[dict]:
         limit = max(1, max_repos)
@@ -158,8 +171,15 @@ class PortfolioEngine:
         score += min(len(issues), 5) * 10
         return {"prs": prs, "issues": issues, "failed_runs": failed_runs, "score": score}
 
-    def discover(self, primary_repo: Path | None, active_days: int = 14, max_repos: int = 3) -> list[dict]:
+    def discover(
+        self,
+        primary_repo: Path | None,
+        active_days: int = 14,
+        max_repos: int = 3,
+        priority_repos: list[str] | None = None,
+    ) -> list[dict]:
         primary_slug = self.repo_slug(primary_repo)
+        priority_keys = {slug.casefold() for slug in self.normalize_priority_repos(priority_repos)}
         rows: list[dict] = []
         if shutil.which("gh"):
             owner = self.authenticated_owner()
@@ -197,6 +217,7 @@ class PortfolioEngine:
                                 "default_branch": branch,
                                 "url": item.get("url", ""),
                                 "primary": slug == primary_slug,
+                                "priority": slug.casefold() in priority_keys,
                                 "activity_score": max(0, 80 - int(age_hours / 6)),
                             }
                         )
@@ -217,6 +238,7 @@ class PortfolioEngine:
                             signals["score"]
                             + candidate.pop("activity_score")
                             + (40 if candidate.get("primary") else 0)
+                            + (300 if candidate.get("priority") else 0)
                             + outcome_adjustment
                         )
                         rows.append(candidate)
@@ -231,6 +253,7 @@ class PortfolioEngine:
                     "default_branch": fallback_branch or "main",
                     "url": "",
                     "primary": True,
+                    "priority": primary_slug.casefold() in priority_keys,
                     "signals": self.github_repo_signals(primary_slug, fallback_branch or "main"),
                     "score": 1000,
                     "path": str(primary_repo),
