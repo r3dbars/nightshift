@@ -284,7 +284,7 @@ class QueueEvidenceIndex:
             ])}
             if owner:
                 evidence.update(owned_invocation)
-                evidence.update(self.symbol_source_evidence(path, missing, owner))
+            evidence.update(self.symbol_source_evidence(path, missing, owner))
             gaps.append((path, missing, evidence))
         return gaps
 
@@ -697,7 +697,7 @@ def build_repo_work_queue(
             ladder="strengthen",
             preferred_lane="local",
             proof_kind="test",
-            executable=bool(test_commands),
+            executable=bool(test_commands and has_owned_ast_gap),
             evidence_sources=gap_evidence,
             semantic_contract={"minimum_target_invocations": 1} if has_owned_ast_gap else {},
         )
