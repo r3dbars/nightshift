@@ -2616,6 +2616,60 @@ buildThing() { return 1; }
         self.assertEqual(portfolio[0]["slug"], "owner/broken")
         self.assertGreater(portfolio[0]["score"], portfolio[1]["score"])
 
+    def test_portfolio_ignores_stale_branch_failures_and_caps_draft_backlog(self):
+        now = night_shift.datetime.now(night_shift.timezone.utc).isoformat().replace("+00:00", "Z")
+        drafts = [
+            {"number": number, "isDraft": True, "headRefName": f"draft-{number}", "statusCheckRollup": []}
+            for number in range(10)
+        ]
+        runs = [
+            {"databaseId": 1, "workflowName": "CI", "headBranch": "main", "status": "completed", "conclusion": "failure", "updatedAt": now},
+            {"databaseId": 2, "workflowName": "CI", "headBranch": "closed-branch", "status": "completed", "conclusion": "failure", "updatedAt": now},
+        ]
+
+        def fake_run(cmd, **_kwargs):
+            command = [str(part) for part in cmd]
+            if command[:3] == ["gh", "pr", "list"]:
+                return night_shift.CmdResult("", 0, json.dumps(drafts), "")
+            if command[:3] == ["gh", "issue", "list"]:
+                return night_shift.CmdResult("", 0, "[]", "")
+            if command[:3] == ["gh", "run", "list"]:
+                return night_shift.CmdResult("", 0, json.dumps(runs), "")
+            return night_shift.CmdResult("", 1, "", "unexpected")
+
+        engine = night_shift.PortfolioEngine(fake_run, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
+        signals = engine.github_repo_signals("owner/repo", "main")
+        self.assertEqual([run["headBranch"] for run in signals["failed_runs"]], ["main"])
+        self.assertEqual(signals["score"], 185)
+
+    def test_portfolio_selection_always_keeps_explicit_primary_repo(self):
+        rows = [
+            {"slug": "owner/broken", "score": 500, "primary": False},
+            {"slug": "owner/review", "score": 300, "primary": False},
+            {"slug": "owner/current", "score": 10, "primary": True},
+        ]
+        selected = night_shift.PortfolioEngine.select_ranked_rows(rows, 2)
+        self.assertEqual([row["slug"] for row in selected], ["owner/broken", "owner/current"])
+
+    def test_portfolio_caps_every_backlog_signal_family(self):
+        now = night_shift.datetime.now(night_shift.timezone.utc).isoformat().replace("+00:00", "Z")
+        prs = []
+        for number in range(5):
+            prs.append({"number": number, "headRefName": f"broken-{number}", "statusCheckRollup": [{"conclusion": "FAILURE"}]})
+            prs.append({"number": number + 10, "headRefName": f"ready-{number}", "isDraft": False, "statusCheckRollup": []})
+            prs.append({"number": number + 20, "headRefName": f"draft-{number}", "isDraft": True, "statusCheckRollup": []})
+        issues = [{"number": number} for number in range(10)]
+        runs = [{"databaseId": 1, "workflowName": "CI", "headBranch": "main", "status": "completed", "conclusion": "failure", "updatedAt": now}]
+
+        def fake_run(cmd, **_kwargs):
+            command = [str(part) for part in cmd]
+            payload = prs if command[:3] == ["gh", "pr", "list"] else issues if command[:3] == ["gh", "issue", "list"] else runs
+            return night_shift.CmdResult("", 0, json.dumps(payload), "")
+
+        engine = night_shift.PortfolioEngine(fake_run, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
+        signals = engine.github_repo_signals("owner/repo", "main")
+        self.assertEqual(signals["score"], 745)
+
     def test_github_discovery_accepts_only_authenticated_owner_slugs(self):
         engine = night_shift.PortfolioEngine(lambda *args, **kwargs: None, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
         self.assertEqual(engine.owned_slug("Owner/repo.name", "owner"), ("Owner", "repo.name"))
