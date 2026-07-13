@@ -56,6 +56,18 @@ def is_test_path(relative: str) -> bool:
     ))
 
 
+def symbol_is_test_addressable(path: str, source: str, symbol: str) -> bool:
+    """Reject JS/TS top-level internals that tests cannot import directly."""
+    if Path(path).suffix.lower() not in {".js", ".jsx", ".ts", ".tsx"}:
+        return True
+    escaped = re.escape(symbol)
+    exported = re.search(
+        rf"(?m)^export\s+(?:(?:async|default)\s+)*(?:function|class|const|let|var)\s+{escaped}\b",
+        source,
+    ) or re.search(rf"(?m)^export\s*\{{[^}}]*\b{escaped}\b[^}}]*\}}", source)
+    return bool(exported)
+
+
 def contains_identifier(text: str, term: str) -> bool:
     return bool(re.search(rf"\b{re.escape(term)}\b", text))
 
@@ -240,6 +252,8 @@ class QueueEvidenceIndex:
         test_corpus = "\n".join(corpus_parts)
         gaps: list[tuple[str, str, dict[str, str]]] = []
         for path in recent_source:
+            if is_test_path(path):
+                continue
             source_text = self.read_current_text(path)
             symbols = declared_symbols(source_text)
             preferred = [symbol for symbol in (preferred_symbols or []) if symbol in symbols]
@@ -247,6 +261,10 @@ class QueueEvidenceIndex:
             ordered_symbols = list(dict.fromkeys(
                 preferred + [symbol for _owner, symbol in owned_methods] + symbols
             ))
+            ordered_symbols = [
+                symbol for symbol in ordered_symbols
+                if symbol_is_test_addressable(path, source_text, symbol)
+            ]
             owner = ""
             owned_invocation: dict[str, str] = {}
             preferred_owned = sorted(

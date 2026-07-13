@@ -18,11 +18,50 @@ from night_shift_queue import (
     goal_semantic_contract,
     is_test_path,
     python_owned_methods,
+    symbol_is_test_addressable,
 )
 from night_shift_portfolio import PortfolioEngine
 
 
 class QueueEvidenceTests(unittest.TestCase):
+    def test_js_ts_addressability_excludes_private_top_level_helpers(self):
+        source = (
+            "function startOfDay(date: Date) { return date; }\n"
+            "export function loadAnalytics() { return startOfDay(new Date()); }\n"
+            "export class Engine {\n  run() { return true; }\n  private stop() {}\n}\n"
+        )
+        self.assertFalse(symbol_is_test_addressable("analytics.ts", source, "startOfDay"))
+        self.assertTrue(symbol_is_test_addressable("analytics.ts", source, "loadAnalytics"))
+        self.assertTrue(symbol_is_test_addressable("analytics.ts", source, "Engine"))
+        self.assertFalse(symbol_is_test_addressable("analytics.ts", source, "run"))
+        self.assertFalse(symbol_is_test_addressable("analytics.ts", source, "stop"))
+        self.assertFalse(symbol_is_test_addressable(
+            "analytics.ts", "function privateHelper() {}\nif (ready) {\n  privateHelper();\n}\n", "privateHelper"
+        ))
+
+    def test_coverage_gaps_skip_test_files_and_private_ts_helpers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "analytics.ts").write_text(
+                "function privateHelper() { return 1; }\nexport function publicApi() { return privateHelper(); }\n",
+                encoding="utf-8",
+            )
+            (repo / "analytics.test.ts").write_text(
+                "export function testHelper() { return true; }\n", encoding="utf-8"
+            )
+            scan = {
+                "tracked_files": ["analytics.ts", "analytics.test.ts"],
+                "source_files": ["analytics.ts", "analytics.test.ts"],
+                "test_files": ["analytics.test.ts"],
+                "coverage_test_files": ["analytics.test.ts"],
+            }
+            gaps = QueueEvidenceIndex(repo, scan).coverage_gaps(
+                ["analytics.test.ts", "analytics.ts"]
+            )
+            self.assertEqual(
+                [(path, symbol) for path, symbol, _ in gaps],
+                [("analytics.ts", "publicApi")],
+            )
     def test_python_owned_methods_ignore_top_level_and_private_functions(self):
         self.assertEqual(
             python_owned_methods(

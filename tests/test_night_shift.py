@@ -2473,7 +2473,7 @@ buildThing() { return 1; }
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             (repo / "src").mkdir()
-            (repo / "src" / "app.ts").write_text("function calculateTotal() { return 42 }\n", encoding="utf-8")
+            (repo / "src" / "app.ts").write_text("export function calculateTotal() { return 42 }\n", encoding="utf-8")
             (repo / "src" / "util.ts").write_text("function helper() { return 1 }\n", encoding="utf-8")
             (repo / "tests").mkdir()
             (repo / "tests" / "app.test.ts").write_text("test('smoke', () => true)\n", encoding="utf-8")
