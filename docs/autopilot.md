@@ -135,8 +135,8 @@ all deliberate:
 
 - **One issue, edited in place.** Never a second issue, never a nightly
   flood. The issue is a dashboard, not a feed.
-- **It is the only remote repo write Night Shift is allowed.** Optional code
-  drafts stay local in disposable worktrees. Never a pushed branch or PR.
+- **It is the default remote write.** Code stays local unless the owner has
+  separately authorized test-passed draft PRs.
 - **Opt-in only.** Delivery happens when you pass the flag or set
   `"deliver": "github-issue"` in config through consented setup. Silence is
   local-only.

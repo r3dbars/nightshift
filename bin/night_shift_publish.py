@@ -159,6 +159,7 @@ class PublishEngine:
                 [
                     "git", "-c", "user.name=Night Shift", "-c",
                     "user.email=night-shift@users.noreply.github.com",
+                    "-c", "commit.gpgSign=false",
                     "commit", "-m", f"Night Shift: {str(proof.get('summary') or 'verified repair')[:60]}",
                 ],
                 cwd=worktree,

@@ -92,6 +92,7 @@ class PublishTests(unittest.TestCase):
             commit = next(args for args in calls if "commit" in args)
             self.assertIn("user.name=Night Shift", commit)
             self.assertIn("user.email=night-shift@users.noreply.github.com", commit)
+            self.assertIn("commit.gpgSign=false", commit)
             self.assertTrue(any(args[:4] == ["git", "worktree", "remove", "--force"] for args in calls))
             push_count = sum(args[:2] == ["git", "push"] for args in calls)
             duplicate = engine.publish(root, "owner/repo", self.proof(patch_path), profile(), root / "proof-2")
