@@ -25,6 +25,7 @@ from night_shift_js_evidence import (
     top_level_symbol_call_count_text as js_symbol_call_count_text,
 )
 from night_shift_python_evidence import owner_symbol_call_count_text, semantic_test_contract_reasons
+from night_shift_swift_evidence import SWIFT_EXTENSIONS, swift_symbol_call_count_text
 from night_shift_queue import is_test_path
 from night_shift_state import record_state
 
@@ -98,11 +99,11 @@ def parse_test_strengthening_contract(evidence_sources: dict[str, str] | None) -
             fields["symbol"] = call_match.group(1)
             fields["call_matches"] = call_match.group(2)
         if (
-            fields.get("analysis") in {"python-ast", "typescript-regex"}
+            fields.get("analysis") in {"python-ast", "typescript-regex", "swift-regex"}
             and fields.get("scan_complete") == "true"
             and fields.get("call_matches") == "0"
             and fields.get("symbol")
-            and Path(fields.get("source_file", "")).suffix.lower() in {".py", ".ts", ".tsx"}
+            and Path(fields.get("source_file", "")).suffix.lower() in {".py", ".ts", ".tsx", ".swift"}
             and re.fullmatch(r"(?:none|[A-Za-z_][A-Za-z0-9_]*)", fields.get("owner", ""))
         ):
             contracts.append(fields)
@@ -145,7 +146,7 @@ def valid_test_strengthening_candidate(candidate: dict, worktree: Path) -> dict[
         return None
     analysis = contract.get("analysis")
     if (
-        analysis not in {"python-ast", "typescript-regex"}
+        analysis not in {"python-ast", "typescript-regex", "swift-regex"}
         or contract.get("scan_complete") != "true"
         or contract.get("call_matches") != "0"
         or not contract.get("symbol")
@@ -162,7 +163,7 @@ def valid_test_strengthening_candidate(candidate: dict, worktree: Path) -> dict[
         baseline_calls = owner_symbol_call_count(
             [worktree / path for path in files], contract["owner"], contract["symbol"]
         )
-    else:
+    elif analysis == "typescript-regex":
         try:
             source_text = (worktree / source_file).read_text(encoding="utf-8")
         except (OSError, UnicodeError):
@@ -176,6 +177,19 @@ def valid_test_strengthening_candidate(candidate: dict, worktree: Path) -> dict[
             return None
         baseline_calls = javascript_symbol_call_count(
             [worktree / path for path in files], contract["symbol"]
+        )
+    else:
+        if any(Path(path).suffix.lower() not in SWIFT_EXTENSIONS for path in files):
+            return None
+        if Path(source_file).suffix.lower() not in SWIFT_EXTENSIONS:
+            return None
+        if contract.get("owner") not in {"", "none", None}:
+            return None
+        baseline_calls = sum(
+            swift_symbol_call_count_text(
+                (worktree / path).read_text(encoding="utf-8"), contract["symbol"]
+            )
+            for path in files
         )
     return contract if baseline_calls == 0 else None
 
@@ -191,6 +205,8 @@ def materialize_strengthening_output(
             strengthening["symbol"],
             typescript_import_path(str(strengthening["source_file"]), relative),
         )
+    if strengthening and strengthening.get("analysis") == "swift-regex":
+        return output
     return materialize_test_method_patch(
         output,
         original,
@@ -238,7 +254,11 @@ class DraftEngine:
             verification = next((command for command in known_commands if command in (item.get("tests") or "")), "")
             contract = parse_test_strengthening_contract(item.get("evidence_sources"))
             if contract:
-                extensions = {".py"} if contract.get("analysis") == "python-ast" else JS_EXTENSIONS
+                extensions = (
+                    {".py"} if contract.get("analysis") == "python-ast"
+                    else SWIFT_EXTENSIONS if contract.get("analysis") == "swift-regex"
+                    else JS_EXTENSIONS
+                )
                 test_files = [
                     path for path in files
                     if is_test_path(path) and Path(path).suffix.lower() in extensions
@@ -749,7 +769,8 @@ class DraftEngine:
             guards.append("isolated verification did not pass")
         if strengthening:
             is_typescript = strengthening.get("analysis") == "typescript-regex"
-            allowed_extensions = JS_EXTENSIONS if is_typescript else {".py"}
+            is_swift = strengthening.get("analysis") == "swift-regex"
+            allowed_extensions = JS_EXTENSIONS if is_typescript else SWIFT_EXTENSIONS if is_swift else {".py"}
             if any(
                 not is_test_path(path) or Path(path).suffix.lower() not in allowed_extensions
                 for path in paths
@@ -765,6 +786,12 @@ class DraftEngine:
                         [worktree / path for path in candidate["files"]], strengthening["symbol"]
                     )
                     if is_typescript and replayed.rc == 0 else
+                    sum(
+                        swift_symbol_call_count_text(
+                            (worktree / path).read_text(encoding="utf-8"), strengthening["symbol"]
+                        )
+                        for path in candidate["files"]
+                    ) if is_swift and replayed.rc == 0 else
                     owner_symbol_call_count(
                         [worktree / path for path in candidate["files"]],
                         strengthening["owner"], strengthening["symbol"],
@@ -773,11 +800,11 @@ class DraftEngine:
                 if count is None or count <= 0:
                     guards.append(
                         "test strengthening did not add a proven target invocation"
-                        if is_typescript else
+                        if is_typescript or is_swift else
                         "test strengthening did not add a proven owner-aware invocation"
                     )
                 if (
-                    not is_typescript and replayed.rc == 0 and count is not None
+                    not is_typescript and not is_swift and replayed.rc == 0 and count is not None
                     and candidate.get("semantic_contract")
                 ):
                     try:

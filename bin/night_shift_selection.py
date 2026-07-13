@@ -42,6 +42,7 @@ def declared_symbols(text: str) -> list[str]:
 
     patterns = (
         r"(?m)^\s*(?:(?:export|pub(?:\([^)]*\))?)\s+)?(?:async\s+)?(?:def|class|function|fn|fun)\s+([A-Za-z_][A-Za-z0-9_]*)",
+        r"(?m)^\s*(?:(?:public|internal|private|fileprivate|open|final|static)\s+)*(?:class|struct|enum|actor|func)\s+([A-Za-z_][A-Za-z0-9_]*)",
         r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)",
         r"(?m)^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=.*=>",
         r"(?m)^\s*(?:(?:public|private|protected|internal|static|final|open|override|suspend|async)\s+)+"

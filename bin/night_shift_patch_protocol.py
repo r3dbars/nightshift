@@ -402,6 +402,7 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
     symbol = str(contract.get("symbol") or "")
     source_module = Path(str(contract.get("source_file") or "")).stem
     is_typescript = contract.get("analysis") == "typescript-regex"
+    is_swift = contract.get("analysis") == "swift-regex"
     if is_typescript and symbol and candidate.get("files") and contract.get("source_file"):
         test_path = Path(str(candidate["files"][0]))
         source_path = Path(str(contract["source_file"]))
@@ -410,6 +411,11 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             f"Inside the new test block, dynamically import the exact source module with "
             f"`const {{ {symbol} }} = await import('{import_path}')`; call `{symbol}` from that binding. "
             "Do not add a module-scope import. "
+        )
+    elif is_swift:
+        import_guidance = (
+            "Reuse the existing XCTest import and module import in the test file. "
+            "Do not add a new import or change module configuration. "
         )
     else:
         import_guidance = (
@@ -458,6 +464,8 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             if owner else
             rf"(?m)^\s*(?:export\s+)?(?:async\s+)?(?:def\s+{re.escape(symbol)}\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:|function\s+{re.escape(symbol)}\s*\([^)]*\)\s*(?::[^{{]+)?\s*\{{|(?:const|let|var)\s+{re.escape(symbol)}\s*=)"
             if is_typescript else
+            rf"(?m)^\s*(?:(?:public|internal|private|fileprivate|open|final|static)\s+)*(?:class|struct|enum|actor|func)\s+{re.escape(symbol)}\b"
+            if is_swift else
             rf"(?m)^(?:async\s+)?def\s+{re.escape(symbol)}\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:"
         )
         signature = re.search(
@@ -501,6 +509,16 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
                 "change source, manifests, lockfiles, workflows, configuration, secrets, dependencies, or policy. "
                 "Do not add module-scope imports, filesystem or process side effects, network calls, database access, "
                 "shell commands, or new dependencies. Keep the patch under 60 added lines. "
+                + import_guidance
+            )
+        elif is_swift:
+            edit_policy = (
+                "You may modify only one existing allowed Swift TEST file. Add exactly one focused XCTest "
+                "test method inside the existing XCTestCase. Invoke the exact target symbol from the strengthening "
+                "contract and assert an observable result with XCTAssert...; do not test symbol presence alone. "
+                "Reuse existing imports and helpers. Do not change source, manifests, lockfiles, workflows, "
+                "configuration, secrets, dependencies, or policy. Do not add filesystem, process, network, or "
+                "shell side effects. Keep the patch under 80 changed lines. "
                 + import_guidance
             )
         else:
