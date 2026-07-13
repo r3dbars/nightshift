@@ -140,5 +140,17 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]], mode_defaults:
 def setup_has_changed(saved: dict, proposed: dict) -> bool:
     if not saved:
         return True
-    without_timestamp = lambda value: {key: item for key, item in value.items() if key != "updated_at"}
-    return without_timestamp(saved) != without_timestamp(proposed)
+
+    def comparable(value: dict) -> dict:
+        normalized = {key: item for key, item in value.items() if key != "updated_at"}
+        preferences = dict(normalized.get("preferences") or {})
+        # Missing consent is deliberately equivalent to explicit denial. Adding
+        # a new fail-closed flag must not make a repeat launch look like setup.
+        for key in ("allow_cloud_reasoning", "allow_draft_prs", "allow_remote_lan_worker", "execute_drafts"):
+            if preferences.get(key) is False:
+                preferences.pop(key)
+        if "preferences" in normalized:
+            normalized["preferences"] = preferences
+        return normalized
+
+    return comparable(saved) != comparable(proposed)

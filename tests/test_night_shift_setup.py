@@ -82,6 +82,25 @@ class SetupPolicyTests(unittest.TestCase):
         self.assertTrue(setup_has_changed(saved, proposed))
         self.assertTrue(setup_has_changed({}, proposed))
 
+    def test_new_fail_closed_consent_field_does_not_fake_a_setup_change(self):
+        saved = {
+            "schema_version": 4,
+            "preferences": {"mode": "night-shift", "permission": "draft-prs"},
+        }
+        proposed = {
+            "schema_version": 4,
+            "preferences": {
+                "mode": "night-shift",
+                "permission": "draft-prs",
+                "allow_draft_prs": False,
+                "allow_cloud_reasoning": False,
+                "execute_drafts": False,
+            },
+        }
+        self.assertFalse(setup_has_changed(saved, proposed))
+        proposed["preferences"]["allow_draft_prs"] = True
+        self.assertTrue(setup_has_changed(saved, proposed))
+
 
 if __name__ == "__main__":
     unittest.main()
