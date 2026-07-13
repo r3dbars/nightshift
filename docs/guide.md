@@ -55,12 +55,9 @@ The normal wizard starts like a tiny decision brief:
 ```text
 Welcome to Night Shift.
 
-First time here, so I will set up the basics with you.
-We are choosing four things:
-- whether to watch this repo or recently active GitHub repos
-- what would make tomorrow morning useful
-- where your code is allowed to go
-- how hard and how long Night Shift should work
+This is your first time here, so I will check this project and the AI already
+available on your machines.
+Then I will show one safe plan. You only need to decide whether to start it.
 
 Safe default: local, read-only, no pushes, no merges, no releases.
 ```
@@ -75,9 +72,10 @@ extra questions are still plain English and have safe defaults:
 5. What should Night Shift aim at first?
 6. Where is repo context allowed to go tonight?
 7. What is Night Shift allowed to prepare?
-8. If drafts are allowed, may it make tested patches in disposable worktrees?
-9. How much energy should it use?
-10. When should it stop?
+8. If drafts are allowed, may it try a disposable, test-gated patch?
+9. If draft PRs are allowed, may it open a tested GitHub draft PR for review?
+10. How much energy should it use?
+11. When should it stop?
 
 You do not need to know model names, server URLs, GitHub commands, or repo
 internals to get started. Night Shift detects what it can and continues with a

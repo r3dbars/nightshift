@@ -101,7 +101,7 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]], mode_defaults:
     prefs = config.get("preferences", config)
     mode = prefs.get("mode", DEFAULT_MODE)
     permission = prefs.get("permission", "brief")
-    execute_drafts = bool(prefs.get("execute_drafts", False))
+    execute_drafts = bool(prefs.get("execute_drafts", False)) and permission != "brief"
     allow_draft_prs = bool(prefs.get("allow_draft_prs", False))
     stop = prefs.get("stop", "morning")
     wake_goal = prefs.get("wake_goal", "brief")

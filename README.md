@@ -16,8 +16,9 @@ electricity costs cents. Night Shift collects them: overnight, your machines
 read your repo, find small safe work, and draft. You wake up to a short
 ranked brief with the few things worth looking at first.
 
-It never pushes, merges, releases, or touches credentials. Drafts, not
-deploys. Free and open source under the [MIT License](LICENSE).
+It never pushes directly to your branches, merges, releases, or touches
+credentials. After explicit consent, it may open one tested draft PR from an
+isolated branch. Drafts, not deploys. Free and open source under the [MIT License](LICENSE).
 
 ## Execution Safety
 
@@ -183,7 +184,7 @@ You choose how much it may prepare:
 | --- | --- |
 | `brief` (default) | read-only repo scan, ranked work queue, morning brief |
 | `draft-local` | + exact patch plans, issue candidates, test ideas, and isolated tested drafts when enabled |
-| `draft-prs` | + local patch candidates after a reviewed repo profile and sandbox are installed; still no push or merge |
+| `draft-prs` | + local patch candidates and, after explicit consent, tested GitHub draft PRs; never merge |
 
 And how hard it runs:
 
@@ -195,7 +196,7 @@ And how hard it runs:
 
 ## What It Will Never Do
 
-- Push commits or merge PRs from an overnight run.
+- Push commits to your branches or merge PRs from an overnight run.
 - Release, deploy, publish, tag, or notarize.
 - Touch credentials, billing, or repository visibility.
 - Move or delete your files.
