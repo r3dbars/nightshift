@@ -165,6 +165,29 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertEqual(json.loads((root / "morning-items.json").read_text()), [])
             self.assertIn("Status: GREEN", (root / "morning.md").read_text())
 
+    def test_snapshot_preserves_each_cycle_compactly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            engine = self.engine(root)
+            engine.write_snapshot(root, [{
+                "slug": "owner/first", "score": 100, "primary": True,
+                "checkout": "/cache/first",
+                "signals": {"prs": [], "issues": [], "failed_runs": []},
+            }], cycle=1)
+            engine.write_snapshot(root, [{
+                "slug": "owner/new-failure", "score": 500, "primary": False,
+                "checkout": "/cache/new-failure",
+                "signals": {"prs": [], "issues": [], "failed_runs": [{"id": 1}]},
+            }], cycle=2)
+            rows = [
+                json.loads(line)
+                for line in (root / "portfolio-snapshots.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual([row["cycle"] for row in rows], [1, 2])
+            self.assertEqual(rows[1]["repositories"][0]["slug"], "owner/new-failure")
+            self.assertEqual(rows[1]["repositories"][0]["failed_runs"], 1)
+            self.assertNotIn("signals", rows[1]["repositories"][0])
+
     def test_brief_materializes_exact_child_choice(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

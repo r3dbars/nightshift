@@ -2532,8 +2532,8 @@ def run_isolated_draft(
 PORTFOLIO_REPORTER = PortfolioReportEngine(TASK_HISTORY_PATH, task_family)
 
 
-def write_portfolio_snapshot(ledger: Path, rows: list[dict]) -> None:
-    PORTFOLIO_REPORTER.write_snapshot(ledger, rows)
+def write_portfolio_snapshot(ledger: Path, rows: list[dict], cycle: int | None = None) -> None:
+    PORTFOLIO_REPORTER.write_snapshot(ledger, rows, cycle)
 
 
 def morning_status(path: Path) -> str:
@@ -2652,36 +2652,31 @@ def command_autopilot(args) -> int:
     except Exception:
         lock_context.__exit__(*sys.exc_info())
         raise
-    prepared_cache: list[tuple[dict, Path]] | None = None
     try:
         while not stop_file.exists():
             if deadline_reached(deadline, stop_file):
                 break
             cycle = controller.start_cycle()
-            if prepared_cache is None:
-                if scope == "github-recent":
-                    portfolio = discover_github_portfolio(primary, active_days=active_days, max_repos=max_repos)
-                else:
-                    portfolio = [
-                        {
-                            "slug": repo_slug(primary) or (primary.name if primary else "current"),
-                            "primary": True,
-                            "score": 1000,
-                            "signals": github_repo_signals(repo_slug(primary)),
-                            "path": str(primary) if primary else "",
-                        }
-                    ] if primary else []
-                prepared = []
-                for item in portfolio:
-                    checkout, checkout_status = ensure_portfolio_checkout(item, primary)
-                    item["checkout_status"] = checkout_status
-                    item["checkout"] = str(checkout) if checkout else ""
-                    if checkout:
-                        prepared.append((item, checkout))
-                prepared_cache = prepared
-                write_portfolio_snapshot(ledger, portfolio)
+            if scope == "github-recent":
+                portfolio = discover_github_portfolio(primary, active_days=active_days, max_repos=max_repos)
             else:
-                prepared = prepared_cache
+                portfolio = [
+                    {
+                        "slug": repo_slug(primary) or (primary.name if primary else "current"),
+                        "primary": True,
+                        "score": 1000,
+                        "signals": github_repo_signals(repo_slug(primary)),
+                        "path": str(primary) if primary else "",
+                    }
+                ] if primary else []
+            prepared = []
+            for item in portfolio:
+                checkout, checkout_status = ensure_portfolio_checkout(item, primary)
+                item["checkout_status"] = checkout_status
+                item["checkout"] = str(checkout) if checkout else ""
+                if checkout:
+                    prepared.append((item, checkout))
+            write_portfolio_snapshot(ledger, portfolio, cycle)
             if not prepared:
                 controller.no_prepared_repositories()
                 break
@@ -2775,7 +2770,6 @@ def command_autopilot(args) -> int:
                     if stop_file.exists():
                         break
                     time.sleep(1)
-                prepared_cache = None
             if deadline_reached(deadline, stop_file):
                 break
         portfolio_brief(ledger, controller.rows, controller.status)
