@@ -3006,6 +3006,15 @@ buildThing() { return 1; }
         self.assertTrue(check.valid)
         self.assertTrue(check.patch.startswith("diff --git a/src/app.py b/src/app.py\n"))
 
+        unprefixed = plain.replace("--- a/src/app.py", "--- src/app.py").replace(
+            "+++ b/src/app.py", "+++ src/app.py"
+        )
+        unprefixed_check = night_shift.validate_patch(
+            unprefixed, ["src/app.py"], profile
+        )
+        self.assertTrue(unprefixed_check.valid)
+        self.assertIn("--- a/src/app.py\n+++ b/src/app.py", unprefixed_check.patch)
+
         mismatched = plain.replace("+++ b/src/app.py", "+++ b/src/other.py")
         self.assertFalse(night_shift.validate_patch(mismatched, ["src/app.py"], profile).valid)
 
