@@ -117,7 +117,9 @@ def materialize_test_method_patch(
             return ""
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in dynamic_names:
             return ""
-        if isinstance(node, ast.Import):
+        if isinstance(node, ast.Import) and any(
+            alias.name not in SAFE_TEST_IMPORT_MODULES for alias in node.names
+        ):
             return ""
         if isinstance(node, ast.ImportFrom) and (
             node.level != 0
