@@ -94,6 +94,17 @@ class ReportingTests(unittest.TestCase):
             self.assertIn("Recent code/test surface: README.md, bin/night-shift", brief)
             self.assertIn("Detected verification command", brief)
 
+    def test_empty_grounded_run_does_not_blame_compute_setup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            self.engine().write_morning(
+                ledger, "night-shift", [], 100, "GREEN", {"status": "ok"}
+            )
+            brief = (ledger / "morning.md").read_text()
+            self.assertIn("Status: YELLOW", brief)
+            self.assertIn("Nothing had enough evidence", brief)
+            self.assertNotIn("Fix the startup gate", brief)
+
 
 if __name__ == "__main__":
     unittest.main()

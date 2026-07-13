@@ -998,6 +998,27 @@ buildThing() { return 1; }
         self.assertEqual(ready, [failing])
         self.assertIn("neither requested changes nor failed checks", skipped[0]["reason"])
 
+    def test_normal_mode_skips_multi_item_tracker_issues(self):
+        tracker = {
+            "slug": "issue-41-next-action",
+            "kind": "issue",
+            "files": ["README.md"],
+            "verification_commands": ["bash run-tests.sh"],
+            "signal": json.dumps({
+                "body": "- [ ] Fix release signing\n- [ ] Update README.md\n- [x] Finished item",
+            }),
+        }
+        single = {
+            **tracker,
+            "slug": "issue-42-next-action",
+            "signal": json.dumps({"body": "- [ ] Update README.md with the new command"}),
+        }
+        normal, skipped = night_shift.model_ready_tasks([tracker, single], "night-shift")
+        afterburner, _ = night_shift.model_ready_tasks([tracker], "afterburner")
+        self.assertEqual(normal, [single])
+        self.assertEqual(afterburner, [tracker])
+        self.assertIn("2-item", skipped[0]["reason"])
+
     def test_normal_mode_reserves_broad_mapping_for_afterburner(self):
         task = {
             "slug": "source-map-01",

@@ -238,7 +238,10 @@ class ReportEngine:
         factual = self.factual_change_surface(scan)
         if work_items: first_action = work_items[0]["primary"]["summary"]
         elif results: first_action = factual[0].removeprefix("- ") if factual else "No evidence-backed item survived. Review the deterministic repo scan before another model run."
-        else: first_action = "Fix the startup gate or run with reachable local/Windows lanes."
+        elif scan and scan.get("status") == "ok":
+            first_action = "Nothing had enough evidence to work on safely. Night Shift will try again after new repo or GitHub activity."
+        else:
+            first_action = "Fix the startup gate or run with reachable local/Windows lanes."
         try: task_skips = json.loads((ledger / "task-skips.json").read_text(encoding="utf-8"))
         except (OSError, ValueError): task_skips = []
         lines = ["# Morning Brief", "", f"Status: {status}", "", "Start here:", f"- {first_action}", "", "Three useful choices:"]
