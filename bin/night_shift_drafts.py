@@ -53,6 +53,15 @@ def patch_format_correction(files: list[str]) -> str:
     )
 
 
+def verification_correction_prompt(patch: str, failure_output: str) -> str:
+    return (
+        "VERIFICATION CORRECTION: The patch applied but the approved repository check failed. "
+        "Return a complete corrected unified diff against the original pinned source. Change only "
+        "the allowed test file and preserve every semantic proof requirement.\n\n"
+        f"CURRENT PATCH:\n{patch[-8000:]}\n\nFAILURE OUTPUT:\n{failure_output[-5000:]}"
+    )
+
+
 def test_strengthening_contract(evidence_sources: dict[str, str] | None) -> dict[str, str] | None:
     contracts: list[dict[str, str]] = []
     for path, text in (evidence_sources or {}).items():
@@ -495,6 +504,49 @@ class DraftEngine:
             timeout=min(verify_timeout, profile.max_seconds),
             pid_log=parent_ledger / "processes.tsv",
         )
+        verification_output_path = sandbox_dir / "verification.txt"
+        if verified.rc != 0 and strengthening:
+            retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
+            failure_output = (
+                verification_output_path.read_text(encoding="utf-8", errors="replace")[-5000:]
+                if verification_output_path.exists() else (verified.stderr or verified.stdout)[-5000:]
+            )
+            current_patch = patch_path.read_text(encoding="utf-8", errors="replace")[-8000:]
+            correction = verification_correction_prompt(current_patch, failure_output)
+            if retry_timeout > 0:
+                repair = self.ask_for_patch(
+                    worktree, source_ref, candidate, verification_argv, retry_timeout,
+                    worker_url, worker_model, parent_ledger, f"{safe_task}-verification", correction, patch_lane,
+                )
+                (proof_dir / f"{safe_task}.verification-worker.txt").write_text(
+                    (repair.stdout + "\n" + repair.stderr).strip() + "\n", encoding="utf-8"
+                )
+                repaired = validate_patch(repair.stdout, candidate["files"], profile)
+                repaired_patch = repaired.patch
+                if not repaired.valid and len(candidate["files"]) == 1:
+                    try:
+                        original_test = (worktree / candidate["files"][0]).read_text(encoding="utf-8")
+                    except (OSError, UnicodeError):
+                        original_test = ""
+                    repaired_patch = materialize_test_method_patch(
+                        repair.stdout, original_test, candidate["files"][0]
+                    )
+                    repaired = validate_patch(repaired_patch, candidate["files"], profile)
+                if repair.rc == 0 and repaired.valid:
+                    patch_path.write_text(repaired_patch, encoding="utf-8")
+                    applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
+                    if applies.rc == 0:
+                        retry_sandbox = proof_dir / f"{safe_task}-verification-sandbox"
+                        retry_sandbox.mkdir(parents=True, exist_ok=True)
+                        retried = self.run_cmd(
+                            sandbox_patch_command(worktree, patch_path, retry_sandbox, verification_argv, profile),
+                            cwd=worktree, timeout=min(retry_timeout, profile.max_seconds),
+                            pid_log=parent_ledger / "processes.tsv",
+                        )
+                        sandbox_dir = retry_sandbox
+                        verified = retried
+                        proposed = repaired
+                        model = repair
         (sandbox_dir / "runner.txt").write_text(
             (verified.stdout + "\n" + verified.stderr).strip() + "\n",
             encoding="utf-8",

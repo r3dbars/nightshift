@@ -22,7 +22,7 @@ sys.modules[LOADER.name] = night_shift
 LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
-from night_shift_drafts import owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate
+from night_shift_drafts import owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
 from night_shift_patch_protocol import materialize_test_method_patch
 from night_shift_python_evidence import semantic_test_contract_reasons
 
@@ -3295,6 +3295,13 @@ buildThing() { return 1; }
             )
             self.assertEqual(result["status"], "REJECT")
             self.assertEqual(worker_calls, 1)
+
+    def test_verification_failure_prompt_contains_patch_and_failure_without_source_edits(self):
+        correction = verification_correction_prompt("PATCH-SENTINEL", "FAILURE-SENTINEL")
+        self.assertIn("corrected unified diff", correction)
+        self.assertIn("PATCH-SENTINEL", correction)
+        self.assertIn("FAILURE-SENTINEL", correction)
+        self.assertIn("Change only the allowed test file", correction)
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
