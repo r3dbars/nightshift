@@ -532,6 +532,16 @@ CONFIDENCE: high
         self.assertIn("coverage-index/app.py-run.txt:2 | identifier_matches=0", context)
         self.assertNotIn("github-actions/run-1.log:1 | failure", context)
 
+    def test_worker_prompts_forbid_ranged_or_html_evidence(self):
+        task = {"slug": "exact", "files": ["src/app.py"]}
+        for prompt in (
+            night_shift.local_prompt("exact", "Inspect", "context", task),
+            night_shift.windows_prompt("exact", "Inspect", "context", task),
+        ):
+            self.assertIn("one physical source line per entry", prompt)
+            self.assertIn("no ranges, Unicode dashes, HTML", prompt)
+            self.assertIn("ASCII digits only", prompt)
+
     def test_model_context_excludes_sensitive_paths_and_redacts_source_secrets(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
@@ -781,6 +791,51 @@ CONFIDENCE: high
                 repo,
             )
             self.assertIn("negative claim requires deterministic repository proof", reasons)
+
+    def test_test_backed_negative_claim_must_cite_every_named_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "tests").mkdir()
+            (repo / "tests" / "test_prompt.py").write_text(
+                "def test_exact_evidence():\n    pass\n", encoding="utf-8"
+            )
+            (repo / "tests" / "test_queue.py").write_text(
+                "def test_queue_order():\n    pass\n", encoding="utf-8"
+            )
+            output = """CLAIM: `tests/test_prompt.py` has an exact-evidence test but `tests/test_queue.py` has no corresponding test
+EVIDENCE: tests/test_prompt.py:1 | def test_exact_evidence():
+WHY_NOW: prompt validation changed
+BEST_NEXT_ACTION: add a queue evidence test
+FILES_TO_TOUCH: tests/test_queue.py
+TESTS_TO_RUN: python -m unittest
+EXPECTED_RESULT: all tests pass
+ACTION_TYPE: patch-plan
+SAFE_FOR_DRAFT_PR: yes
+CONFIDENCE: high
+"""
+            reasons = night_shift.output_quality_reasons(
+                0,
+                output,
+                ["tests/test_prompt.py", "tests/test_queue.py"],
+                ["python -m unittest"],
+                repo,
+                "test",
+            )
+            self.assertIn(
+                "negative claim did not cite claimed path: tests/test_queue.py",
+                reasons,
+            )
+            self.assertEqual(
+                night_shift.score_output(
+                    0,
+                    output,
+                    ["tests/test_prompt.py", "tests/test_queue.py"],
+                    ["python -m unittest"],
+                    repo,
+                    "test",
+                ),
+                "REJECT",
+            )
 
     def test_queue_has_no_generic_work_without_repo_signals(self):
         scan = {

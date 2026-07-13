@@ -214,6 +214,9 @@ class CorrectionPromptTests(unittest.TestCase):
             prompt,
         )
         self.assertIn("- python3 -m unittest tests.test_night_shift", prompt)
+        self.assertIn("one physical source line with ASCII digits only", prompt)
+        self.assertIn("Never use a line range, Unicode dash, HTML `<br>`", prompt)
+        self.assertIn("If no exact single line proves the claim, set ACTION_TYPE: reject", prompt)
 
     def test_correction_prompt_makes_goal_and_invocation_evidence_copy_ready(self):
         prompt = correction_prompt(

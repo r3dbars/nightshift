@@ -130,6 +130,14 @@ def evidence_validation_reasons(
         for value in value
         if value and "/" in value
     }
+    cited_paths = {relative for relative, _, _ in entries}
+    if negative_claim:
+        uncited_claimed_paths = sorted(claimed_paths - cited_paths)
+        if uncited_claimed_paths:
+            return [
+                "negative claim did not cite claimed path: "
+                + ", ".join(uncited_claimed_paths)
+            ]
     stop = {
         "about", "after", "change", "changes", "code", "coverage", "file", "files",
         "from", "into", "line", "missing", "night", "repo", "shift", "test", "tests",
