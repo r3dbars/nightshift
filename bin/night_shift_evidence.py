@@ -86,6 +86,14 @@ def label_block(output: str, labels: list[str]) -> str:
                         collected.append(inline)
                     break
             continue
+        repeated = next(
+            (label for label in labels if lower.startswith(label.lower())), None
+        )
+        if repeated:
+            inline = normalized[len(repeated) :].lstrip(" :-")
+            if inline:
+                collected.append(inline)
+            continue
         if re.match(r"^\d+[.)]\s+[A-Z][A-Z_ ]+:", stripped) or re.match(r"^[A-Z][A-Z_ ]+:", stripped):
             break
         collected.append(stripped)
@@ -124,12 +132,22 @@ def evidence_validation_reasons(
     ))
     if negative_claim and proof_kind != "test":
         return ["negative claim requires deterministic repository proof"]
-    claimed_paths = {
-        value.strip("`.,:;()[]")
-        for value in re.findall(r"`([^`]+)`|((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.@+-]+)", claim)
-        for value in value
-        if value and "/" in value
+    backticked = {
+        value.strip("`.,:;()[]") for value in re.findall(r"`([^`]+)`", claim)
+        if "/" in value
     }
+    backticked_paths = {
+        value for value in backticked
+        if value in allowed or not all(
+            re.fullmatch(r"[A-Z][A-Z0-9_-]*", part)
+            for part in value.split("/")
+        )
+    }
+    claim_without_backticks = re.sub(r"`[^`]*`", "", claim)
+    unquoted_paths = set(re.findall(
+        r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.@+-]+", claim_without_backticks
+    ))
+    claimed_paths = backticked_paths | unquoted_paths
     cited_paths = {relative for relative, _, _ in entries}
     if negative_claim:
         uncited_claimed_paths = sorted(claimed_paths - cited_paths)
@@ -175,8 +193,12 @@ def evidence_validation_reasons(
         ))
         if intent_claim and (not source_intent or denied_intent_claim != source_denied_intent):
             return [f"cited line does not support claimed intent: {relative}:{raw_line}"]
+        relevance_text = (
+            f"{source_line}\n{supplied_sources[relative]}"
+            if relative in supplied_sources else source_line
+        )
         source_words = {
-            word.rstrip("s") for word in re.findall(r"[a-z0-9]+", source_line.lower()) if len(word) >= 4 and word not in stop
+            word.rstrip("s") for word in re.findall(r"[a-z0-9]+", relevance_text.lower()) if len(word) >= 4 and word not in stop
         }
         if claim_words & source_words:
             valid_entries += 1

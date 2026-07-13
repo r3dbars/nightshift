@@ -500,6 +500,87 @@ CONFIDENCE: high
                 "MAYBE",
             )
 
+    def test_repeated_evidence_labels_are_all_validated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("def answer():\n    return 42\n", encoding="utf-8")
+            output = """CLAIM: `answer` returns 42
+EVIDENCE: app.py:1 | def answer():
+EVIDENCE: app.py:2 | return 42
+FILES_TO_TOUCH: app.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: answer() returns 42
+ACTION_TYPE: patch-plan
+"""
+            self.assertEqual(
+                night_shift.label_block(output, ["EVIDENCE"]),
+                "app.py:1 | def answer():\napp.py:2 | return 42",
+            )
+            self.assertEqual(
+                night_shift.evidence_validation_reasons(output, repo, ["app.py"]), []
+            )
+
+    def test_slash_separated_status_values_are_not_repo_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "status.py").write_text(
+                "def parse_status():\n    return 'GREEN'\n", encoding="utf-8"
+            )
+            output = """CLAIM: `parse_status` lacks a focused `GREEN/YELLOW/RED` behavior test
+EVIDENCE: status.py:1 | def parse_status():
+FILES_TO_TOUCH: status.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: parse_status() returns GREEN
+ACTION_TYPE: patch-plan
+"""
+            reasons = night_shift.evidence_validation_reasons(
+                output, repo, ["status.py"], proof_kind="test"
+            )
+            self.assertNotIn(
+                "negative claim did not cite claimed path: GREEN/YELLOW/RED", reasons
+            )
+
+    def test_extensionless_negative_claim_path_still_requires_a_citation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("enabled = False\n", encoding="utf-8")
+            output = """CLAIM: `bin/legacy_handler` lacks the required behavior
+EVIDENCE: app.py:1 | enabled = False
+FILES_TO_TOUCH: app.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: behavior is verified
+ACTION_TYPE: patch-plan
+"""
+            self.assertIn(
+                "negative claim did not cite claimed path: bin/legacy_handler",
+                night_shift.evidence_validation_reasons(
+                    output, repo, ["app.py"], proof_kind="test"
+                ),
+            )
+
+    def test_exact_synthetic_metric_uses_its_trusted_record_for_relevance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            output = """CLAIM: `morning_status` has zero test matches
+EVIDENCE: coverage-index/morning-status.txt:3 | identifier_matches=0
+FILES_TO_TOUCH: tests/test_status.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: morning_status returns GREEN for a valid status file
+ACTION_TYPE: patch-plan
+"""
+            reasons = night_shift.evidence_validation_reasons(
+                output,
+                repo,
+                ["tests/test_status.py"],
+                proof_kind="test",
+                evidence_sources={
+                    "coverage-index/morning-status.txt": (
+                        "symbol=morning_status\nsource_file=status.py\nidentifier_matches=0"
+                    )
+                },
+            )
+            self.assertEqual(reasons, [])
+
     def test_correction_prompt_lists_exact_evidence_paths(self):
         prompt = night_shift.correction_prompt(
             "Inspect the gap.",
