@@ -87,7 +87,7 @@ def task_selection_priority(task: dict) -> int:
 
 
 def requests_coverage_work(goal: str) -> bool:
-    action = r"(?:add|audit|create|expand|fix|improve|increase|review|strengthen|write)"
+    action = r"(?:add|audit|create|expand|find|fix|identify|improve|increase|locate|review|strengthen|write)"
     target = r"(?:test|tests|testing|coverage|regression)"
     return bool(re.search(rf"\b(?:{action}\b.{{0,48}}\b{target}|{target}\b.{{0,48}}\b{action})\b", goal, re.IGNORECASE))
 
@@ -159,6 +159,9 @@ def model_task_readiness_reasons(task: dict, mode: str, goal: str = "") -> list[
             reasons.append("coverage index does not prove zero identifier matches")
         if mode != "afterburner" and not requests_coverage_work(goal):
             reasons.append("coverage-index-only work is reserved for afterburner or an explicit coverage goal")
+    elif slug == "mission-brief" and requests_coverage_work(goal):
+        if not task.get("evidence_sources"):
+            reasons.append("coverage mission has no deterministic gap evidence; use a coverage-index task")
 
     broad_kind = task.get("kind") in {"map", "docs", "proof"} or (
         task.get("kind") == "triage" and not slug.startswith("pr-")

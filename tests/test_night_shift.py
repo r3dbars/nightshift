@@ -1417,8 +1417,59 @@ buildThing() { return 1; }
     def test_coverage_override_requires_explicit_action_and_target(self):
         self.assertTrue(night_shift.requests_coverage_work("improve regression test coverage"))
         self.assertTrue(night_shift.requests_coverage_work("testing needs a focused review"))
+        self.assertTrue(night_shift.requests_coverage_work("find one missing behavioral test"))
+        self.assertTrue(night_shift.requests_coverage_work("identify a regression coverage gap"))
         self.assertFalse(night_shift.requests_coverage_work("do not run tests; inspect the API issue"))
         self.assertFalse(night_shift.requests_coverage_work("summarize the test results"))
+
+    def test_explicit_coverage_goal_routes_away_from_ungrounded_mission_brief(self):
+        mission = {
+            "slug": "mission-brief",
+            "kind": "mission",
+            "files": ["src/app.py", "tests/test_app.py"],
+            "verification_commands": ["python -m pytest"],
+            "evidence_sources": {},
+        }
+        gap = {
+            "slug": "recent-change-test-gap",
+            "kind": "tests",
+            "files": ["src/app.py", "tests/test_app.py"],
+            "verification_commands": ["python -m pytest"],
+            "evidence_sources": {
+                "coverage-index/src-app.py-run.txt": "scan_complete=true\nidentifier_matches=0"
+            },
+        }
+        ready, skipped = night_shift.model_ready_tasks(
+            [mission, gap], "night-shift", "find one missing behavioral test"
+        )
+        self.assertEqual(ready, [gap])
+        self.assertIn("no deterministic gap evidence", skipped[0]["reason"])
+
+    def test_top_level_coverage_gap_includes_source_evidence_but_is_not_executable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "src").mkdir()
+            (repo / "tests").mkdir()
+            (repo / "src/app.py").write_text(
+                "def public_helper(value):\n    return value + 1\n", encoding="utf-8"
+            )
+            (repo / "tests/test_app.py").write_text(
+                "def test_other():\n    assert True\n", encoding="utf-8"
+            )
+            scan = {
+                "tracked_files": ["src/app.py", "tests/test_app.py"],
+                "source_files": ["src/app.py"],
+                "test_files": ["tests/test_app.py"],
+                "coverage_test_files": ["tests/test_app.py"],
+                "recent_files": ["src/app.py"],
+                "test_commands": ["python -m pytest"],
+            }
+            queue = night_shift.build_repo_work_queue(
+                repo, scan, "night-shift", "draft-local", "scan", ""
+            )
+            task = next(row for row in queue if row["slug"].startswith("changed-file-proof-"))
+            self.assertTrue(any(key.startswith("goal-source/") for key in task["evidence_sources"]))
+            self.assertFalse(task["executable"])
 
     def test_morning_status_is_strict_and_shared(self):
         with tempfile.TemporaryDirectory() as tmp:
