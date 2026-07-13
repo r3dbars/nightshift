@@ -295,7 +295,11 @@ def dispatch_one(
         "action_type": action_type(safe_output),
         "evidence": first_label_value(safe_output, ["EVIDENCE"]),
         "files": concrete_paths(safe_output, candidate_files),
-        "tests": clean_inline_code(first_label_value(safe_output, ["TESTS_TO_RUN", "TESTS TO RUN", "VERIFICATION"])),
+        "tests": (
+            verification_commands[0]
+            if verification_commands else
+            clean_inline_code(first_label_value(safe_output, ["TESTS_TO_RUN", "TESTS TO RUN", "VERIFICATION"]))
+        ),
         "expected_result": clean_inline_code(first_label_value(safe_output, ["EXPECTED_RESULT", "EXPECTED RESULT"])),
         "quality_reasons": selected["quality_reasons"]
         + (["correction switched to a different named code target"] if selected.get("identity_drift") else []),

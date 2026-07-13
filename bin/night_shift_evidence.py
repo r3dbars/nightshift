@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import signal
 import subprocess
 from pathlib import Path
@@ -338,9 +339,13 @@ def output_quality_reasons(
         reasons.append("missing an exact repo-relative path")
     elif candidate_files and any(path not in set(candidate_files) for path in proposed_paths):
         reasons.append("file to touch was not supplied to the worker")
-    if not verification or verification.lower() in {"none", "n/a", "unknown"}:
+    if not verification_commands and (
+        not verification or verification.lower() in {"none", "n/a", "unknown"}
+    ):
         reasons.append("missing an exact verification command")
-    elif verification_commands and not any(command in verification for command in verification_commands):
+    elif verification_commands and verification and not verification_is_compatible(
+        verification, verification_commands
+    ):
         reasons.append("verification command was not detected from this repo")
     if not expected or expected.lower() in {"none", "n/a", "unknown"}:
         reasons.append("missing the expected proof result")
@@ -353,6 +358,31 @@ def output_quality_reasons(
     if action_type(output) == "reject":
         reasons.append("worker explicitly rejected the task")
     return reasons
+
+
+def verification_is_compatible(proposed: str, approved: list[str]) -> bool:
+    if re.search(r"[;&|`$<>]|[\x00-\x1f\x7f]", proposed):
+        return False
+    try:
+        proposed_argv = shlex.split(clean_inline_code(proposed))
+    except ValueError:
+        return False
+    for command in approved:
+        try:
+            approved_argv = shlex.split(command)
+        except ValueError:
+            continue
+        if proposed_argv == approved_argv:
+            return True
+        if (
+            len(proposed_argv) >= 3
+            and len(approved_argv) >= 3
+            and proposed_argv[:3] == approved_argv[:3]
+            and proposed_argv[1] == "-m"
+            and proposed_argv[2] in {"unittest", "pytest"}
+        ):
+            return True
+    return False
 
 
 def confidence_bonus(output: str) -> int:
