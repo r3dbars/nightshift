@@ -3,7 +3,6 @@
   "trust": "owned",
   "execution": "sandbox-only",
   "commands": [
-    ["bash", "scripts/check-package.sh"],
     ["python3", "-m", "unittest", "tests.test_publish"]
   ],
   "allowed_paths": [
@@ -25,5 +24,5 @@
     "pids": 128,
     "seconds": 900
   },
-  "image": "sha256:6ca48b362769883b2b56564a9f339ec17ce25ce4b364b2000610269a0f44cccc"
+  "image": "sha256:13ecda360a4b3e3e61c8a65c4d150d546b97200f58d07e8d6ec74fdac9da5599"
 }

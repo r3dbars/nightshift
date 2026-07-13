@@ -62,9 +62,12 @@ def live_colima_docker(run_cmd: Callable, docker: str) -> str:
         return ""
     context = run_cmd([docker, "context", "show"], timeout=20)
     name = context.stdout.strip() if context.rc == 0 else ""
-    if not name.startswith("colima-"):
+    if name == "colima":
+        profile = "default"
+    elif name.startswith("colima-"):
+        profile = name.removeprefix("colima-")
+    else:
         return ""
-    profile = name.removeprefix("colima-")
     status = run_cmd([shutil.which("colima"), "status", "--profile", profile, "--json"], timeout=20)
     try:
         detail = json.loads(status.stdout) if status.rc == 0 else {}
@@ -133,7 +136,11 @@ def fixed_patch_script() -> str:
 
 def fixed_verify_script() -> str:
     """Copy read-only source into disposable tmpfs before running checks."""
-    return "set -eu; cp -a /source/. /work/; cd /work; rm -rf .git; exec \"$@\""
+    return (
+        "set -eu; cp -a /source/. /work/; cd /work; rm -rf .git; git init -q; "
+        "git config user.email night-shift@localhost; git config user.name 'Night Shift'; "
+        "git add -A; git commit -qm baseline; exec \"$@\""
+    )
 
 
 def sandbox_patch_command(

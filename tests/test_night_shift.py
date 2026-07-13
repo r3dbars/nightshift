@@ -1914,6 +1914,31 @@ buildThing() { return 1; }
             sandbox.shutil.which = original_which
             sandbox.platform.system = original_system
 
+    def test_default_colima_context_maps_to_default_profile(self):
+        sandbox = __import__("night_shift_sandbox")
+        original_which = sandbox.shutil.which
+        original_system = sandbox.platform.system
+        try:
+            sandbox.shutil.which = lambda name: f"/usr/local/bin/{name}" if name in {"docker", "colima"} else None
+            sandbox.platform.system = lambda: "Darwin"
+
+            def fake_run(args, **kwargs):
+                if args[1:3] == ["context", "show"]:
+                    return night_shift.CmdResult("docker context show", 0, "colima\n", "")
+                if Path(args[0]).name == "colima":
+                    self.assertIn("default", args)
+                    return night_shift.CmdResult("colima status", 0, json.dumps({
+                        "driver": "macOS Virtualization.Framework",
+                        "runtime": "docker",
+                        "docker_socket": f"unix://{Path.home()}/.colima/default/docker.sock",
+                    }), "")
+                return night_shift.CmdResult("docker info", 0, "[]", "")
+
+            self.assertTrue(sandbox.detect_sandbox(fake_run).available)
+        finally:
+            sandbox.shutil.which = original_which
+            sandbox.platform.system = original_system
+
     def test_podman_stopped_machine_gets_exact_start_command(self):
         sandbox = __import__("night_shift_sandbox")
         original_which = sandbox.shutil.which
