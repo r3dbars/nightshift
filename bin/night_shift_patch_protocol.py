@@ -193,6 +193,14 @@ def validate_patch(
 def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...]) -> str:
     contract = candidate.get("strengthening_contract") or {}
     semantic = candidate.get("semantic_contract") or {}
+    owner = str(contract.get("owner") or "")
+    source_module = Path(str(contract.get("source_file") or "")).stem
+    import_guidance = (
+        f"If {owner} is not already imported, put `from {source_module} import {owner}` inside the new test method; "
+        "do not edit global imports. "
+        if owner and source_module else
+        "If the target owner is not already imported, import it from the exact source module inside the new test method; do not edit global imports. "
+    )
     semantic_guidance: list[str] = []
     if semantic.get("minimum_target_invocations"):
         semantic_guidance.append(
@@ -216,6 +224,10 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "Reuse existing imports and test helpers; add no dependency. Use the exact constructor and method "
             "signatures shown in SOURCE EXCERPT; do not monkeypatch attributes that the class does not define. "
             "Fake command results must expose the exact attributes read by source, such as rc rather than a dict. "
+            + import_guidance
+            + "If the source return annotation is bool, assert the returned value directly with assertTrue or assertFalse; "
+            "do not read attributes such as rc from that boolean. A fake command runner does not create filesystem "
+            "side effects unless the fake explicitly implements them, so prove behavior from its recorded calls. "
             "Preserve exact argument types: compare a Path as a Path unless source explicitly converts it. "
             "Assert exact observed call order, arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
             "EXCERPT, preferably near the test file tail. Keep the patch under 80 changed lines."

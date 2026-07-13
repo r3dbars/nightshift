@@ -105,7 +105,10 @@ class NightShiftQualityTests(unittest.TestCase):
     def test_patch_prompt_turns_semantic_contract_into_operational_guidance(self):
         prompt = __import__("night_shift_patch_protocol").patch_prompt({
             "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
-            "strengthening_contract": {"owner": "DraftEngine", "symbol": "cleanup"},
+            "strengthening_contract": {
+                "owner": "DraftEngine", "symbol": "cleanup",
+                "source_file": "bin/night_shift_drafts.py",
+            },
             "semantic_contract": {
                 "minimum_target_invocations": 2,
                 "required_boolean_outcomes": [True, False],
@@ -117,6 +120,11 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn("assert remove occurs before prune", prompt)
         self.assertIn("exact constructor and method signatures", prompt)
         self.assertIn("rc rather than a dict", prompt)
+        self.assertIn(
+            "from night_shift_drafts import DraftEngine` inside the new test method", prompt
+        )
+        self.assertIn("assert the returned value directly", prompt)
+        self.assertIn("does not create filesystem side effects", prompt)
         self.assertIn("compare a Path as a Path", prompt)
 
     def test_inline_label_parsing_preserves_terminal_source_punctuation(self):
