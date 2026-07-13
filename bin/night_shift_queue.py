@@ -20,6 +20,7 @@ from night_shift_selection import (
     task_selection_priority,
     unchecked_issue_actions,
 )
+from night_shift_swift_evidence import swift_symbol_call_count_text
 
 
 MAX_SOURCE_BYTES = 262_144
@@ -40,7 +41,7 @@ TASK_LADDER = {
 def complete_invocation_evidence(value: str) -> bool:
     return any(
         f"analysis={analysis}" in value
-        for analysis in ("python-ast", "typescript-regex")
+        for analysis in ("python-ast", "typescript-regex", "swift-regex")
     ) and "call_matches=0" in value and "scan_complete=true" in value
 
 
@@ -344,6 +345,8 @@ class QueueEvidenceIndex:
         for path in recent_source:
             if is_test_path(path):
                 continue
+            if Path(path).suffix.lower() == ".swift" and not self.swift_source_is_testable(path, test_corpus):
+                continue
             source_text = self.read_current_text(path)
             symbols = declared_symbols(source_text)
             preferred = [symbol for symbol in (preferred_symbols or []) if symbol in symbols]
@@ -396,9 +399,21 @@ class QueueEvidenceIndex:
                 evidence.update(self.invocation_gap(path, missing))
             elif Path(path).suffix.lower() in {".ts", ".tsx"}:
                 evidence.update(self.invocation_gap(path, missing))
+            elif Path(path).suffix.lower() == ".swift":
+                evidence.update(self.invocation_gap(path, missing))
             evidence.update(self.symbol_source_evidence(path, missing, owner))
             gaps.append((path, missing, evidence))
         return gaps
+
+    @staticmethod
+    def swift_source_is_testable(source_path: str, test_corpus: str) -> bool:
+        """Only queue Swift sources whose module is imported by existing tests."""
+        parts = Path(source_path).parts
+        try:
+            module = parts[parts.index("Sources") + 1]
+        except (ValueError, IndexError):
+            return True
+        return bool(re.search(rf"(?m)^\s*(?:@testable\s+)?import\s+{re.escape(module)}\b", test_corpus))
 
     def invocation_gap(self, source_path: str, symbol: str, owner: str = "") -> dict[str, str]:
         """Prove that tracked tests contain no executable call to a named symbol."""
@@ -420,6 +435,11 @@ class QueueEvidenceIndex:
         elif Path(source_path).suffix.lower() in {".ts", ".tsx"}:
             analysis = "typescript-regex" if coverage_test_paths and all(
                 Path(path).suffix.lower() in JS_EXTENSIONS
+                for path in coverage_test_paths
+            ) else "mixed-regex"
+        elif Path(source_path).suffix.lower() == ".swift":
+            analysis = "swift-regex" if coverage_test_paths and all(
+                Path(path).suffix.lower() == ".swift"
                 for path in coverage_test_paths
             ) else "mixed-regex"
         else:
@@ -449,6 +469,8 @@ class QueueEvidenceIndex:
                     complete = False
                     continue
                 calls += counted
+            elif analysis == "swift-regex":
+                calls += swift_symbol_call_count_text(text, symbol)
             else:
                 calls += len(re.findall(rf"(?:\.|\b){re.escape(symbol)}\s*\(", text))
         safe_source = re.sub(r"[^A-Za-z0-9_.-]+", "-", source_path).strip("-")

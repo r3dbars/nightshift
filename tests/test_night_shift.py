@@ -4021,6 +4021,34 @@ buildThing() { return 1; }
             test_path.write_text("expect(formatPercent(42)).toBe('42%');\n", encoding="utf-8")
             self.assertIsNone(valid_test_strengthening_candidate(candidate, root))
 
+    def test_swift_strengthening_candidate_requires_zero_direct_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Sources").mkdir()
+            (root / "Tests").mkdir()
+            (root / "Sources" / "Summary.swift").write_text(
+                "public struct EntryStatsSummary { public init() {} }\n",
+                encoding="utf-8",
+            )
+            test_path = root / "Tests" / "SummaryTests.swift"
+            test_path.write_text("import XCTest\nfinal class SummaryTests: XCTestCase {}\n", encoding="utf-8")
+            contract = {
+                "symbol": "EntryStatsSummary", "source_file": "Sources/Summary.swift", "owner": "none",
+                "analysis": "swift-regex", "call_matches": "0", "scan_complete": "true",
+            }
+            candidate = {
+                "draft_intent": "test-strengthening", "strengthening_contract": contract,
+                "files": ["Tests/SummaryTests.swift"],
+                "context_files": ["Sources/Summary.swift", "Tests/SummaryTests.swift"],
+            }
+            self.assertEqual(valid_test_strengthening_candidate(candidate, root), contract)
+            test_path.write_text(
+                "import XCTest\nfinal class SummaryTests: XCTestCase {\n"
+                "    func testSummary() { let summary = EntryStatsSummary() }\n}\n",
+                encoding="utf-8",
+            )
+            self.assertIsNone(valid_test_strengthening_candidate(candidate, root))
+
     def test_owner_symbol_call_count_ignores_unrelated_same_named_methods(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "test_drafts.py"
