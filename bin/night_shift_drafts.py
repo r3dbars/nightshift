@@ -319,7 +319,9 @@ class DraftEngine:
         self.run_cmd(["git", "worktree", "prune"], cwd=repo, timeout=60)
         return removed.rc == 0
 
-    def source_excerpt(self, repo: Path, source_ref: str, files: list[str]) -> str:
+    def source_excerpt(
+        self, repo: Path, source_ref: str, files: list[str], focus_symbol: str = ""
+    ) -> str:
         sections: list[str] = []
         for path in files:
             shown = self.run_cmd(["git", "show", f"{source_ref}:{path}"], cwd=repo, timeout=30)
@@ -327,6 +329,22 @@ class DraftEngine:
                 text = shown.stdout
                 if is_test_path(path) and len(text) > 10_000:
                     text = text[:2000] + "\n# ... pinned middle omitted ...\n" + text[-4000:]
+                elif focus_symbol and not is_test_path(path):
+                    names = focus_symbol.split(".")
+                    owner, symbol = names[-2:] if len(names) > 1 else ("", names[-1])
+                    lines = text.splitlines()
+                    anchors: list[int] = []
+                    for index, line in enumerate(lines):
+                        if owner and re.match(rf"^\s*class\s+{re.escape(owner)}\b", line):
+                            anchors.extend(range(index, min(len(lines), index + 18)))
+                        if re.match(rf"^\s*(?:async\s+)?def\s+{re.escape(symbol)}\s*\(", line):
+                            anchors.extend(range(max(0, index - 4), min(len(lines), index + 16)))
+                    if anchors:
+                        selected = set(anchors)
+                        focused = [lines[index] for index in sorted(selected)]
+                        text = "# ... focused source excerpt ...\n" + "\n".join(focused)
+                    else:
+                        text = text[:6000]
                 else:
                     text = text[:6000]
                 sections.append(f"## {path}\n{text}")
@@ -350,7 +368,11 @@ class DraftEngine:
         codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
         delegate = shutil.which("maestro-delegate") or str(codex_home / "bin" / "maestro-delegate")
         context_files = candidate.get("context_files") or candidate["files"]
-        source = self.source_excerpt(repo, source_ref, context_files)
+        contract = candidate.get("strengthening_contract") or {}
+        focus_symbol = ".".join(
+            value for value in (str(contract.get("owner") or ""), str(contract.get("symbol") or "")) if value
+        )
+        source = self.source_excerpt(repo, source_ref, context_files, focus_symbol)
         if correction:
             # Keep bounded repair calls below small local model context limits.
             source = source[:10000]

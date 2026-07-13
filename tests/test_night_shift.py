@@ -4299,6 +4299,24 @@ buildThing() { return 1; }
         self.assertIn("pinned middle omitted", excerpt)
         self.assertIn("TAIL_ANCHOR", excerpt)
 
+    def test_focused_source_excerpt_keeps_owner_constructor_and_target(self):
+        class Result:
+            rc = 0
+            stdout = (
+                "class DraftEngine:\n"
+                "    def __init__(self, run_cmd, worktree_root, now_stamp):\n"
+                "        self.run_cmd = run_cmd\n"
+                "    def cleanup(self, repo, worktree):\n"
+                "        return self.run_cmd([]).rc == 0\n"
+            )
+
+        engine = night_shift.DraftEngine(lambda *_args, **_kwargs: Result(), Path("/tmp"), lambda: "now")
+        excerpt = engine.source_excerpt(
+            Path("/repo"), "a" * 40, ["bin/night_shift_drafts.py"], "DraftEngine.cleanup"
+        )
+        self.assertIn("def __init__(self, run_cmd, worktree_root, now_stamp):", excerpt)
+        self.assertIn("def cleanup(self, repo, worktree):", excerpt)
+
     def test_patch_that_does_not_apply_gets_one_source_anchoring_retry(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
