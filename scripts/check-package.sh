@@ -12,6 +12,7 @@ bash -n \
   bin/maestro-windows \
   bin/maestro-claude \
   scripts/prove-linux-install.sh \
+  scripts/prove-macos-install.sh \
   scripts/prove-controller-restart.sh \
   scripts/prove-concurrent-scheduler.sh
 
