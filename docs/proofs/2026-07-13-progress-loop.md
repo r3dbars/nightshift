@@ -90,6 +90,12 @@ run evidence separate from model claims and from human/manual proof.
   isolated sandbox gate with 383 tests, satisfied the semantic invocation
   contract, and removed its worktree. Proof:
   `docs/proofs/2026-07-13-explicit-goal-verified-draft.md`.
+- PR #146 merged strict unified-diff hunk validation and a clearer repair
+  prompt after a real malformed model patch was rejected safely. A fresh
+  current-main explicit-goal run then produced a `VERIFIED_DRAFT` with the
+  385-test package gate, isolated sandbox proof, semantic invocation proof,
+  and worktree cleanup. Proof:
+  `docs/proofs/2026-07-13-current-main-explicit-goal.md`.
 
 ## Remaining Proof Gaps
 
@@ -101,3 +107,6 @@ run evidence separate from model claims and from human/manual proof.
   automated script.
 - The new Night Shift proof raises task specificity and deterministic proof,
   but does not yet establish repeated accepted output or draft-PR volume.
+- The current-main proof confirms the retry hardening works once, but it does
+  not yet raise useful-output, multi-repo, or draft-PR scores because the
+  morning item still needs human usefulness review.
