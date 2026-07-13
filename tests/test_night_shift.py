@@ -158,6 +158,16 @@ class NightShiftQualityTests(unittest.TestCase):
             "exact pinned signature: def concrete_paths(output: str, candidate_files: list[str] | None = None) -> list[str]:",
             top_level_signature_prompt,
         )
+        none_owner_prompt = __import__("night_shift_patch_protocol").patch_prompt({
+            "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
+            "strengthening_contract": {
+                "owner": "none", "symbol": "confidence_bonus",
+                "source_file": "bin/night_shift_evidence.py",
+            },
+            "semantic_contract": {"minimum_target_invocations": 1},
+        }, "def confidence_bonus(output: str) -> int:\n    pass\n", ("python",))
+        self.assertNotIn("from night_shift_evidence import none", none_owner_prompt)
+        self.assertIn("exact pinned signature: def confidence_bonus(output: str) -> int:", none_owner_prompt)
         dedent_prompt = __import__("night_shift_patch_protocol").patch_prompt({
             "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
             "strengthening_contract": {"owner": "DraftEngine", "symbol": "cleanup"},

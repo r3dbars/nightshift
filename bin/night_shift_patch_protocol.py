@@ -201,6 +201,7 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
     contract = candidate.get("strengthening_contract") or {}
     semantic = candidate.get("semantic_contract") or {}
     owner = str(contract.get("owner") or "")
+    owner = "" if owner == "none" else owner
     source_module = Path(str(contract.get("source_file") or "")).stem
     import_guidance = (
         f"If {owner} is not already imported, put `from {source_module} import {owner}` inside the new test method; "
@@ -217,6 +218,7 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
     if symbol:
         signature_scope = ""
         owner = str(contract.get("owner") or "")
+        owner = "" if owner == "none" else owner
         if owner:
             owner_class = re.search(
                 rf"(?m)^(?P<indent>[ \t]*)class\s+{re.escape(owner)}\b.*$",
