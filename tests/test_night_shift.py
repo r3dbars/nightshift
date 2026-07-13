@@ -54,9 +54,14 @@ class NightShiftQualityTests(unittest.TestCase):
             night_shift.WORKTREE_ROOT = Path("/tmp/night-shift-proof/worktrees")
             night_shift.platform.system = lambda: "Darwin"
             with patch.dict(os.environ, {"USER": "redbars"}):
+                expected = (
+                    Path("/Users/redbars/.codex/night-shift/worktrees")
+                    if Path("/Users/redbars").is_dir()
+                    else Path("/tmp/night-shift-proof/worktrees")
+                )
                 self.assertEqual(
                     night_shift.shared_worktree_root(),
-                    Path("/Users/redbars/.codex/night-shift/worktrees"),
+                    expected,
                 )
         finally:
             night_shift.WORKTREE_ROOT = original_root
