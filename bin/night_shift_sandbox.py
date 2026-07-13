@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import platform
 import re
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -124,7 +126,10 @@ def detect_sandbox(run_cmd: Callable) -> SandboxStatus:
 def fixed_patch_script() -> str:
     """Controller-owned shell only; no repo or model text is interpolated."""
     return (
-        "set -eu; cp -a /source/. /work/; cd /work; rm -rf .git; git init -q; "
+        "set -eu; test -n \"$(find /source -mindepth 1 -maxdepth 1 -print -quit)\" || { echo 'Night Shift source mount is empty'; exit 125; }; "
+        "rsync -a --exclude=node_modules /source/ /work/; "
+        "if [ -d /deps/node_modules ]; then ln -s /deps/node_modules /work/node_modules; fi; "
+        "cd /work; rm -rf .git; git init -q; "
         "git config user.email night-shift@localhost; git config user.name 'Night Shift'; "
         "git add -A; git commit -qm baseline; "
         "git apply --recount --whitespace=error /input/candidate.patch; git diff --check; "
@@ -137,7 +142,10 @@ def fixed_patch_script() -> str:
 def fixed_verify_script() -> str:
     """Copy read-only source into disposable tmpfs before running checks."""
     return (
-        "set -eu; cp -a /source/. /work/; cd /work; rm -rf .git; git init -q; "
+        "set -eu; test -n \"$(find /source -mindepth 1 -maxdepth 1 -print -quit)\" || { echo 'Night Shift source mount is empty'; exit 125; }; "
+        "rsync -a --exclude=node_modules /source/ /work/; "
+        "if [ -d /deps/node_modules ]; then ln -s /deps/node_modules /work/node_modules; fi; "
+        "cd /work; rm -rf .git; git init -q; "
         "git config user.email night-shift@localhost; git config user.name 'Night Shift'; "
         "git add -A; git commit -qm baseline; exec \"$@\""
     )
@@ -149,7 +157,123 @@ def dependency_volume(dependency_source: Path | None) -> list[str]:
         return []
     if dependency_source.name != "node_modules" or dependency_source.is_symlink() or not dependency_source.is_dir():
         return []
-    return ["--volume", f"{dependency_source.resolve()}:/work/node_modules:ro"]
+    return ["--volume", f"{dependency_source.resolve()}:/deps/node_modules:ro"]
+
+
+def dependency_cache_path(root: Path, remote: str, image: str, lockfile: Path) -> Path:
+    """Return a cache path bound to the repo, runner image, and lockfile."""
+    try:
+        lock_digest = hashlib.sha256(lockfile.read_bytes()).hexdigest()
+    except OSError:
+        lock_digest = "missing-lockfile"
+    key = hashlib.sha256(f"{remote}\0{image}\0{lock_digest}".encode("utf-8")).hexdigest()[:32]
+    return root / key
+
+
+def dependency_cache_ready(cache_dir: Path, remote: str, image: str, lockfile: Path) -> Path | None:
+    """Accept only a cache created by Night Shift for this exact input set."""
+    node_modules = cache_dir / "node_modules"
+    marker = cache_dir / "READY.json"
+    if cache_dir.is_symlink() or node_modules.is_symlink() or not node_modules.is_dir() or not marker.is_file():
+        return None
+    try:
+        metadata = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    expected = dependency_cache_path(cache_dir.parent, remote, image, lockfile)
+    if expected != cache_dir or metadata.get("remote") != remote or metadata.get("image") != image:
+        return None
+    try:
+        if metadata.get("lock_digest") != hashlib.sha256(lockfile.read_bytes()).hexdigest():
+            return None
+    except OSError:
+        return None
+    return node_modules
+
+
+def dependency_source_for_repo(
+    repo: Path,
+    cache_root: Path,
+    remote: str,
+    image: str,
+) -> Path | None:
+    """Prefer a runner-native cache, then fall back to a host dependency tree."""
+    lockfile = repo / "package-lock.json"
+    if remote and lockfile.is_file():
+        prepared = dependency_cache_ready(
+            dependency_cache_path(cache_root, remote, image, lockfile), remote, image, lockfile,
+        )
+        if prepared:
+            return prepared
+    host = repo / "node_modules"
+    if host.is_dir() and not host.is_symlink():
+        return host
+    return None
+
+
+def dependency_prepare_command(repo: Path, cache_dir: Path, image: str) -> list[str | Path]:
+    """Build Linux/runner-native npm dependencies in a disposable networked setup container."""
+    runtime = sandbox_runtime() or "docker"
+    script = (
+        "set -eu; rm -rf /deps/node_modules /deps/READY.json; "
+        "rsync -a --exclude=node_modules --exclude=.git --exclude=.npmrc /source/ /work/; "
+        "cd /work; npm ci --ignore-scripts --no-audit --no-fund; "
+        "if [ -f prisma/schema.prisma ] && [ -x node_modules/.bin/prisma ]; then node_modules/.bin/prisma generate --schema prisma/schema.prisma; fi; "
+        "mv /work/node_modules /deps/node_modules; test -d /deps/node_modules"
+    )
+    return [
+        runtime, "run", "--rm", "--pull", "never", "--network", "bridge", "--read-only",
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        "--pids-limit", "256", "--cpus", "2", "--memory", "4096m",
+        "--tmpfs", "/tmp:rw,exec,nosuid,size=512m,mode=1777",
+        "--tmpfs", "/work:rw,exec,nosuid,size=4g,mode=700",
+        "--volume", f"{cache_dir.resolve()}:/deps:rw",
+        "--volume", f"{repo.resolve()}:/source:ro",
+        "--workdir", "/work", "--env", "HOME=/tmp",
+        "--env", "NPM_CONFIG_USERCONFIG=/dev/null",
+        "--env", "NPM_CONFIG_CACHE=/work/.npm-cache",
+        "--env", "NPM_CONFIG_IGNORE_SCRIPTS=true",
+        image, "sh", "-ceu", script, "night-shift-prepare-dependencies",
+    ]
+
+
+def prepare_node_dependencies(
+    repo: Path,
+    cache_dir: Path,
+    remote: str,
+    image: str,
+    run_cmd: Callable,
+) -> tuple[bool, str]:
+    """Prepare npm dependencies without touching the checkout or carrying host credentials."""
+    lockfile = repo / "package-lock.json"
+    if not lockfile.is_file() or not (repo / "package.json").is_file():
+        return False, "runner-native dependency setup currently requires package.json and package-lock.json"
+    if cache_dir.exists() and cache_dir.is_symlink():
+        return False, "refusing to use a symlinked dependency cache"
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_dir.chmod(0o700)
+    except OSError as exc:
+        return False, f"could not create the dependency cache: {exc}"
+    result = run_cmd(dependency_prepare_command(repo, cache_dir, image), cwd=repo, timeout=1800)
+    if result.rc != 0:
+        detail = (result.stderr or result.stdout or f"dependency setup exited {result.rc}").strip()
+        return False, detail[:600]
+    try:
+        marker = cache_dir / "READY.json"
+        marker.write_text(
+            json.dumps({
+                "remote": remote,
+                "image": image,
+                "lock_digest": hashlib.sha256(lockfile.read_bytes()).hexdigest(),
+                "prepared_at": int(time.time()),
+            }, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        marker.chmod(0o600)
+    except OSError as exc:
+        return False, f"dependency setup completed but its readiness marker could not be saved: {exc}"
+    return True, str(cache_dir / "node_modules")
 
 
 def sandbox_patch_command(

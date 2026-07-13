@@ -184,12 +184,21 @@ def materialize_ts_test_case_patch(
         "\n".join(block),
     ):
         return ""
+    if "await import(" in block_text and not re.search(r"\basync\s+(?:\([^)]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>", block_text):
+        block_text, changed = re.subn(
+            r",(\s*)(\([^)]*\)|[A-Za-z_$][A-Za-z0-9_$]*)(\s*)=>",
+            r",\1async \2\3=>",
+            block_text,
+            count=1,
+        )
+        if not changed:
+            return ""
     marker = original.rfind("\n});")
     if marker < 0:
         marker = original.rfind("\n})")
     if marker < 0:
         return ""
-    revised = original[:marker].rstrip() + "\n\n" + "\n".join(block) + "\n" + original[marker:]
+    revised = original[:marker].rstrip() + "\n\n" + block_text + "\n" + original[marker:]
     unified = "".join(difflib.unified_diff(
         original.splitlines(keepends=True), revised.splitlines(keepends=True),
         fromfile=f"a/{relative}", tofile=f"b/{relative}", n=3,

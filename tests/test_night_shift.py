@@ -3406,23 +3406,24 @@ buildThing() { return 1; }
             self.assertIn(f"{root.resolve()}:/source:ro", read_only_check)
             self.assertIn("/work:rw,exec,nosuid,size=512m,mode=700", read_only_check)
             self.assertIn("/tmp:rw,exec,nosuid,size=256m,mode=1777", read_only_check)
-            self.assertIn("cp -a /source/. /work/", __import__("night_shift_sandbox").fixed_verify_script())
+            self.assertIn("source mount is empty", __import__("night_shift_sandbox").fixed_verify_script())
+            self.assertIn("rsync -a --exclude=node_modules /source/ /work/", __import__("night_shift_sandbox").fixed_verify_script())
 
             dependencies = root / "node_modules"
             dependencies.mkdir()
             patched_with_dependencies = __import__("night_shift_sandbox").sandbox_patch_command(
                 root, root / "candidate.patch", root / "artifacts", ("npm", "test"), profile, dependencies,
             )
-            self.assertIn(f"{dependencies.resolve()}:/work/node_modules:ro", patched_with_dependencies)
+            self.assertIn(f"{dependencies.resolve()}:/deps/node_modules:ro", patched_with_dependencies)
             verified_with_dependencies = __import__("night_shift_sandbox").sandbox_command(
                 root, ("npm", "test"), profile, dependencies,
             )
-            self.assertIn(f"{dependencies.resolve()}:/work/node_modules:ro", verified_with_dependencies)
+            self.assertIn(f"{dependencies.resolve()}:/deps/node_modules:ro", verified_with_dependencies)
 
             symlink = root / "linked-node_modules"
             symlink.symlink_to(dependencies, target_is_directory=True)
             self.assertNotIn(
-                f"{dependencies.resolve()}:/work/node_modules:ro",
+                f"{dependencies.resolve()}:/deps/node_modules:ro",
                 __import__("night_shift_sandbox").sandbox_command(root, ("npm", "test"), profile, symlink),
             )
 
@@ -3452,6 +3453,46 @@ buildThing() { return 1; }
             self.assertNotIn("gid=", docker_tmpfs)
         finally:
             sandbox.sandbox_runtime = original_runtime
+
+    def test_runner_native_dependency_cache_is_bound_to_remote_image_and_lockfile(self):
+        sandbox = __import__("night_shift_sandbox")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
+            lockfile = repo / "package-lock.json"
+            lockfile.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
+            cache_root = root / "cache"
+            remote = "git@github.com:owner/demo.git"
+            image = "sha256:" + "a" * 64
+            cache_dir = sandbox.dependency_cache_path(cache_root, remote, image, lockfile)
+            (cache_dir / "node_modules").mkdir(parents=True)
+            self.assertIsNone(sandbox.dependency_cache_ready(cache_dir, remote, image, lockfile))
+            (cache_dir / "READY.json").write_text(json.dumps({
+                "remote": remote,
+                "image": image,
+                "lock_digest": hashlib.sha256(lockfile.read_bytes()).hexdigest(),
+            }), encoding="utf-8")
+            self.assertEqual(
+                sandbox.dependency_source_for_repo(repo, cache_root, remote, image),
+                cache_dir / "node_modules",
+            )
+            lockfile.write_text('{"lockfileVersion":3,"packages":{}}\n', encoding="utf-8")
+            self.assertIsNone(sandbox.dependency_source_for_repo(repo, cache_root, remote, image))
+
+    def test_runner_native_dependency_setup_is_network_scoped_and_credential_free(self):
+        sandbox = __import__("night_shift_sandbox")
+        command = sandbox.dependency_prepare_command(
+            Path("/repo"), Path("/cache"), "sha256:" + "b" * 64,
+        )
+        self.assertEqual(command[command.index("--network") + 1], "bridge")
+        self.assertIn("NPM_CONFIG_USERCONFIG=/dev/null", command)
+        self.assertIn("NPM_CONFIG_CACHE=/work/.npm-cache", command)
+        script = command[command.index("-ceu") + 1]
+        self.assertIn("--ignore-scripts", script)
+        self.assertIn("--exclude=.npmrc", script)
+        self.assertIn("prisma generate --schema prisma/schema.prisma", script)
 
     def test_podman_rootless_is_an_accepted_sandbox_provider(self):
         original_which = night_shift.shutil.which
@@ -3789,6 +3830,15 @@ buildThing() { return 1; }
         self.assertTrue(patch.startswith("diff --git a/tests/metrics.test.ts b/tests/metrics.test.ts"))
         self.assertIn("+  it('formats a percent'", patch)
         self.assertIn("+  });", patch)
+        synchronous_worker = worker.replace("async () =>", "() =>")
+        repaired_patch = materialize_ts_test_case_patch(
+            synchronous_worker,
+            original,
+            "tests/metrics.test.ts",
+            "formatPercent",
+            "../app/analytics/analytics-metrics",
+        )
+        self.assertIn("+  it('formats a percent', async () =>", repaired_patch)
         self.assertEqual(
             materialize_ts_test_case_patch(
                 worker.replace("+  it(", "+import { formatPercent } from './metrics';\n+  it("),
@@ -4002,6 +4052,55 @@ buildThing() { return 1; }
             self.assertEqual(selected["files"], ["tests/test_drafts.py"])
             self.assertEqual(selected["context_files"], ["src/drafts.py", "tests/test_drafts.py"])
             self.assertEqual(selected["draft_intent"], "test-strengthening")
+
+    def test_candidate_selection_skips_unsafe_typescript_source_before_drafting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger"
+            ledger.mkdir()
+            source_ref = "b" * 40
+            evidence = {
+                "invocation-index/analytics.txt": (
+                    "symbol=getData\nsource_file=app/data.ts\nowner=none\n"
+                    "analysis=typescript-regex\nsymbol=getData call_matches=0\nscan_complete=true"
+                )
+            }
+            items = [
+                {
+                    "key": "unsafe", "executable": True, "proof_kind": "test", "score": "MAYBE",
+                    "action_type": "draft-pr-candidate", "source_ref": source_ref,
+                    "files": ["tests/data.test.ts"], "verification_commands": ["npm test"],
+                    "tests": "npm test", "evidence_sources": evidence,
+                },
+                {
+                    "key": "safe", "executable": True, "proof_kind": "test", "score": "MAYBE",
+                    "action_type": "draft-pr-candidate", "source_ref": source_ref,
+                    "files": ["tests/metrics.test.ts"], "verification_commands": ["npm test"],
+                    "tests": "npm test", "evidence_sources": {
+                        "invocation-index/metrics.txt": evidence["invocation-index/analytics.txt"].replace(
+                            "getData", "formatPercent"
+                        ).replace("app/data.ts", "app/metrics.ts")
+                    },
+                },
+            ]
+            (ledger / "work-queue.json").write_text(json.dumps(items), encoding="utf-8")
+
+            def fake_run(args, **_kwargs):
+                if args[:3] == ["git", "cat-file", "-e"]:
+                    return night_shift.CmdResult("git", 0, "", "")
+                if args[:2] == ["git", "show"]:
+                    source = (
+                        "export async function getData() { return fetch('/data'); }\n"
+                        if args[2].endswith("app/data.ts")
+                        else "export function formatPercent(value: number) { return `${value}%`; }\n"
+                    )
+                    return night_shift.CmdResult("git", 0, source, "")
+                return night_shift.CmdResult("git", 1, "", "")
+
+            selected = night_shift.DraftEngine(
+                fake_run, root / "worktrees", lambda: "now"
+            ).select_candidate(ledger, root, lambda _repo: {"test_commands": []}, {"strengthen": 300})
+            self.assertEqual(selected["key"], "safe")
 
     def test_clean_baseline_can_only_promote_proven_test_strengthening(self):
         with tempfile.TemporaryDirectory() as tmp:

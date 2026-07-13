@@ -30,6 +30,19 @@ class MalformedHandler(BaseHTTPRequestHandler):
         return
 
 
+class SuccessHandler(BaseHTTPRequestHandler):
+    def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"choices": [{"message": {"content": "wrapper success"}}]}')
+
+    def log_message(self, *_args) -> None:
+        return
+
+
 def run_wrapper(command: list[str], environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
@@ -90,6 +103,25 @@ def main() -> int:
         finally:
             server.shutdown()
 
+        success_server = HTTPServer(("127.0.0.1", 0), SuccessHandler)
+        Thread(target=success_server.serve_forever, daemon=True).start()
+        try:
+            success_base = f"http://127.0.0.1:{success_server.server_port}/v1"
+            successful_local = run_wrapper(
+                [str(ROOT / "bin" / "maestro-local"), "success-check"],
+                {**env, "MAESTRO_LOCAL_BASE_URL": success_base},
+            )
+            successful_windows = run_wrapper(
+                [str(ROOT / "bin" / "maestro-windows"), "success-check"],
+                {
+                    **env,
+                    "WINDOWS_WORKER_BASE_URL": success_base,
+                    "WINDOWS_WORKER_API_KEY": "wrapper-proof-key",
+                },
+            )
+        finally:
+            success_server.shutdown()
+
         for name, result in (("local", malformed_local), ("Windows", malformed_windows)):
             if result.returncode != 1 or "no usable chat content" not in result.stderr:
                 raise SystemExit(f"{name} wrapper did not reject malformed chat JSON")
@@ -99,8 +131,14 @@ def main() -> int:
             raise SystemExit("maestro-delegate did not honor CODEX_HOME when HOME differed")
         if not list((custom_home / "maestro" / "runs").glob("*-custom-home-local")):
             raise SystemExit("maestro-delegate did not write its proof under CODEX_HOME")
+        for name, result in (("local", successful_local), ("Windows", successful_windows)):
+            if result.returncode != 0 or result.stdout.strip() != "wrapper success":
+                raise SystemExit(f"{name} wrapper did not complete a valid response")
+        events = (Path(env["CODEX_HOME"]) / "maestro-sidecar" / "events.jsonl").read_text(encoding="utf-8")
+        if '"lane": "local"' not in events or '"lane": "windows"' not in events:
+            raise SystemExit("successful worker wrappers did not write sidecar telemetry")
 
-    print("WORKER_WRAPPER_ERROR_PROOF: GREEN | offline, malformed, and custom CODEX_HOME paths fail closed")
+    print("WORKER_WRAPPER_ERROR_PROOF: GREEN | offline, malformed, successful telemetry, and custom CODEX_HOME paths behave correctly")
     return 0
 
 

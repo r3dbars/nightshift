@@ -247,6 +247,13 @@ class DraftEngine:
                 )
                 if not source_exists or not test_files:
                     continue
+                if contract.get("analysis") == "typescript-regex":
+                    source_text = (
+                        self.run_cmd(["git", "show", f"{source_ref}:{source_file}"], cwd=repo, timeout=30).stdout
+                        if source_ref else (repo / source_file).read_text(encoding="utf-8")
+                    )
+                    if not simple_exported_function(source_text, contract["symbol"]):
+                        continue
                 files = test_files
                 item = {
                     **item,
@@ -338,6 +345,7 @@ class DraftEngine:
         safe_task: str,
         correction: str = "",
         patch_lane: str = "windows",
+        max_tokens: int | None = None,
     ):
         codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
         delegate = shutil.which("maestro-delegate") or str(codex_home / "bin" / "maestro-delegate")
@@ -350,11 +358,13 @@ class DraftEngine:
         if patch_lane == "local":
             env["MAESTRO_LOCAL_BASE_URL"] = worker_url.rstrip("/")
             env["MAESTRO_LOCAL_MODEL"] = worker_model
-            env["MAESTRO_LOCAL_MAX_TOKENS"] = str(output_token_budget(worker_model, 4096))
+            budget = output_token_budget(worker_model, 4096)
+            env["MAESTRO_LOCAL_MAX_TOKENS"] = str(min(budget, max_tokens) if max_tokens else budget)
         else:
             env["WINDOWS_WORKER_BASE_URL"] = worker_url.rstrip("/")
             env["WINDOWS_WORKER_MODEL"] = worker_model
-            env["MAESTRO_WINDOWS_MAX_TOKENS"] = str(output_token_budget(worker_model, 4096))
+            budget = output_token_budget(worker_model, 4096)
+            env["MAESTRO_WINDOWS_MAX_TOKENS"] = str(min(budget, max_tokens) if max_tokens else budget)
         return self.run_cmd(
             [delegate, patch_lane, "--label", f"{safe_task}-patch", "--", prompt],
             cwd=repo,
@@ -376,6 +386,7 @@ class DraftEngine:
         stop_file: Path | None = None,
         profile: RepoProfile | None = None,
         patch_lane: str = "windows",
+        dependency_source: Path | None = None,
     ) -> dict:
         safe_repo = re.sub(r"[^A-Za-z0-9._-]+", "--", repo_name)
         safe_task = re.sub(r"[^A-Za-z0-9._-]+", "-", candidate.get("key", "draft"))[:80]
@@ -396,6 +407,7 @@ class DraftEngine:
             proof_path.parent.mkdir(parents=True, exist_ok=True)
             proof_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
             return result
+        dependency_source = dependency_source or repo / "node_modules"
         worktree.parent.mkdir(parents=True, exist_ok=True)
         source_ref = str(candidate.get("source_ref") or "HEAD")
         if not re.fullmatch(r"[0-9a-f]{40}", source_ref):
@@ -437,7 +449,7 @@ class DraftEngine:
         if baseline_timeout <= 0:
             return finish({"status": "REJECT", "reason": "stop limit reached before baseline verification"})
         baseline = self.run_cmd(
-            sandbox_command(worktree, verification_argv, profile, repo / "node_modules"),
+            sandbox_command(worktree, verification_argv, profile, dependency_source),
             cwd=worktree,
             timeout=min(baseline_timeout, profile.max_seconds),
             pid_log=parent_ledger / "processes.tsv",
@@ -607,7 +619,7 @@ class DraftEngine:
             return finish({"status": "REJECT", "reason": "stop limit reached before isolated verification", "baseline_rc": baseline.rc})
         verified = self.run_cmd(
             sandbox_patch_command(
-                worktree, patch_path, sandbox_dir, verification_argv, profile, repo / "node_modules",
+                worktree, patch_path, sandbox_dir, verification_argv, profile, dependency_source,
             ),
             cwd=worktree,
             timeout=min(verify_timeout, profile.max_seconds),
@@ -635,7 +647,7 @@ class DraftEngine:
                 repair = self.ask_for_patch(
                     worktree, source_ref, candidate, verification_argv, retry_timeout,
                     worker_url, worker_model, parent_ledger,
-                    f"{safe_task}-verification-{attempt}", correction, patch_lane,
+                    f"{safe_task}-verification-{attempt}", correction, patch_lane, max_tokens=2048,
                 )
                 (proof_dir / f"{safe_task}.verification-worker-attempt-{attempt}.txt").write_text(
                     (repair.stdout + "\n" + repair.stderr).strip() + "\n", encoding="utf-8"
@@ -678,7 +690,7 @@ class DraftEngine:
                 retry_sandbox.mkdir(parents=True, exist_ok=True)
                 verified = self.run_cmd(
                     sandbox_patch_command(
-                        worktree, patch_path, retry_sandbox, verification_argv, profile, repo / "node_modules",
+                        worktree, patch_path, retry_sandbox, verification_argv, profile, dependency_source,
                     ),
                     cwd=worktree, timeout=min(retry_timeout, profile.max_seconds),
                     pid_log=parent_ledger / "processes.tsv",
