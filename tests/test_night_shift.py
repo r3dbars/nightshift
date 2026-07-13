@@ -419,6 +419,32 @@ class NightShiftQualityTests(unittest.TestCase):
             finally:
                 night_shift.FEEDBACK_PATH = original
 
+    def test_portfolio_brief_quotes_feedback_ledger_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "parent with spaces"
+            child = root / "child"
+            ledger.mkdir()
+            child.mkdir()
+            (child / "work-queue.json").write_text(json.dumps([{
+                "key": "tests:tests:patch-plan", "labels": ["tests-1"],
+                "fingerprint": "quoted-candidate", "source_ref": "a" * 40,
+                "summary": "Add a focused regression test", "score": "MAYBE",
+            }]), encoding="utf-8")
+            night_shift.portfolio_brief(ledger, [{
+                "repo": "owner/repo", "repo_path": "/repo", "ledger": str(child),
+                "new_tasks": 1,
+            }], "YELLOW")
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn(
+                f"night-shift feedback --ledger '{ledger}' --item 1 --useful",
+                brief,
+            )
+            self.assertIn(
+                f"night-shift feedback --ledger '{ledger}' --item 1 --not-useful --note \"too generic\"",
+                brief,
+            )
+
     def test_portfolio_feedback_canonicalizes_cached_checkout_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

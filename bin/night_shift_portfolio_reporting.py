@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Callable
 
@@ -154,6 +155,7 @@ class PortfolioReportEngine:
                         "  ACTION REQUIRED: check GitHub and close/delete the reported draft PR or branch."
                     )
         if morning_items:
+            ledger_arg = shlex.quote(str(ledger))
             lines.extend(["", "Your morning choices:"])
             for item in morning_items[:3]:
                 lines.append(f"{item['rank']}. {item['repo']}: {item['summary']} [{item['score']}]")
@@ -170,8 +172,8 @@ class PortfolioReportEngine:
                     lines.append(f"   Proof: {item['proof']}")
             lines.extend([
                 "", "Teach the next shift with the exact number shown above:",
-                f"- Useful: `night-shift feedback --ledger {ledger} --item 1 --useful`",
-                f"- Not useful: `night-shift feedback --ledger {ledger} --item 1 --not-useful`",
+                f"- Useful: `night-shift feedback --ledger {ledger_arg} --item 1 --useful`",
+                f"- Not useful: `night-shift feedback --ledger {ledger_arg} --item 1 --not-useful --note \"too generic\"`",
             ])
         else:
             lines.extend([
