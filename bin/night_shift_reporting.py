@@ -293,7 +293,10 @@ class ReportEngine:
         if not maybe_items: lines.append("- None.")
         lines.extend(["", "REJECT summary:"])
         rejected = sorted((row for row in results if row["score"] == "REJECT"), key=lambda row: (-row["priority"], row["label"]))
-        lines.extend(f"- {row['label']}: {row['summary']}" for row in rejected[:5])
+        for row in rejected[:5]:
+            reasons = [redact(str(reason)) for reason in row.get("quality_reasons", []) if str(reason).strip()]
+            explanation = "; ".join(reasons[:2]) or "the response did not meet the evidence or safety checks"
+            lines.append(f"- {row['label']}: {row['summary']} (dropped because: {explanation})")
         if reject == 0: lines.append("- None.")
         lines.extend(["", "Needs user review:", "- Start with the first KEEP/MAYBE item; worker output is a draft, not the final truth."])
         if work_items:
