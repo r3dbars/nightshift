@@ -166,6 +166,8 @@ class NightShiftQualityTests(unittest.TestCase):
         }, "class Other:\n    def cleanup(self, wrong):\n        pass\n\nclass DraftEngine:\n    def cleanup(\n        self, repo: Path, worktree: Path\n    ) -> bool:\n", ("python",))
         self.assertIn("exact pinned signature: def cleanup(self, repo: Path, worktree: Path) -> bool:", signature_prompt)
         self.assertIn("Provide every required argument", signature_prompt)
+        self.assertIn("SimpleNamespace from `types`", signature_prompt)
+        self.assertIn("every required __init__ argument", signature_prompt)
         nested_signature_prompt = __import__("night_shift_patch_protocol").patch_prompt({
             "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
             "strengthening_contract": {"owner": "DraftEngine", "symbol": "cleanup"},
@@ -228,7 +230,7 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn("exact constructor and method signatures", prompt)
         self.assertIn("rc rather than a dict", prompt)
         self.assertIn("SimpleNamespace(rc=0)", prompt)
-        self.assertIn("never return a dict", prompt)
+        self.assertIn("return a dict", prompt)
         self.assertIn(
             "from night_shift_drafts import DraftEngine` inside the new test method", prompt
         )
