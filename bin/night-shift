@@ -85,6 +85,7 @@ from night_shift_lifecycle import (
     cleanup_candidates,
     deadline_reached,
     directory_size,
+    recover_stale_autopilot,
     stop_deadline,
     stop_recorded_processes,
 )
@@ -2592,6 +2593,17 @@ def command_autopilot(args) -> int:
         lock_context.__exit__(None, None, None)
         print("NIGHTSHIFT_AUTOPILOT: YELLOW | another Night Shift controller is already running")
         return 1
+    recovery = recover_stale_autopilot(AUTOPILOT_STATE_PATH, OVERNIGHT_ROOT)
+    if recovery.get("status") == "active":
+        lock_context.__exit__(None, None, None)
+        print("NIGHTSHIFT_AUTOPILOT: YELLOW | active controller state still belongs to a running process")
+        return 1
+    if recovery.get("status") == "unsafe":
+        lock_context.__exit__(None, None, None)
+        print(f"NIGHTSHIFT_AUTOPILOT: RED | cannot safely recover prior controller: {recovery.get('reason')}")
+        return 1
+    if recovery.get("status") == "recovered":
+        print(f"Recovered prior crashed shift: {recovery.get('ledger')}")
     AUTOPILOT_STATE_PATH.write_text(
         json.dumps({"pid": os.getpid(), "ledger": str(ledger), "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}, indent=2)
         + "\n", encoding="utf-8")

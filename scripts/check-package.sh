@@ -11,7 +11,8 @@ bash -n \
   bin/maestro-local \
   bin/maestro-windows \
   bin/maestro-claude \
-  scripts/prove-linux-install.sh
+  scripts/prove-linux-install.sh \
+  scripts/prove-controller-restart.sh
 
 python3 -m py_compile \
   bin/night-shift \
