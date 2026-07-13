@@ -238,8 +238,15 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
                         boundary = line_match.start()
                         break
                 signature_scope = source_excerpt[owner_start:tail_start + boundary]
+        else:
+            signature_scope = source_excerpt
+        signature_pattern = (
+            rf"\b(?:async\s+)?def\s+{re.escape(symbol)}\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:"
+            if owner else
+            rf"(?m)^(?:async\s+)?def\s+{re.escape(symbol)}\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:"
+        )
         signature = re.search(
-            rf"\b(?:async\s+)?def\s+{re.escape(symbol)}\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:",
+            signature_pattern,
             signature_scope,
             re.DOTALL,
         )
