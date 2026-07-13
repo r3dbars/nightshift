@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
+from night_shift_models import output_token_budget
 from night_shift_sandbox import sandbox_command, sandbox_patch_command
 from night_shift_patch_protocol import materialize_test_method_patch, patch_prompt, validate_patch
 from night_shift_python_evidence import owner_symbol_call_count_text, semantic_test_contract_reasons
@@ -283,11 +284,11 @@ class DraftEngine:
         if patch_lane == "local":
             env["MAESTRO_LOCAL_BASE_URL"] = worker_url.rstrip("/")
             env["MAESTRO_LOCAL_MODEL"] = worker_model
-            env["MAESTRO_LOCAL_MAX_TOKENS"] = "4096"
+            env["MAESTRO_LOCAL_MAX_TOKENS"] = str(output_token_budget(worker_model, 4096))
         else:
             env["WINDOWS_WORKER_BASE_URL"] = worker_url.rstrip("/")
             env["WINDOWS_WORKER_MODEL"] = worker_model
-            env["MAESTRO_WINDOWS_MAX_TOKENS"] = "4096"
+            env["MAESTRO_WINDOWS_MAX_TOKENS"] = str(output_token_budget(worker_model, 4096))
         return self.run_cmd(
             [delegate, patch_lane, "--label", f"{safe_task}-patch", "--", prompt],
             cwd=repo,
