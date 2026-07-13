@@ -33,6 +33,10 @@ run evidence separate from model claims and from human/manual proof.
   Ubuntu and macOS package gates passed.
 - PR #156 merged guarded Swift/XCTest test selection after hosted Ubuntu and
   macOS package gates passed.
+- PR #157 merged copy-ready useful/not-useful feedback commands and a
+  repo-scoped learning snapshot into single-repo morning briefs.
+- PR #158 made portfolio feedback commands safe to copy when ledger paths
+  contain spaces and added a concrete not-useful note example.
 
 ## Live Evidence
 
@@ -57,9 +61,10 @@ run evidence separate from model claims and from human/manual proof.
   is live, and its first completed portfolio brief is YELLOW with no unsafe
   task claimed. The run is still in progress and is not counted as complete
   repeat-use proof yet.
-- The current package gate passes 394 tests, including the wrapper error proof,
+- The current package gate passes 396 tests, including the wrapper error proof,
   complete empty-run artifact regression, direct-test invocation scope, and
-  runner routing regressions.
+  runner routing regressions. The reporting tests cover the single-repo
+  feedback commands and the quoted portfolio path.
 - The repeatable blank-home recovery proof now passes from a temporary HOME
   outside any Git repo with no GitHub credentials: it returns clear `--repo`,
   Git-repo, and `gh auth login` next steps, exits safely, and saves no config.
@@ -142,6 +147,8 @@ run evidence separate from model claims and from human/manual proof.
   accepted outcomes across varied healthy repositories.
 - First-run and morning UX still need observation by a new user, not another
   automated script.
+- The morning briefs now explain the feedback action directly, but no real
+  comprehension or review-time measurement has been claimed.
 - The new Night Shift proof raises task specificity and deterministic proof,
   but does not yet establish repeated accepted output or draft-PR volume.
 - The current-main proof confirms the retry hardening works once, but it does
