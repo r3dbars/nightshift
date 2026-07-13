@@ -170,6 +170,8 @@ class NightShiftQualityTests(unittest.TestCase):
         )
         self.assertIn("assert the returned value directly", prompt)
         self.assertIn("does not create filesystem side effects", prompt)
+        self.assertIn("calls.append(list(cmd))", prompt)
+        self.assertIn("never inspect the result object for command arguments", prompt)
         self.assertIn("compare a Path as a Path", prompt)
 
     def test_inline_label_parsing_preserves_terminal_source_punctuation(self):
