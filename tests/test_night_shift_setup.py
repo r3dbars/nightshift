@@ -101,6 +101,18 @@ class SetupPolicyTests(unittest.TestCase):
         self.assertIn("never merge", permission_label("draft-prs"))
         self.assertIn("after you allow it", autonomy_copy("draft-prs"))
 
+    def test_read_only_preview_cannot_claim_patch_execution(self):
+        preview = start_preview(
+            {
+                "project": {"repo": "/repo"},
+                "preferences": {"permission": "brief", "execute_drafts": True},
+            },
+            [],
+            MODE_DEFAULTS,
+        )
+        self.assertIn("Prepare reviewable plans without changing code", preview)
+        self.assertNotIn("test-gated patches in disposable copies", preview)
+
     def test_timestamp_does_not_turn_repeat_setup_into_a_change(self):
         saved = {"schema_version": 4, "updated_at": "before", "preferences": {"mode": "quiet"}}
         proposed = {**saved, "updated_at": "after"}

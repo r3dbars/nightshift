@@ -242,7 +242,9 @@ one digest issue and never writes code.
 
 ## Safety
 
-- No push, merge, release, deploy, publish, tag, notarize, appcast, or cask.
+- No direct push to a user's branches. After explicit consent and passing checks,
+  it may push one isolated branch to open a draft PR; it never merges, releases,
+  deploys, publishes, tags, notarizes, or changes a cask.
 - No credentials, billing, visibility changes, destructive cleanup, or user
   file reorganization.
 - No private user data, raw transcripts, or secrets in worker prompts.

@@ -13,6 +13,7 @@ import urllib.error
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -408,6 +409,15 @@ RISK: low
         self.assertEqual(defaults["mode"], "night-shift")
         self.assertEqual(defaults["stop"], "8h")
 
+    def test_interactive_prompts_fail_closed_when_input_ends(self):
+        with patch("builtins.input", side_effect=EOFError):
+            self.assertEqual(night_shift.ask_text("Project", "/safe/default"), "/safe/default")
+            self.assertEqual(
+                night_shift.ask_choice("Mode", [("quiet", "Quiet")], "quiet"),
+                "quiet",
+            )
+            self.assertFalse(night_shift.ask_yes_no("Start Night Shift now?", default=True))
+
     def test_saved_setup_wins_over_recommended_defaults(self):
         saved = {
             "preferences": {
@@ -550,6 +560,37 @@ RISK: low
             night_shift.current_git_repo = original_current
             night_shift.discover_github_portfolio = original_discover
             night_shift.save_config = original_save
+
+    def test_start_discovery_failure_explains_the_next_step(self):
+        original_current = night_shift.current_git_repo
+        original_discover = night_shift.discover_github_portfolio
+        night_shift.current_git_repo = lambda: ""
+        night_shift.discover_github_portfolio = lambda *args, **kwargs: []
+        try:
+            repo, error = night_shift.resolve_start_repo(SimpleNamespace(repo=None, dry_run=False), {})
+            self.assertEqual(repo, "")
+            self.assertIn("Run this command inside a Git repo", error)
+            self.assertIn("gh auth login", error)
+            self.assertIn("Nothing was saved", error)
+        finally:
+            night_shift.current_git_repo = original_current
+            night_shift.discover_github_portfolio = original_discover
+
+    def test_latest_completed_ledger_skips_newer_setup_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            original_root = night_shift.OVERNIGHT_ROOT
+            night_shift.OVERNIGHT_ROOT = Path(tmp)
+            try:
+                completed = Path(tmp) / "night-shift-20260713T010000Z-night-shift"
+                setup = Path(tmp) / "night-shift-20260713T020000Z-setup"
+                completed.mkdir()
+                setup.mkdir()
+                (completed / "morning.md").write_text("Status: GREEN\n", encoding="utf-8")
+                os.utime(setup, (time.time() + 10, time.time() + 10))
+                self.assertEqual(night_shift.latest_ledger(completed_only=True), completed)
+                self.assertEqual(night_shift.latest_ledger(), setup)
+            finally:
+                night_shift.OVERNIGHT_ROOT = original_root
 
     def test_repeat_dry_run_is_read_only_and_skips_first_run_intro(self):
         original_load = night_shift.load_config
@@ -2416,7 +2457,7 @@ buildThing() { return 1; }
                 run=False, allow_cloud=False, timeout=30,
             )
             original_latest = night_shift.latest_ledger
-            night_shift.latest_ledger = lambda: parent
+            night_shift.latest_ledger = lambda completed_only=False: parent
             try:
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(night_shift.command_handoff(args), 0)

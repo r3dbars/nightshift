@@ -91,6 +91,10 @@ class PortfolioReportEngine:
                 "source_ref": item.get("source_ref", ""),
                 "summary": item.get("summary", ""),
                 "score": item.get("score", ""),
+                "evidence": item.get("evidence", ""),
+                "files": item.get("files") or [],
+                "verification": item.get("tests") or item.get("verification_commands") or "",
+                "proof": item.get("proof") or item.get("primary_artifact", ""),
             })
         return items
 
@@ -153,6 +157,17 @@ class PortfolioReportEngine:
             lines.extend(["", "Your morning choices:"])
             for item in morning_items[:3]:
                 lines.append(f"{item['rank']}. {item['repo']}: {item['summary']} [{item['score']}]")
+                if item.get("evidence"):
+                    lines.append(f"   Evidence: {item['evidence']}")
+                if item.get("files"):
+                    lines.append(f"   Files: {', '.join(item['files'])}")
+                if item.get("verification"):
+                    verification = item["verification"]
+                    if isinstance(verification, list):
+                        verification = "; ".join(str(command) for command in verification)
+                    lines.append(f"   Verify: {verification}")
+                if item.get("proof"):
+                    lines.append(f"   Proof: {item['proof']}")
             lines.extend([
                 "", "Teach the next shift with the exact number shown above:",
                 f"- Useful: `night-shift feedback --ledger {ledger} --item 1 --useful`",

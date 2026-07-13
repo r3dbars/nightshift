@@ -207,6 +207,10 @@ class PortfolioReportingTests(unittest.TestCase):
                 "key": "issue-42:tests:patch-plan", "labels": ["issue-42"],
                 "fingerprint": "fingerprint", "source_ref": "a" * 40,
                 "summary": "Repair issue 42", "score": "MAYBE",
+                "evidence": "src/app.py:12 | return value",
+                "files": ["src/app.py", "tests/test_app.py"],
+                "tests": "python3 -m unittest tests.test_app",
+                "proof": "/tmp/proof.json",
             }]))
             self.engine(root).write_brief(root, [{
                 "repo": "owner/repo", "checkout": str(root), "ledger": str(child),
@@ -216,7 +220,16 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertEqual(item["child_ledger"], str(child))
             self.assertEqual(item["fingerprint"], "fingerprint")
             self.assertEqual(item["source_ref"], "a" * 40)
+            self.assertEqual(item["evidence"], "src/app.py:12 | return value")
+            self.assertEqual(item["files"], ["src/app.py", "tests/test_app.py"])
+            self.assertEqual(item["verification"], "python3 -m unittest tests.test_app")
+            self.assertEqual(item["proof"], "/tmp/proof.json")
             self.assertIn("Status: YELLOW", (root / "morning.md").read_text())
+            morning = (root / "morning.md").read_text()
+            self.assertIn("Evidence: src/app.py:12 | return value", morning)
+            self.assertIn("Files: src/app.py, tests/test_app.py", morning)
+            self.assertIn("Verify: python3 -m unittest tests.test_app", morning)
+            self.assertIn("Proof: /tmp/proof.json", morning)
 
 
 if __name__ == "__main__":

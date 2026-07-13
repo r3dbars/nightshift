@@ -334,7 +334,11 @@ def current_git_repo() -> str:
 
 def ask_text(prompt: str, default: str | None = None) -> str:
     suffix = f" [{default}]" if default else ""
-    answer = input(f"{prompt}{suffix}: ").strip()
+    try:
+        answer = input(f"{prompt}{suffix}: ").strip()
+    except EOFError:
+        print("I did not get an answer, so I will use the safe default.")
+        answer = ""
     return answer or (default or "")
 
 
@@ -345,7 +349,11 @@ def ask_choice(prompt: str, choices: list[tuple[str, str]], default: str) -> str
         marker = " (default)" if choices[index - 1][0] == default else ""
         print(f"{index}. {label}{marker}")
     while True:
-        raw = input("> ").strip()
+        try:
+            raw = input("> ").strip()
+        except EOFError:
+            print("I did not get an answer, so I will use the safe default.")
+            return default
         if not raw:
             return default
         if raw.isdigit():
@@ -361,7 +369,11 @@ def ask_choice(prompt: str, choices: list[tuple[str, str]], default: str) -> str
 def ask_yes_no(prompt: str, default=True) -> bool:
     suffix = "Y/n" if default else "y/N"
     while True:
-        raw = input(f"{prompt} [{suffix}]: ").strip().lower()
+        try:
+            raw = input(f"{prompt} [{suffix}]: ").strip().lower()
+        except EOFError:
+            print("I did not get an answer, so I will not start anything.")
+            return False
         if not raw:
             return default
         if raw in ("y", "yes"):
@@ -374,10 +386,11 @@ def ask_yes_no(prompt: str, default=True) -> bool:
 def print_first_run_intro() -> None:
     print("Welcome to Night Shift.")
     print("")
-    print("I will detect this project, GitHub, and the AI already available on your machines.")
-    print("Then I will show one safe plan for tonight. You only need to approve starting it.")
+    print("This is your first time here, so I will check this project and the AI already available on your machines.")
+    print("Then I will show one safe plan. You only need to decide whether to start it.")
     print("")
     print("Safe default: eight hours, local-first, no pushes, merges, releases, or deploys.")
+    print("If an AI worker is unavailable, I will save setup and make a planning brief instead.")
     print("Use `night-shift start --advanced` whenever you want to customize the plan.")
 
 
@@ -723,7 +736,7 @@ def create_ledger(mode: str) -> Path:
     return ledger
 
 
-def latest_ledger() -> Path | None:
+def latest_ledger(completed_only: bool = False) -> Path | None:
     if not OVERNIGHT_ROOT.exists():
         return None
     ledgers = sorted(
@@ -734,16 +747,20 @@ def latest_ledger() -> Path | None:
         ],
         key=lambda p: p.stat().st_mtime,
     )
+    if completed_only:
+        completed = [path for path in ledgers if (path / "morning.md").exists()]
+        if completed:
+            ledgers = completed
     return ledgers[-1] if ledgers else None
 
 
-def select_ledger(args) -> Path | None:
+def select_ledger(args, completed_only: bool = False) -> Path | None:
     if getattr(args, "ledger", None) and getattr(args, "latest", False):
         return None
     if getattr(args, "ledger", None):
         return Path(args.ledger).expanduser().resolve()
     if getattr(args, "latest", False):
-        return latest_ledger()
+        return latest_ledger(completed_only=completed_only)
     return None
 
 
@@ -2880,7 +2897,11 @@ def resolve_start_repo(args, saved: dict) -> tuple[str, str]:
 
     discovered = discover_github_portfolio(None, active_days=14, max_repos=1)
     if not discovered:
-        return "", "no recent owned GitHub repo could be discovered"
+        return "", (
+            "I could not find a project yet. Run this command inside a Git repo, "
+            "pass `--repo /path/to/project`, or sign in with `gh auth login` so I "
+            "can find a recent GitHub repo. Nothing was saved."
+        )
     checkout, checkout_status = ensure_portfolio_checkout(discovered[0], None)
     if not checkout:
         return "", f"GitHub repo setup failed: {checkout_status}"
@@ -2968,6 +2989,8 @@ def command_start(args) -> int:
     allow_draft_prs = bool(getattr(args, "allow_draft_prs", False) or config_value(saved, "allow_draft_prs", False))
     if permission != "draft-prs":
         allow_draft_prs = False
+    if permission == "brief":
+        execute_drafts = False
     project_private = "normal" if privacy_route == "cloud-ok" else "private"
 
     if advanced and not args.yes and is_interactive():
@@ -3036,6 +3059,13 @@ def command_start(args) -> int:
             ],
             permission if permission in {"brief", "draft-local", "draft-prs"} else "brief",
         )
+        if permission == "brief":
+            execute_drafts = False
+        else:
+            execute_drafts = ask_yes_no(
+                "If a task has a safe sandbox, may Night Shift try a disposable, test-gated patch? It will not touch this checkout.",
+                default=execute_drafts,
+            )
         if permission == "draft-prs":
             print(f"Patch execution starts off. Add {PROFILE_NAME} to a repo and set up the rootless sandbox after morning review.")
             allow_draft_prs = ask_yes_no(
@@ -3481,7 +3511,7 @@ def command_nightly(args) -> int:
 
 
 def command_deliver(args) -> int:
-    ledger = select_ledger(args)
+    ledger = select_ledger(args, completed_only=True) if getattr(args, "latest", False) else select_ledger(args)
     if not ledger or not (ledger / "morning.md").exists():
         print("NIGHTSHIFT_DELIVER: RED | no morning brief found; run night-shift report --latest first")
         return 1
@@ -3544,7 +3574,7 @@ def command_report(args) -> int:
         print("NIGHTSHIFT_REPORT: RED | choose --latest or --ledger <path>")
         print("Try: night-shift report --latest")
         return 2
-    ledger = select_ledger(args)
+    ledger = select_ledger(args, completed_only=True) if getattr(args, "latest", False) else select_ledger(args)
     if not ledger or not ledger.exists():
         print("NIGHTSHIFT_REPORT: RED | no ledger found")
         return 1
@@ -3577,7 +3607,7 @@ def command_report(args) -> int:
 
 
 def command_handoff(args) -> int:
-    ledger = select_ledger(args)
+    ledger = select_ledger(args, completed_only=True) if getattr(args, "latest", False) else select_ledger(args)
     if ledger and not (ledger / "work-queue.json").exists() and (ledger / "cycles.json").exists():
         cycles = parse_json_text((ledger / "cycles.json").read_text(encoding="utf-8"), [])
         child_ledgers = [Path(row.get("ledger", "")) for row in reversed(cycles) if row.get("ledger")]
@@ -3714,7 +3744,7 @@ def command_feedback(args) -> int:
     if args.item < 1:
         print("NIGHTSHIFT_FEEDBACK: RED | --item must be 1 or greater")
         return 2
-    ledger = select_ledger(args)
+    ledger = select_ledger(args, completed_only=True) if getattr(args, "latest", False) else select_ledger(args)
     morning_path = ledger / "morning-items.json" if ledger else None
     queue_path = (
         morning_path if morning_path and morning_path.exists()
