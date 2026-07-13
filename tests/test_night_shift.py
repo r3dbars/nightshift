@@ -3328,6 +3328,12 @@ buildThing() { return 1; }
             )
         }
         self.assertEqual(test_strengthening_contract(valid)["owner"], "DraftEngine")
+        top_level = {
+            "invocation-index/helpers-cleanup.txt": next(iter(valid.values())).replace(
+                "owner=DraftEngine", "owner=none"
+            )
+        }
+        self.assertEqual(test_strengthening_contract(top_level)["owner"], "none")
         for replacement in ("analysis=mixed-regex", "symbol=cleanup call_matches=1", "scan_complete=false"):
             broken = {key: value.replace(
                 "analysis=python-ast" if replacement.startswith("analysis") else
@@ -3335,12 +3341,18 @@ buildThing() { return 1; }
                 "scan_complete=true", replacement
             ) for key, value in valid.items()}
             self.assertIsNone(test_strengthening_contract(broken))
+        missing_owner = {
+            key: value.replace("owner=DraftEngine\n", "") for key, value in valid.items()
+        }
+        self.assertIsNone(test_strengthening_contract(missing_owner))
         duplicated = {**valid, "invocation-index/other.txt": next(iter(valid.values()))}
         self.assertIsNone(test_strengthening_contract(duplicated))
 
     def test_owner_symbol_call_count_ignores_unrelated_same_named_methods(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "test_drafts.py"
+            path.write_text("helper()\nother.helper()\n", encoding="utf-8")
+            self.assertEqual(owner_symbol_call_count([path], "none", "helper"), 1)
             path.write_text(
                 "from drafts import DraftEngine as DE\n"
                 "class Other:\n    def cleanup(self): pass\n"
