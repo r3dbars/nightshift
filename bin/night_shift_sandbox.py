@@ -75,11 +75,19 @@ def live_colima_docker(run_cmd: Callable, docker: str) -> str:
         detail = json.loads(status.stdout) if status.rc == 0 else {}
     except (TypeError, json.JSONDecodeError):
         return ""
-    expected_socket = f"unix://{Path.home()}/.colima/{profile}/docker.sock"
+    socket_candidates = {Path.home()}
+    # A temporary HOME is useful for clean install proofs, but Colima keeps
+    # its VM socket under the real macOS user's home directory.
+    if platform.system() == "Darwin" and os.environ.get("USER"):
+        socket_candidates.add(Path("/Users") / os.environ["USER"])
+    expected_sockets = {
+        f"unix://{home}/.colima/{profile}/docker.sock"
+        for home in socket_candidates
+    }
     if (
         detail.get("runtime") == "docker"
         and str(detail.get("driver") or "").startswith("macOS ")
-        and detail.get("docker_socket") == expected_socket
+        and detail.get("docker_socket") in expected_sockets
     ):
         return profile
     return ""
