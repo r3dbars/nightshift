@@ -58,6 +58,26 @@ def is_test_path(relative: str) -> bool:
 
 def symbol_is_test_addressable(path: str, source: str, symbol: str) -> bool:
     """Reject JS/TS top-level internals that tests cannot import directly."""
+    if Path(path).suffix.lower() == ".py":
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        if any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == symbol
+            for node in tree.body
+        ):
+            return True
+        properties = python_property_methods(source)
+        matches: list[tuple[str, str]] = []
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for child in node.body:
+                if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) or child.name != symbol:
+                    continue
+                matches.append((node.name, child.name))
+        return not matches or any(match not in properties for match in matches)
     if Path(path).suffix.lower() not in {".js", ".jsx", ".ts", ".tsx"}:
         return True
     escaped = re.escape(symbol)
@@ -77,6 +97,7 @@ def python_owned_methods(text: str) -> list[tuple[str, str]]:
         tree = ast.parse(text)
     except SyntaxError:
         return []
+    properties = python_property_methods(text)
     methods: list[tuple[str, str]] = []
     for node in tree.body:
         if not isinstance(node, ast.ClassDef):
@@ -86,8 +107,37 @@ def python_owned_methods(text: str) -> list[tuple[str, str]]:
             for child in node.body
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
             and not child.name.startswith("_")
+            and (node.name, child.name) not in properties
         )
     return methods
+
+
+def python_property_methods(text: str) -> set[tuple[str, str]]:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return set()
+    cached_aliases = {"cached_property"}
+    cached_aliases.update(
+        alias.asname or alias.name
+        for node in tree.body if isinstance(node, ast.ImportFrom)
+        for alias in node.names if alias.name == "cached_property"
+    )
+    properties: set[tuple[str, str]] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for child in node.body:
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            decorators = {
+                decorator.id if isinstance(decorator, ast.Name) else decorator.attr
+                for decorator in child.decorator_list
+                if isinstance(decorator, (ast.Name, ast.Attribute))
+            }
+            if "property" in decorators or decorators & cached_aliases:
+                properties.add((node.name, child.name))
+    return properties
 
 
 def task_file_priority(path: str) -> int:

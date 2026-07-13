@@ -128,10 +128,27 @@ class QueueEvidenceTests(unittest.TestCase):
     def test_python_owned_methods_ignore_top_level_and_private_functions(self):
         self.assertEqual(
             python_owned_methods(
-                "def top(): pass\nclass Engine:\n    def run(self): pass\n    def _private(self): pass\n"
+                "def top(): pass\nclass Engine:\n"
+                "    def run(self): pass\n"
+                "    @staticmethod\n    def stop(): pass\n"
+                "    @property\n    def valid(self): return True\n"
+                "    @valid.setter\n    def valid(self, value): pass\n"
+                "    @functools.cached_property\n    def cached(self): return True\n"
+                "    def _private(self): pass\n"
             ),
-            [("Engine", "run")],
+            [("Engine", "run"), ("Engine", "stop")],
         )
+        source = "class PatchCheck:\n    @property\n    def valid(self): return True\n"
+        self.assertFalse(symbol_is_test_addressable("protocol.py", source, "valid"))
+        duplicate = source + "class Other:\n    def valid(self): return True\n"
+        self.assertTrue(symbol_is_test_addressable("protocol.py", duplicate, "valid"))
+        top_level = source + "def valid(): return True\n"
+        self.assertTrue(symbol_is_test_addressable("protocol.py", top_level, "valid"))
+        aliased = (
+            "from functools import cached_property as cached\n"
+            "class Engine:\n    @cached\n    def value(self): return 1\n"
+        )
+        self.assertFalse(symbol_is_test_addressable("engine.py", aliased, "value"))
 
     def test_goal_semantic_contract_preserves_explicit_outcome_and_order_requirements(self):
         contract = goal_semantic_contract(
