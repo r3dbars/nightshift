@@ -1483,7 +1483,7 @@ CONFIDENCE: high
             (repo / "app.py").write_text("def run():\n    return True\n", encoding="utf-8")
             tests = repo / "tests"
             tests.mkdir()
-            (tests / "test_app.py").write_text("# filler\n" + "x" * 262_144, encoding="utf-8")
+            (tests / "test_app.py").write_text("# filler\n" + "x" * 524_288, encoding="utf-8")
             scan = {
                 "recent_files": ["app.py"], "source_files": ["app.py"],
                 "test_files": ["tests/test_app.py"], "tracked_files": ["app.py", "tests/test_app.py"],
