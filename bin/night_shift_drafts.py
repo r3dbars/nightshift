@@ -233,7 +233,12 @@ class DraftEngine:
         for path in files:
             shown = self.run_cmd(["git", "show", f"{source_ref}:{path}"], cwd=repo, timeout=30)
             if shown.rc == 0:
-                sections.append(f"## {path}\n{shown.stdout[:6000]}")
+                text = shown.stdout
+                if is_test_path(path) and len(text) > 10_000:
+                    text = text[:3500] + "\n# ... pinned middle omitted ...\n" + text[-6500:]
+                else:
+                    text = text[:10_000]
+                sections.append(f"## {path}\n{text}")
         return "\n\n".join(sections)
 
     def ask_for_patch(

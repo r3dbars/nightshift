@@ -2902,6 +2902,17 @@ buildThing() { return 1; }
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MODEL"], "local-coder")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MAX_TOKENS"], "8192")
 
+    def test_test_source_excerpt_includes_pinned_imports_and_tail_anchor(self):
+        class Result:
+            rc = 0
+            stdout = "IMPORT_ANCHOR\n" + ("middle\n" * 3000) + "TAIL_ANCHOR\n"
+
+        engine = night_shift.DraftEngine(lambda *_args, **_kwargs: Result(), Path("/tmp"), lambda: "now")
+        excerpt = engine.source_excerpt(Path("/repo"), "a" * 40, ["tests/test_app.py"])
+        self.assertIn("IMPORT_ANCHOR", excerpt)
+        self.assertIn("pinned middle omitted", excerpt)
+        self.assertIn("TAIL_ANCHOR", excerpt)
+
     def test_patch_that_does_not_apply_gets_one_source_anchoring_retry(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
