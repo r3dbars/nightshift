@@ -56,9 +56,18 @@ class PublishEngine:
         self.run_cmd(["git", "worktree", "prune"], cwd=repo, timeout=60)
         return removed.rc == 0
 
-    def _remove_remote_branch(self, worktree: Path, branch: str) -> bool:
+    def _ensure_remote_branch_absent(self, worktree: Path, branch: str) -> bool:
+        ref = f"refs/heads/{branch}"
+        present = self.run_cmd(["git", "ls-remote", "--exit-code", "--heads", "origin", ref], cwd=worktree, timeout=60)
+        if present.rc == 2 or (present.rc == 0 and not present.stdout.strip()):
+            return True
+        if present.rc != 0:
+            return False
         removed = self.run_cmd(["git", "push", "origin", "--delete", branch], cwd=worktree, timeout=120)
-        return removed.rc == 0
+        if removed.rc != 0:
+            return False
+        checked = self.run_cmd(["git", "ls-remote", "--exit-code", "--heads", "origin", ref], cwd=worktree, timeout=60)
+        return checked.rc == 2 or (checked.rc == 0 and not checked.stdout.strip())
 
     def publish(
         self,
@@ -169,7 +178,13 @@ class PublishEngine:
                 return finish({"status": "REJECT", "reason": "could not commit the approved patch"})
             pushed_result = self.run_cmd(["git", "push", "origin", f"HEAD:refs/heads/{branch}"], cwd=worktree, timeout=120)
             if pushed_result.rc != 0:
-                return finish({"status": "REJECT", "reason": "unique draft branch push failed"})
+                absent = self._ensure_remote_branch_absent(worktree, branch)
+                pushed = not absent
+                return finish({
+                    "status": "REJECT" if absent else "REMOTE_CLEANUP_REQUIRED",
+                    "reason": "unique draft branch push failed" if absent else "push failed ambiguously and remote branch absence could not be proven",
+                    "remote_branch_created": pushed,
+                })
             pushed = True
             title = f"Night Shift: {str(proof.get('summary') or 'verified repair')[:72]}"
             body = (
@@ -186,7 +201,7 @@ class PublishEngine:
             )
             pr_url = created.stdout.strip().splitlines()[-1] if created.rc == 0 and created.stdout.strip() else ""
             if created.rc != 0 or not pr_url:
-                removed_remote = self._remove_remote_branch(worktree, branch)
+                removed_remote = self._ensure_remote_branch_absent(worktree, branch)
                 pushed = not removed_remote
                 return finish({
                     "status": "REJECT" if removed_remote else "REMOTE_CLEANUP_REQUIRED",
@@ -196,7 +211,7 @@ class PublishEngine:
             draft = self.run_cmd(["gh", "pr", "view", pr_url, "--json", "isDraft", "--jq", ".isDraft"], cwd=worktree, timeout=30)
             if draft.rc != 0 or draft.stdout.strip().lower() != "true":
                 closed = self.run_cmd(["gh", "pr", "close", pr_url], cwd=worktree, timeout=60)
-                removed_remote = self._remove_remote_branch(worktree, branch)
+                removed_remote = self._ensure_remote_branch_absent(worktree, branch)
                 pushed = not removed_remote
                 cleaned = closed.rc == 0 and removed_remote
                 return finish({
