@@ -102,7 +102,9 @@ night-shift trust-repo --repo /path/to/project --apply  # one consent, saved out
 ```
 
 This proves GitHub ownership, detects a safe verification command, builds the
-reviewed immutable runner, and keeps GitHub writes disabled.
+reviewed immutable runner, and runs that exact command once in the isolated
+environment before saving approval. Missing runner tooling keeps the repo
+analysis-only. GitHub writes remain disabled.
 
 Every selected task also has a durable lifecycle: `DISCOVERED`, `REPRODUCED`,
 `DIAGNOSED`, `PATCHED`, `VERIFIED`, then human-only `REVIEWED` and `PROMOTED`.
