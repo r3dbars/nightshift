@@ -2096,6 +2096,23 @@ def verification_preflight(result: CmdResult, command: tuple[str, ...] = ()) -> 
     return "BLOCKED", detail
 
 
+def trust_repo_commands(repo: Path, scan: dict) -> list[list[str]]:
+    """Prefer an owner's reviewed argv profile over filename heuristics."""
+    profile, _ = load_repo_profile(repo)
+    configured = getattr(profile, "commands", ()) if profile else ()
+    if configured:
+        return [list(command) for command in configured]
+    commands = []
+    for value in scan.get("test_commands") or []:
+        try:
+            parsed = validate_command(shlex.split(value))
+        except ValueError:
+            parsed = None
+        if parsed:
+            commands.append(list(parsed))
+    return sorted(commands, key=verification_command_priority)[:1]
+
+
 def command_trust_repo(args) -> int:
     repo = require_git_repo(args.repo)
     if not repo:
@@ -2122,18 +2139,10 @@ def command_trust_repo(args) -> int:
         print("NIGHTSHIFT_TRUST_REPO: RED | the exact GitHub repository identity could not be verified")
         return 1
     scan = repo_signal_scan(repo)
-    commands = []
-    for value in scan.get("test_commands") or []:
-        try:
-            parsed = validate_command(shlex.split(value))
-        except ValueError:
-            parsed = None
-        if parsed:
-            commands.append(list(parsed))
+    commands = trust_repo_commands(repo, scan)
     if not commands:
         print("NIGHTSHIFT_TRUST_REPO: RED | no safe deterministic verification command was detected")
         return 1
-    commands = sorted(commands, key=verification_command_priority)[:1]
     candidate_paths = [*scan.get("source_files", []), *scan.get("test_files", [])]
     allowed_paths = list(dict.fromkeys(path.split("/", 1)[0] for path in candidate_paths if "/" in path))[:12]
     if not allowed_paths:
