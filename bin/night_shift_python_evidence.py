@@ -61,7 +61,7 @@ def owner_symbol_call_count_text(text: str, owner: str, symbol: str) -> int | No
         return None
     trusted_aliases = {
         alias.asname or alias.name
-        for node in tree.body if isinstance(node, ast.ImportFrom)
+        for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
         for alias in node.names if alias.name == owner
     }
     trusted_aliases.update(
