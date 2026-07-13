@@ -31,6 +31,23 @@ TASK_LADDER = {
 }
 
 
+def goal_semantic_contract(goal: str) -> dict:
+    low = goal.lower()
+    contract: dict[str, object] = {}
+    if re.search(r"\bboth\b.{0,40}\b(?:outcomes?|paths?|results?)\b", low):
+        contract["minimum_target_invocations"] = 2
+    if "true" in low and "false" in low or re.search(r"\bboth boolean\b", low):
+        contract["required_boolean_outcomes"] = [True, False]
+    ordered = re.search(
+        r"\border(?:ed|ing)?\s+([a-z_][a-z0-9_-]*)\s+(?:and|then|before)\s+"
+        r"([a-z_][a-z0-9_-]*)\s+(?:calls?|commands?|operations?)\b",
+        low,
+    )
+    if ordered:
+        contract["ordered_terms"] = [ordered.group(1), ordered.group(2)]
+    return contract
+
+
 def is_test_path(relative: str) -> bool:
     return bool(re.search(
         r"(^|/)(test|tests|spec|specs)(/|$)|(^|/)(test|spec)_[^/]+\.|(_test|_spec|\.test|\.spec)\.",
@@ -347,6 +364,7 @@ def build_repo_work_queue(
         commands: list[str] | None = None,
         executable: bool = False,
         signal_strength: int = 0,
+        semantic_contract: dict | None = None,
     ) -> None:
         if slug in {item["slug"] for item in queue}:
             return
@@ -367,6 +385,7 @@ def build_repo_work_queue(
                 "source_ref": source_ref,
                 "executable": executable,
                 "signal_strength": signal_strength,
+                "semantic_contract": semantic_contract or {},
             }
         )
 
@@ -470,6 +489,7 @@ def build_repo_work_queue(
                     for key, value in mission_evidence.items()
                 )
             ),
+            semantic_contract=goal_semantic_contract(goal_text),
         )
     if coverage_gaps:
         gap_path, gap_symbol, gap_evidence = coverage_gaps[0]

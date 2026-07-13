@@ -24,9 +24,34 @@ LOADER.exec_module(night_shift)
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
 from night_shift_drafts import owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate
 from night_shift_patch_protocol import materialize_test_method_patch
+from night_shift_python_evidence import semantic_test_contract_reasons
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_semantic_contract_rejects_partial_test_and_accepts_complete_test(self):
+        contract = {
+            "minimum_target_invocations": 2,
+            "required_boolean_outcomes": [True, False],
+            "ordered_terms": ["remove", "prune"],
+        }
+        partial = (
+            "from drafts import DraftEngine\n"
+            "def test_cleanup():\n    engine = DraftEngine()\n    result = engine.cleanup()\n"
+            "    assert result is True\n    assert 'remove'\n    assert 'prune'\n"
+        )
+        reasons = semantic_test_contract_reasons([partial], contract, "DraftEngine", "cleanup")
+        self.assertIn("semantic contract requires at least 2 target invocations; found 1", reasons)
+        self.assertIn("semantic contract requires assertions for both boolean outcomes", reasons)
+        complete = (
+            "from drafts import DraftEngine\n"
+            "def test_cleanup():\n    engine = DraftEngine()\n"
+            "    first = engine.cleanup()\n    second = engine.cleanup()\n"
+            "    assert first is True\n    assert 'remove'\n    assert 'prune'\n    assert second is False\n"
+        )
+        self.assertEqual(
+            semantic_test_contract_reasons([complete], contract, "DraftEngine", "cleanup"), []
+        )
+
     def test_controller_materializes_ast_valid_test_method_at_pinned_tail(self):
         original = (
             "import unittest\n\nclass Tests(unittest.TestCase):\n"

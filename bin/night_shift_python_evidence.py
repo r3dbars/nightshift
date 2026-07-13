@@ -132,3 +132,49 @@ def owner_symbol_call_count_text(text: str, owner: str, symbol: str) -> int | No
         return count
 
     return scan(tree.body)
+
+
+def semantic_test_contract_reasons(
+    texts: list[str], contract: dict, owner: str, symbol: str
+) -> list[str]:
+    reasons: list[str] = []
+    calls = 0
+    assertion_rows: list[tuple[int, str]] = []
+    boolean_outcomes: set[bool] = set()
+    for text in texts:
+        counted = owner_symbol_call_count_text(text, owner, symbol)
+        if counted is None:
+            return ["patched test could not be parsed for semantic proof"]
+        calls += counted
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return ["patched test could not be parsed for semantic proof"]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assert):
+                assertion_rows.append((node.lineno, ast.get_source_segment(text, node) or ""))
+                boolean_outcomes.update(
+                    value.value for value in ast.walk(node)
+                    if isinstance(value, ast.Constant) and isinstance(value.value, bool)
+                )
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+                if name.startswith("assert"):
+                    assertion_rows.append((node.lineno, ast.get_source_segment(text, node) or ""))
+                if name == "assertTrue":
+                    boolean_outcomes.add(True)
+                elif name == "assertFalse":
+                    boolean_outcomes.add(False)
+    minimum = int(contract.get("minimum_target_invocations") or 0)
+    if minimum and calls < minimum:
+        reasons.append(f"semantic contract requires at least {minimum} target invocations; found {calls}")
+    required_bools = set(contract.get("required_boolean_outcomes") or [])
+    if required_bools and not required_bools.issubset(boolean_outcomes):
+        reasons.append("semantic contract requires assertions for both boolean outcomes")
+    ordered = [str(term).lower() for term in contract.get("ordered_terms") or []]
+    if len(ordered) == 2:
+        first_lines = [line for line, source in assertion_rows if ordered[0] in source.lower()]
+        second_lines = [line for line, source in assertion_rows if ordered[1] in source.lower()]
+        if not first_lines or not second_lines or min(first_lines) >= max(second_lines):
+            reasons.append(f"semantic contract requires ordered assertions for {ordered[0]} then {ordered[1]}")
+    return reasons

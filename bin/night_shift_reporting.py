@@ -178,6 +178,7 @@ class ReportEngine:
                 "proof_kind": row.get("proof_kind", "source"), "executable": bool(row.get("executable", False)),
                 "source_ref": row.get("source_ref", ""), "fingerprint": row.get("fingerprint", ""),
                 "evidence_sources": row.get("evidence_sources", {}),
+                "semantic_contract": row.get("semantic_contract", {}),
                 "verification_commands": row.get("verification_commands", []), "priority": item["priority"],
                 "summary": row["summary"], "score": row["score"], "evidence": row.get("evidence", ""),
                 "files": row.get("files", []), "tests": row.get("tests", ""),

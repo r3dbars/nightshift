@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import difflib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -152,6 +153,7 @@ TASK: {candidate.get('summary', '')}
 EVIDENCE: {candidate.get('evidence', '')}
 EXPECTED RESULT: {candidate.get('expected_result', '')}
 STRENGTHENING CONTRACT: {contract.get('owner', '')}.{contract.get('symbol', '')}
+SEMANTIC CONTRACT: {json.dumps(candidate.get('semantic_contract') or {}, sort_keys=True)}
 ALLOWED FILES: {', '.join(candidate.get('files', []))}
 VERIFICATION ARGV: {' '.join(command)}
 SOURCE EXCERPT:

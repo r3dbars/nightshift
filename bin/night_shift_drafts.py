@@ -12,7 +12,7 @@ from typing import Callable
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
 from night_shift_sandbox import sandbox_command, sandbox_patch_command
 from night_shift_patch_protocol import materialize_test_method_patch, patch_prompt, validate_patch
-from night_shift_python_evidence import owner_symbol_call_count_text
+from night_shift_python_evidence import owner_symbol_call_count_text, semantic_test_contract_reasons
 from night_shift_queue import is_test_path
 from night_shift_state import record_state
 
@@ -527,6 +527,18 @@ class DraftEngine:
                 ) if replayed.rc == 0 else None
                 if count is None or count <= 0:
                     guards.append("test strengthening did not add a proven owner-aware invocation")
+                if replayed.rc == 0 and count is not None and candidate.get("semantic_contract"):
+                    try:
+                        patched_texts = [
+                            (worktree / path).read_text(encoding="utf-8") for path in candidate["files"]
+                        ]
+                    except (OSError, UnicodeError):
+                        guards.append("patched tests could not be read for semantic proof")
+                    else:
+                        guards.extend(semantic_test_contract_reasons(
+                            patched_texts, candidate["semantic_contract"],
+                            strengthening["owner"], strengthening["symbol"],
+                        ))
         status, proof_level = draft_proof_status(baseline.rc, after_rc, guards)
         record_state(
             lifecycle_path, fingerprint, "VERIFIED" if status != "REJECT" else "REJECTED",

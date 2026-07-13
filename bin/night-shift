@@ -2206,6 +2206,7 @@ def command_run(args) -> int:
                 item.get("evidence_sources", {}),
                 item.get("source_ref", ""),
                 item.get("kind") == "issue",
+                item.get("semantic_contract", {}),
             )
         )
         lane_counts[lane] += 1
@@ -2235,6 +2236,7 @@ def command_run(args) -> int:
                 evidence_sources,
                 source_ref,
                 pinned_issue,
+                semantic_contract,
             ) = item
             if lane_running[lane] >= lane_limits[lane]:
                 continue
@@ -2268,6 +2270,7 @@ def command_run(args) -> int:
                 "source_ref": source_ref,
                 "verification_commands": verification_commands,
                 "evidence_sources": evidence_sources,
+                "semantic_contract": semantic_contract,
             }
             remaining.remove(item)
             submitted += 1
@@ -2303,6 +2306,7 @@ def command_run(args) -> int:
                     result["source_ref"] = pending_item["source_ref"]
                     result["verification_commands"] = pending_item["verification_commands"]
                     result["evidence_sources"] = pending_item["evidence_sources"]
+                    result["semantic_contract"] = pending_item["semantic_contract"]
                     results.append(result)
                     if result.get("score") == "REJECT":
                         circuit["rejections"] += 1
@@ -2333,6 +2337,7 @@ def command_run(args) -> int:
                             "source_ref": pending_item["source_ref"],
                             "verification_commands": pending_item["verification_commands"],
                             "evidence_sources": pending_item["evidence_sources"],
+                            "semantic_contract": pending_item["semantic_contract"],
                         }
                     )
                     circuit["rejections"] += 1
