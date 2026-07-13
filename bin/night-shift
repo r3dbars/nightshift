@@ -9,6 +9,7 @@ import platform
 import re
 import signal
 import shutil
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -30,8 +31,9 @@ if str(SCRIPT_DIR) not in sys.path:
 from night_shift_portfolio import PortfolioEngine, parse_json_text
 from night_shift_drafts import DraftEngine, draft_proof_status, remaining_draft_timeout
 from night_shift_publish import PublishEngine
-from night_shift_policy import PROFILE_NAME, command_display, load_repo_profile
+from night_shift_policy import PROFILE_NAME, PROTECTED_PATHS, command_display, validate_command
 from night_shift_sandbox import build_runner_image, detect_sandbox
+from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import redact
 from night_shift_patch_protocol import validate_patch
@@ -62,6 +64,7 @@ BIN = CODEX_HOME / "bin"
 OVERNIGHT_ROOT = CODEX_HOME / "maestro" / "overnight"
 CONFIG_DIR = CODEX_HOME / "night-shift"
 CONFIG_PATH = CONFIG_DIR / "config.json"
+REPO_APPROVALS_ROOT = CONFIG_DIR / "repo-approvals"
 FEEDBACK_PATH = CONFIG_DIR / "feedback.jsonl"
 TASK_HISTORY_PATH = CONFIG_DIR / "task-history.jsonl"
 TASK_ATTEMPTS_PATH = CONFIG_DIR / "task-attempts.jsonl"
@@ -562,6 +565,24 @@ def run_cmd(args, cwd=None, timeout=60, env=None, pid_log: Path | None = None) -
         )
     except FileNotFoundError as exc:
         return CmdResult(command, 127, "", str(exc))
+
+
+def repo_remote(repo: Path) -> str:
+    result = run_cmd(["git", "-C", repo, "remote", "get-url", "origin"], timeout=20)
+    return result.stdout.strip() if result.rc == 0 else ""
+
+
+def remote_advertises_current_revision(repo: Path, remote: str) -> bool:
+    head = run_cmd(["git", "-C", repo, "rev-parse", "HEAD"], timeout=20)
+    advertised = run_cmd(["git", "ls-remote", "--heads", "--tags", remote], timeout=60)
+    if head.rc != 0 or advertised.rc != 0:
+        return False
+    current = head.stdout.strip().lower()
+    return any(line.split()[0].lower() == current for line in advertised.stdout.splitlines() if line.split())
+
+
+def load_repo_profile(repo: Path):
+    return load_effective_profile(repo, REPO_APPROVALS_ROOT, repo_remote, remote_advertises_current_revision)
 
 
 PORTFOLIO = PortfolioEngine(run_cmd, REPO_CACHE_ROOT, TASK_HISTORY_PATH, now_stamp)
@@ -1273,7 +1294,7 @@ def detect_test_commands(repo: Path, tracked: list[str], source_ref: str = "") -
     """Return display-only suggestions, never commands Night Shift may execute.
 
     Repositories control package scripts, Makefiles, and shell files. Actual
-    execution requires `.night-shift.json` argv arrays and a rootless sandbox.
+    execution requires an explicitly approved argv profile and a rootless sandbox.
     """
     commands: list[str] = []
     names = set(tracked)
@@ -2613,6 +2634,94 @@ def command_sandbox(args) -> int:
     print("NIGHTSHIFT_SANDBOX: GREEN | reviewed local runner built")
     print("Add this image value to a reviewed .night-shift.json profile:")
     print(f'  "image": "{detail}"')
+    return 0
+
+
+def command_trust_repo(args) -> int:
+    repo = require_git_repo(args.repo)
+    if not repo:
+        return 1
+    remote = repo_remote(repo)
+    slug = repo_slug(repo)
+    if not remote or not slug or "/" not in slug:
+        print("NIGHTSHIFT_TRUST_REPO: RED | repo needs an origin GitHub remote")
+        return 1
+    owner = slug.split("/", 1)[0].lower()
+    viewer = (
+        run_cmd(["gh", "api", "user", "--jq", ".login"], timeout=30)
+        if shutil.which("gh")
+        else CmdResult("gh", 1, "", "gh unavailable")
+    )
+    if viewer.rc != 0 or viewer.stdout.strip().lower() != owner:
+        print("NIGHTSHIFT_TRUST_REPO: RED | GitHub ownership could not be proven for this repo")
+        return 1
+    remote_repo = run_cmd(
+        ["gh", "repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+        timeout=30,
+    )
+    if remote_repo.rc != 0 or remote_repo.stdout.strip().lower() != slug.lower():
+        print("NIGHTSHIFT_TRUST_REPO: RED | the exact GitHub repository identity could not be verified")
+        return 1
+    scan = repo_signal_scan(repo)
+    commands = []
+    for value in scan.get("test_commands") or []:
+        try:
+            parsed = validate_command(shlex.split(value))
+        except ValueError:
+            parsed = None
+        if parsed:
+            commands.append(list(parsed))
+    if not commands:
+        print("NIGHTSHIFT_TRUST_REPO: RED | no safe deterministic verification command was detected")
+        return 1
+    commands = commands[:1]
+    candidate_paths = [*scan.get("source_files", []), *scan.get("test_files", [])]
+    allowed_paths = list(dict.fromkeys(path.split("/", 1)[0] for path in candidate_paths if "/" in path))[:12]
+    if not allowed_paths:
+        allowed_paths = [
+            path for path in ("src", "lib", "app", "tests", "test", "Sources", "Tests")
+            if (repo / path).exists()
+        ]
+    print("NIGHTSHIFT_TRUST_REPO: REVIEW")
+    print(f"- Repo: {slug}")
+    print(f"- Remote: {remote}")
+    print(f"- Verification: {command_display(commands[0])}")
+    print(f"- Writable paths in disposable worktrees only: {', '.join(allowed_paths)}")
+    print("- Original checkout: read-only")
+    print("- GitHub writes: disabled by this approval")
+    if not args.apply:
+        print("Nothing was saved. Re-run with --apply to review one consent prompt.")
+        return 0
+    if not args.yes:
+        answer = input("Save this isolated-execution approval? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("NIGHTSHIFT_TRUST_REPO: YELLOW | approval not saved")
+            return 1
+    ok, image = build_runner_image(run_cmd)
+    if not ok:
+        print(f"NIGHTSHIFT_TRUST_REPO: YELLOW | {image}")
+        return 1
+    profile = {
+        "version": 1,
+        "trust": "owned",
+        "execution": "sandbox-only",
+        "image": image,
+        "commands": commands,
+        "allowed_paths": allowed_paths,
+        "protected_paths": sorted(PROTECTED_PATHS),
+        "limits": {"cpu": 2, "memory_mb": 2048, "pids": 128, "seconds": 900},
+    }
+    try:
+        path = save_approval(REPO_APPROVALS_ROOT, remote, slug, profile)
+    except OSError as exc:
+        print(f"NIGHTSHIFT_TRUST_REPO: RED | could not save approval safely: {exc}")
+        return 1
+    loaded, detail = load_repo_profile(repo)
+    if not loaded or not loaded.may_execute:
+        path.unlink(missing_ok=True)
+        print(f"NIGHTSHIFT_TRUST_REPO: RED | saved approval failed validation: {detail}")
+        return 1
+    print(f"NIGHTSHIFT_TRUST_REPO: GREEN | approval saved outside the repo at {path}")
     return 0
 
 
@@ -4388,6 +4497,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sandbox.add_argument("--build-runner", action="store_true", help="build the bundled local runner and print its immutable image ID")
     sandbox.set_defaults(func=command_sandbox)
+
+    trust_repo = sub.add_parser(
+        "trust-repo",
+        help="review and save isolated execution approval without editing the repo",
+        description="Bind safe verification commands, paths, and an immutable runner to an owned GitHub repo after one explicit consent.",
+        epilog="Example: night-shift trust-repo --repo /path/to/project --apply",
+    )
+    trust_repo.add_argument("--repo", required=True, help="owned GitHub repo to approve")
+    trust_repo.add_argument("--apply", action="store_true", help="save approval after review; preview only by default")
+    trust_repo.add_argument("--yes", action="store_true", help="confirm non-interactively when --apply is supplied")
+    trust_repo.set_defaults(func=command_trust_repo)
 
     plan = sub.add_parser(
         "plan",
