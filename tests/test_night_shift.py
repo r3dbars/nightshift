@@ -397,7 +397,9 @@ class NightShiftQualityTests(unittest.TestCase):
             self.assertEqual(items[0]["fingerprint"], "exact-candidate")
 
             original = night_shift.FEEDBACK_PATH
+            original_outcomes = night_shift.REPO_OUTCOMES_PATH
             night_shift.FEEDBACK_PATH = root / "feedback.jsonl"
+            night_shift.REPO_OUTCOMES_PATH = root / "repo-outcomes.jsonl"
             try:
                 args = SimpleNamespace(
                     ledger=str(ledger), latest=False, item=1,
@@ -411,6 +413,9 @@ class NightShiftQualityTests(unittest.TestCase):
                 self.assertEqual(event["family"], "failed-ci")
                 self.assertEqual(event["fingerprint"], "exact-candidate")
                 self.assertEqual(event["source_ref"], "a" * 40)
+                outcome = json.loads(night_shift.REPO_OUTCOMES_PATH.read_text(encoding="utf-8"))
+                self.assertEqual(outcome["feedback_useful"], 1)
+                self.assertEqual(outcome["repo"], "/repo")
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(night_shift.command_feedback(args), 0)
                 self.assertEqual(
@@ -418,6 +423,7 @@ class NightShiftQualityTests(unittest.TestCase):
                 )
             finally:
                 night_shift.FEEDBACK_PATH = original
+                night_shift.REPO_OUTCOMES_PATH = original_outcomes
 
     def test_portfolio_brief_quotes_feedback_ledger_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2483,7 +2489,9 @@ buildThing() { return 1; }
                 "summary": "Add a regression test",
             }]), encoding="utf-8")
             original = night_shift.FEEDBACK_PATH
+            original_outcomes = night_shift.REPO_OUTCOMES_PATH
             night_shift.FEEDBACK_PATH = root / "feedback.jsonl"
+            night_shift.REPO_OUTCOMES_PATH = root / "repo-outcomes.jsonl"
             try:
                 args = SimpleNamespace(
                     ledger=str(ledger), latest=False, item=1,
@@ -2498,6 +2506,7 @@ buildThing() { return 1; }
                 self.assertGreaterEqual(event["feedback_delay_seconds"], 4)
             finally:
                 night_shift.FEEDBACK_PATH = original
+                night_shift.REPO_OUTCOMES_PATH = original_outcomes
 
     def test_feedback_delay_seconds_ignores_invalid_and_future_times(self):
         now = night_shift.datetime.now(night_shift.timezone.utc)

@@ -4103,8 +4103,17 @@ def command_feedback(args) -> int:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with FEEDBACK_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, sort_keys=True) + "\n")
+    if row["repo"]:
+        append_repo_outcome(REPO_OUTCOMES_PATH, {
+            "completed_at": created_at,
+            "feedback_not_useful": 1 if verdict == "not-useful" else 0,
+            "feedback_useful": 1 if verdict == "useful" else 0,
+            "kind": "feedback",
+            "repo": row["repo"],
+            "source_ref": row["source_ref"],
+        })
     print(f"NIGHTSHIFT_FEEDBACK: GREEN | item={args.item} | verdict={verdict} | saved={FEEDBACK_PATH}")
-    print("Night Shift will use this signal when ranking and prompting future runs for the same repo.")
+    print("Night Shift will use this signal when ranking future work and choosing which repos get time.")
     return 0
 
 
