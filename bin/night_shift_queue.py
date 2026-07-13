@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from night_shift_portfolio import parse_json_text
+from night_shift_js_evidence import top_level_symbol_call_count_text as js_symbol_call_count_text
 from night_shift_python_evidence import owner_symbol_call_count_text, top_level_symbol_call_count_text
 from night_shift_selection import (
     declared_symbols,
@@ -354,6 +355,8 @@ class QueueEvidenceIndex:
                 evidence.update(owned_invocation)
             elif Path(path).suffix == ".py":
                 evidence.update(self.invocation_gap(path, missing))
+            elif Path(path).suffix.lower() in {".ts", ".tsx"}:
+                evidence.update(self.invocation_gap(path, missing))
             evidence.update(self.symbol_source_evidence(path, missing, owner))
             gaps.append((path, missing, evidence))
         return gaps
@@ -371,9 +374,17 @@ class QueueEvidenceIndex:
         scanned = 0
         complete = True
         total_bytes = 0
-        analysis = "python-ast" if coverage_test_paths and all(
-            Path(path).suffix == ".py" for path in coverage_test_paths
-        ) else "mixed-regex"
+        if Path(source_path).suffix == ".py":
+            analysis = "python-ast" if coverage_test_paths and all(
+                Path(path).suffix == ".py" for path in coverage_test_paths
+            ) else "mixed-regex"
+        elif Path(source_path).suffix.lower() in {".ts", ".tsx"}:
+            analysis = "typescript-regex" if coverage_test_paths and all(
+                Path(path).suffix.lower() in {".js", ".jsx", ".ts", ".tsx"}
+                for path in coverage_test_paths
+            ) else "mixed-regex"
+        else:
+            analysis = "mixed-regex"
         for path in coverage_test_paths:
             if total_bytes >= MAX_TEST_CORPUS_BYTES:
                 complete = False
@@ -389,6 +400,12 @@ class QueueEvidenceIndex:
                     counted = owner_symbol_call_count_text(text, owner, symbol)
                 else:
                     counted = top_level_symbol_call_count_text(text, symbol)
+                if counted is None:
+                    complete = False
+                    continue
+                calls += counted
+            elif analysis == "typescript-regex":
+                counted = js_symbol_call_count_text(text, symbol)
                 if counted is None:
                     complete = False
                     continue

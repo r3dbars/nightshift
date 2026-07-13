@@ -12,7 +12,17 @@ from typing import Callable
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
 from night_shift_models import output_token_budget
 from night_shift_sandbox import sandbox_command, sandbox_patch_command
-from night_shift_patch_protocol import materialize_test_method_patch, patch_prompt, validate_patch
+from night_shift_patch_protocol import (
+    materialize_test_method_patch,
+    materialize_ts_test_case_patch,
+    patch_prompt,
+    typescript_import_path,
+    validate_patch,
+)
+from night_shift_js_evidence import (
+    simple_exported_function,
+    top_level_symbol_call_count_text as js_symbol_call_count_text,
+)
 from night_shift_python_evidence import owner_symbol_call_count_text, semantic_test_contract_reasons
 from night_shift_queue import is_test_path
 from night_shift_state import record_state
@@ -84,11 +94,11 @@ def test_strengthening_contract(evidence_sources: dict[str, str] | None) -> dict
             fields["symbol"] = call_match.group(1)
             fields["call_matches"] = call_match.group(2)
         if (
-            fields.get("analysis") == "python-ast"
+            fields.get("analysis") in {"python-ast", "typescript-regex"}
             and fields.get("scan_complete") == "true"
             and fields.get("call_matches") == "0"
             and fields.get("symbol")
-            and fields.get("source_file", "").endswith(".py")
+            and Path(fields.get("source_file", "")).suffix.lower() in {".py", ".ts", ".tsx"}
             and re.fullmatch(r"(?:none|[A-Za-z_][A-Za-z0-9_]*)", fields.get("owner", ""))
         ):
             contracts.append(fields)
@@ -109,29 +119,80 @@ def owner_symbol_call_count(paths: list[Path], owner: str, symbol: str) -> int |
     return calls
 
 
+def javascript_symbol_call_count(paths: list[Path], symbol: str) -> int | None:
+    calls = 0
+    for path in paths:
+        try:
+            count = js_symbol_call_count_text(path.read_text(encoding="utf-8"), symbol)
+        except (OSError, UnicodeError):
+            return None
+        if count is None:
+            return None
+        calls += count
+    return calls
+
+
 def valid_test_strengthening_candidate(candidate: dict, worktree: Path) -> dict[str, str] | None:
     contract = candidate.get("strengthening_contract")
     files = candidate.get("files") or []
     if candidate.get("draft_intent") != "test-strengthening" or not isinstance(contract, dict):
         return None
-    if not files or any(not is_test_path(path) or not path.endswith(".py") for path in files):
+    if not files or any(not is_test_path(path) for path in files):
         return None
+    analysis = contract.get("analysis")
     if (
-        contract.get("analysis") != "python-ast"
+        analysis not in {"python-ast", "typescript-regex"}
         or contract.get("scan_complete") != "true"
         or contract.get("call_matches") != "0"
         or not contract.get("symbol")
         or not re.fullmatch(
             r"(?:none|[A-Za-z_][A-Za-z0-9_]*)", str(contract.get("owner") or "")
         )
-        or not str(contract.get("source_file") or "").endswith(".py")
         or contract.get("source_file") not in (candidate.get("context_files") or [])
     ):
         return None
-    baseline_calls = owner_symbol_call_count(
-        [worktree / path for path in files], contract["owner"], contract["symbol"]
-    )
+    source_file = str(contract.get("source_file") or "")
+    if analysis == "python-ast":
+        if any(not path.endswith(".py") for path in files) or not source_file.endswith(".py"):
+            return None
+        baseline_calls = owner_symbol_call_count(
+            [worktree / path for path in files], contract["owner"], contract["symbol"]
+        )
+    else:
+        try:
+            source_text = (worktree / source_file).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return None
+        if (
+            str(contract.get("owner") or "none") != "none"
+            or any(Path(path).suffix.lower() not in {".ts", ".tsx", ".js", ".jsx"} for path in files)
+            or Path(source_file).suffix.lower() not in {".ts", ".tsx"}
+            or not simple_exported_function(source_text, contract["symbol"])
+        ):
+            return None
+        baseline_calls = javascript_symbol_call_count(
+            [worktree / path for path in files], contract["symbol"]
+        )
     return contract if baseline_calls == 0 else None
+
+
+def materialize_strengthening_output(
+    output: str, original: str, relative: str, strengthening: dict[str, str] | None,
+) -> str:
+    if strengthening and strengthening.get("analysis") == "typescript-regex":
+        return materialize_ts_test_case_patch(
+            output,
+            original,
+            relative,
+            strengthening["symbol"],
+            typescript_import_path(str(strengthening["source_file"]), relative),
+        )
+    return materialize_test_method_patch(
+        output,
+        original,
+        relative,
+        {Path(strengthening["source_file"]).stem} if strengthening else set(),
+    )
 
 
 class DraftEngine:
@@ -173,7 +234,14 @@ class DraftEngine:
             verification = next((command for command in known_commands if command in (item.get("tests") or "")), "")
             contract = test_strengthening_contract(item.get("evidence_sources"))
             if contract:
-                test_files = [path for path in files if is_test_path(path) and path.endswith(".py")]
+                extensions = (
+                    {".py"} if contract.get("analysis") == "python-ast"
+                    else {".ts", ".tsx", ".js", ".jsx"}
+                )
+                test_files = [
+                    path for path in files
+                    if is_test_path(path) and Path(path).suffix.lower() in extensions
+                ]
                 source_file = contract["source_file"]
                 source_exists = (
                     self.run_cmd(["git", "cat-file", "-e", f"{source_ref}:{source_file}"], cwd=repo, timeout=20).rc == 0
@@ -443,7 +511,17 @@ class DraftEngine:
         worker_path.write_text(
             (model.stdout + "\n" + model.stderr).strip() + "\n", encoding="utf-8"
         )
-        proposed = validate_patch(model.stdout, candidate["files"], profile)
+        test_file = candidate["files"][0] if len(candidate["files"]) == 1 else ""
+        try:
+            original_test = (worktree / test_file).read_text(encoding="utf-8") if test_file else ""
+        except (OSError, UnicodeError):
+            original_test = ""
+        proposed_output = (
+            materialize_strengthening_output(model.stdout, original_test, test_file, strengthening)
+            if strengthening and strengthening.get("analysis") == "typescript-regex"
+            else model.stdout
+        )
+        proposed = validate_patch(proposed_output, candidate["files"], profile)
         apply_reason = ""
         patch_recovered = False
         if proposed.valid:
@@ -477,7 +555,12 @@ class DraftEngine:
                     (retry.stdout + "\n" + retry.stderr).strip() + "\n", encoding="utf-8"
                 )
                 model = retry
-                proposed = validate_patch(model.stdout, candidate["files"], profile)
+                proposed_output = (
+                    materialize_strengthening_output(model.stdout, original_test, test_file, strengthening)
+                    if strengthening and strengthening.get("analysis") == "typescript-regex"
+                    else model.stdout
+                )
+                proposed = validate_patch(proposed_output, candidate["files"], profile)
                 apply_reason = ""
                 if proposed.valid:
                     patch_path.write_text(proposed.patch, encoding="utf-8")
@@ -485,15 +568,9 @@ class DraftEngine:
                     if applies.rc != 0:
                         apply_reason = "patch does not apply to the pinned source"
         if candidate.get("draft_intent") == "test-strengthening" and (not proposed.valid or apply_reason):
-            test_file = candidate["files"][0] if len(candidate["files"]) == 1 else ""
-            try:
-                original_test = (worktree / test_file).read_text(encoding="utf-8") if test_file else ""
-            except (OSError, UnicodeError):
-                original_test = ""
             for recovery_output in (first_model_output, model.stdout):
-                recovered = materialize_test_method_patch(
-                    recovery_output, original_test, test_file,
-                    {Path(strengthening["source_file"]).stem} if strengthening else set(),
+                recovered = materialize_strengthening_output(
+                    recovery_output, original_test, test_file, strengthening,
                 )
                 if not recovered:
                     continue
@@ -554,7 +631,12 @@ class DraftEngine:
                     (proof_dir / f"{safe_task}.verification-worker.txt").write_text(
                         (repair.stdout + "\n" + repair.stderr).strip() + "\n", encoding="utf-8"
                     )
-                repaired = validate_patch(repair.stdout, candidate["files"], profile)
+                repaired_output = (
+                    materialize_strengthening_output(repair.stdout, original_test, candidate["files"][0], strengthening)
+                    if strengthening and strengthening.get("analysis") == "typescript-regex"
+                    else repair.stdout
+                )
+                repaired = validate_patch(repaired_output, candidate["files"], profile)
                 repaired_patch = repaired.patch
                 repair_applies = False
                 if repaired.valid:
@@ -567,9 +649,8 @@ class DraftEngine:
                         original_test = (worktree / candidate["files"][0]).read_text(encoding="utf-8")
                     except (OSError, UnicodeError):
                         original_test = ""
-                    repaired_patch = materialize_test_method_patch(
-                        repair.stdout, original_test, candidate["files"][0],
-                        {Path(strengthening["source_file"]).stem} if strengthening else set(),
+                    repaired_patch = materialize_strengthening_output(
+                        repair.stdout, original_test, candidate["files"][0], strengthening,
                     )
                     repaired = validate_patch(repaired_patch, candidate["files"], profile)
                     if repaired.valid:
@@ -612,20 +693,38 @@ class DraftEngine:
         if verified.rc != 0 or after_rc != 0:
             guards.append("isolated verification did not pass")
         if strengthening:
-            if any(not is_test_path(path) or not path.endswith(".py") for path in paths):
+            is_typescript = strengthening.get("analysis") == "typescript-regex"
+            allowed_extensions = {".ts", ".tsx", ".js", ".jsx"} if is_typescript else {".py"}
+            if any(
+                not is_test_path(path) or Path(path).suffix.lower() not in allowed_extensions
+                for path in paths
+            ):
                 guards.append("test strengthening changed a non-test file")
             applied_host = self.run_cmd(["git", "apply", "--check", applied_path], cwd=worktree, timeout=30)
             if applied_host.rc != 0:
                 guards.append("verified patch could not be replayed for invocation proof")
             else:
                 replayed = self.run_cmd(["git", "apply", applied_path], cwd=worktree, timeout=30)
-                count = owner_symbol_call_count(
-                    [worktree / path for path in candidate["files"]],
-                    strengthening["owner"], strengthening["symbol"],
-                ) if replayed.rc == 0 else None
+                count = (
+                    javascript_symbol_call_count(
+                        [worktree / path for path in candidate["files"]], strengthening["symbol"]
+                    )
+                    if is_typescript and replayed.rc == 0 else
+                    owner_symbol_call_count(
+                        [worktree / path for path in candidate["files"]],
+                        strengthening["owner"], strengthening["symbol"],
+                    ) if replayed.rc == 0 else None
+                )
                 if count is None or count <= 0:
-                    guards.append("test strengthening did not add a proven owner-aware invocation")
-                if replayed.rc == 0 and count is not None and candidate.get("semantic_contract"):
+                    guards.append(
+                        "test strengthening did not add a proven target invocation"
+                        if is_typescript else
+                        "test strengthening did not add a proven owner-aware invocation"
+                    )
+                if (
+                    not is_typescript and replayed.rc == 0 and count is not None
+                    and candidate.get("semantic_contract")
+                ):
                     try:
                         patched_texts = [
                             (worktree / path).read_text(encoding="utf-8") for path in candidate["files"]
