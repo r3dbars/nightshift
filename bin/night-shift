@@ -37,7 +37,7 @@ from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
+from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
@@ -3533,6 +3533,15 @@ def command_handoff(args) -> int:
         if not copied:
             print("NIGHTSHIFT_HANDOFF: RED | no safe committed review files could be materialized")
             return 1
+        pack_metrics = handoff_pack_metrics(prompt, review_root, copied)
+        privacy_reasons = handoff_pack_privacy_reasons(prompt, review_root, copied, repo)
+        if privacy_reasons:
+            print(
+                "NIGHTSHIFT_HANDOFF: RED | bounded pack failed privacy validation: "
+                + "; ".join(privacy_reasons)[:240]
+            )
+            return 1
+        review_started = time.monotonic()
         result = run_cmd(
             [
                 "codex", "exec", "--ephemeral", "--sandbox", "read-only",
@@ -3541,6 +3550,7 @@ def command_handoff(args) -> int:
             cwd=review_root,
             timeout=args.timeout,
         )
+        review_seconds = round(time.monotonic() - review_started, 3)
     output_path = handoff_dir / f"item-{args.item}-{args.agent}-review.md"
     output_path.write_text(redact(result.stdout or result.stderr).strip() + "\n", encoding="utf-8")
     review_output = redact(result.stdout or result.stderr).strip()
@@ -3554,7 +3564,10 @@ def command_handoff(args) -> int:
         "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "item": args.item,
         "materialized_files": copied,
+        **pack_metrics,
         "read_only": True,
+        "review_output_bytes": len(review_output.encode("utf-8")),
+        "review_seconds": review_seconds,
         "return_code": result.rc,
         "source_ref": source_ref,
         "valid_review": not review_reasons,
