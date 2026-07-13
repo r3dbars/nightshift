@@ -108,25 +108,31 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]], mode_defaults:
     privacy_route = prefs.get("privacy_route", "mac-only")
     tools = detected_tools(rows, privacy_route) or ["no worker AI found yet; planning brief only"]
     scope = prefs.get("scope", "github-recent")
+    patch_plan = (
+        "Make test-gated patches in disposable copies"
+        if execute_drafts
+        else "Prepare reviewable plans without changing code"
+    )
+    publication = (
+        "May open test-passed draft PRs; never merges them"
+        if allow_draft_prs
+        else "Keeps all work local; does not push"
+    )
     lines = [
-        "", "Night Shift preview", "", "Project:", f"- {repo}", "", "Tonight it WILL:",
-        "- Watch recently active GitHub repos" if scope == "github-recent" else "- Work through this repo",
-        f"- Use: {', '.join(tools)}",
-        f"- Aim for: {wake_goal_label(wake_goal)}",
-        f"- Run in {mode_label(mode)} mode ({mode_counts(mode, mode_defaults, rows, privacy_route)})",
-        f"- {permission_label(permission)}",
-        f"- Autonomy: {autonomy_copy(permission)}",
-        "- Make test-gated patches only in disposable worktrees" if execute_drafts else "- Keep code changes as analysis candidates",
-        "- Open test-passed changes as GitHub draft PRs for review" if allow_draft_prs else "- Keep every code change local",
-        f"- {stop_label(stop)}",
-        "- Save a repo scan, deduped work queue, morning brief, and artifacts",
-        "", "Tonight it WILL NOT:",
-        "- Push branches or open PRs unless you saved explicit draft-PR consent",
-        "- Open a non-draft PR", "- Merge PRs", "- Release, deploy, publish, tag, or notarize",
-        "- Delete or reorganize user files", "- Change credentials, billing, or repo visibility",
-        "- Edit this checkout directly", "- Keep running after the stop limit",
-        "", "Privacy:", f"- {privacy_route_label(privacy_route)}", "", "If this fails, run:",
-        f"  night-shift doctor --repo {repo}",
+        "Night Shift preview", "", f"Project: {repo}", "", "Tonight:",
+        "- Scan your recently active GitHub repos" if scope == "github-recent" else "- Scan this project",
+        f"- Use {', '.join(tools)}",
+        f"- Look for {wake_goal_label(wake_goal).lower()}",
+        f"- Use {mode_label(mode).lower()} effort and {stop_label(stop).lower()}",
+        f"- {patch_plan}",
+        "- Leave a short morning brief with proof and next steps",
+        "", "Safety:",
+        f"- {publication}",
+        "- Never edits this checkout, merges, releases, deploys, or changes credentials",
+        "- Never deletes or reorganizes your files, changes billing, or changes repo visibility",
+        f"- {privacy_route_label(privacy_route)}",
+        "", "Change these choices anytime with `night-shift start --advanced`.",
+        f"If setup fails, run `night-shift doctor --repo {repo}`.",
     ]
     return "\n".join(lines)
 

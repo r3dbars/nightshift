@@ -158,6 +158,12 @@ class PortfolioReportEngine:
                 f"- Useful: `night-shift feedback --ledger {ledger} --item 1 --useful`",
                 f"- Not useful: `night-shift feedback --ledger {ledger} --item 1 --not-useful`",
             ])
+        else:
+            lines.extend([
+                "", "What to do next:",
+                "- Nothing needs your review from this shift.",
+                "- Run `night-shift start --yes` tonight. Night Shift will rescan fresh repo activity and try again.",
+            ])
         lines.extend([
             "", "Run totals:", f"- Repositories visited: {len(latest_by_repo)}",
             f"- Repository batches completed: {len(cycle_rows)}",

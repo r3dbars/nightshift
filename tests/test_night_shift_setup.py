@@ -63,12 +63,16 @@ class SetupPolicyTests(unittest.TestCase):
             [("windows-worker", "GREEN", "ready")],
             MODE_DEFAULTS,
         )
-        self.assertIn("test-gated patches only in disposable worktrees", preview)
-        self.assertIn("Open test-passed changes as GitHub draft PRs", preview)
-        self.assertIn("Stop after 8 hours", preview)
+        self.assertIn("test-gated patches in disposable copies", preview)
+        self.assertIn("May open test-passed draft PRs; never merges them", preview)
+        self.assertIn("stop after 8 hours", preview)
         self.assertIn("Keep repo context on this Mac", preview)
         self.assertNotIn("Use: another computer", preview)
-        self.assertIn("- Merge PRs", preview)
+        self.assertIn("Never edits this checkout, merges, releases, deploys", preview)
+        self.assertIn("Never deletes or reorganizes your files", preview)
+        self.assertIn("changes billing, or changes repo visibility", preview)
+        self.assertIn("night-shift doctor --repo /repo", preview)
+        self.assertLessEqual(len(preview.splitlines()), 21)
 
     def test_timestamp_does_not_turn_repeat_setup_into_a_change(self):
         saved = {"schema_version": 4, "updated_at": "before", "preferences": {"mode": "quiet"}}
