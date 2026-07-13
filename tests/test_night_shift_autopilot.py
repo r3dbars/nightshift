@@ -47,6 +47,17 @@ class AutopilotCycleStateTests(unittest.TestCase):
             state.no_prepared_repositories()
             self.assertEqual(state.status, "YELLOW")
 
+    def test_new_cycle_resets_work_signal_and_draft_gate_requires_both_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = AutopilotCycleState(Path(tmp))
+            state.start_cycle()
+            state.cycle_had_work = True
+            self.assertEqual(state.start_cycle(), 2)
+            self.assertFalse(state.cycle_had_work)
+            self.assertFalse(state.may_draft("owner/repo", False, "draft-prs"))
+            self.assertFalse(state.may_draft("owner/repo", True, "brief"))
+            self.assertTrue(state.may_draft("owner/repo", True, "draft-prs"))
+
 
 if __name__ == "__main__":
     unittest.main()
