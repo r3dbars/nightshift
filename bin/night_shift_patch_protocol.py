@@ -278,6 +278,55 @@ def validate_patch(
         reasons.append("patch file headers must match diff --git paths")
     if not has_hunk:
         reasons.append("patch has no hunk header")
+    hunk_header = re.compile(
+        r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@"
+    )
+    expected_old = expected_new = actual_old = actual_new = None
+    has_blank_addition = False
+    for line in patch.splitlines():
+        if line.startswith("@@"):
+            if (
+                expected_old is not None
+                and (actual_old != expected_old or actual_new != expected_new)
+                and not has_blank_addition
+            ):
+                reasons.append("patch hunk line counts do not match its body")
+            match = hunk_header.match(line)
+            if not match:
+                reasons.append("patch has a malformed hunk header")
+                expected_old = expected_new = actual_old = actual_new = None
+                has_blank_addition = False
+                continue
+            expected_old = int(match.group(2) or "1")
+            expected_new = int(match.group(4) or "1")
+            actual_old = actual_new = 0
+            has_blank_addition = False
+            continue
+        if expected_old is None:
+            continue
+        if line.startswith(("diff --git ", "--- ", "+++ ")):
+            continue
+        if line.startswith("\\"):
+            continue
+        if line.startswith(" "):
+            actual_old += 1
+            actual_new += 1
+        elif line.startswith("-"):
+            actual_old += 1
+        elif line.startswith("+"):
+            actual_new += 1
+            if line == "+":
+                # Keep the existing normalization contract lenient for blank
+                # additions whose original whitespace was intentionally stripped.
+                has_blank_addition = True
+        else:
+            reasons.append("patch hunk contains an invalid line")
+    if (
+        expected_old is not None
+        and (actual_old != expected_old or actual_new != expected_new)
+        and not has_blank_addition
+    ):
+        reasons.append("patch hunk line counts do not match its body")
     if len(paths) > 6:
         reasons.append("patch touches more than six files")
     allowed = set(allowed_files)

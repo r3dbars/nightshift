@@ -70,7 +70,10 @@ def patch_format_correction(files: list[str]) -> str:
 def verification_correction_prompt(patch: str, failure_output: str) -> str:
     return (
         "VERIFICATION CORRECTION: The patch applied but the approved repository check failed. "
-        "Return a complete corrected unified diff against the original pinned source. Change only "
+        "Return a complete corrected unified diff against the original pinned source, not a small "
+        "delta against CURRENT PATCH. Because CURRENT PATCH is not present in the pinned source, "
+        "the corrected diff must add the complete test method again, with the original unchanged "
+        "source as its context. Change only "
         "the allowed test file and preserve every semantic proof requirement. Match every fake result "
         "attribute to the exact attribute consumed by the pinned source (for example, rc is not "
         "returncode). Match exact source argument types too: a Path object is not its string form. "

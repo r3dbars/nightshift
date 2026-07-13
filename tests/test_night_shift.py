@@ -4718,6 +4718,15 @@ buildThing() { return 1; }
         )
         self.assertTrue(moved.valid)
 
+        malformed_hunk = night_shift.validate_patch(
+            "diff --git a/src/app.py b/src/app.py\n"
+            "--- a/src/app.py\n+++ b/src/app.py\n"
+            "@@ -1,4 +1,4 @@\n-old\n+new\n",
+            ["src/app.py"], profile,
+        )
+        self.assertFalse(malformed_hunk.valid)
+        self.assertIn("hunk line counts do not match", malformed_hunk.reasons[0])
+
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
