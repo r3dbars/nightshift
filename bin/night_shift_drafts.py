@@ -526,7 +526,13 @@ class DraftEngine:
                 )
                 repaired = validate_patch(repair.stdout, candidate["files"], profile)
                 repaired_patch = repaired.patch
-                if not repaired.valid and len(candidate["files"]) == 1:
+                repair_applies = False
+                if repaired.valid:
+                    patch_path.write_text(repaired_patch, encoding="utf-8")
+                    repair_applies = self.run_cmd(
+                        ["git", "apply", "--check", patch_path], cwd=worktree, timeout=30
+                    ).rc == 0
+                if (not repaired.valid or not repair_applies) and len(candidate["files"]) == 1:
                     try:
                         original_test = (worktree / candidate["files"][0]).read_text(encoding="utf-8")
                     except (OSError, UnicodeError):
@@ -535,21 +541,24 @@ class DraftEngine:
                         repair.stdout, original_test, candidate["files"][0]
                     )
                     repaired = validate_patch(repaired_patch, candidate["files"], profile)
-                if repair.rc == 0 and repaired.valid:
+                    if repaired.valid:
+                        patch_path.write_text(repaired_patch, encoding="utf-8")
+                        repair_applies = self.run_cmd(
+                            ["git", "apply", "--check", patch_path], cwd=worktree, timeout=30
+                        ).rc == 0
+                if repair.rc == 0 and repaired.valid and repair_applies:
                     patch_path.write_text(repaired_patch, encoding="utf-8")
-                    applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
-                    if applies.rc == 0:
-                        retry_sandbox = proof_dir / f"{safe_task}-verification-sandbox"
-                        retry_sandbox.mkdir(parents=True, exist_ok=True)
-                        retried = self.run_cmd(
-                            sandbox_patch_command(worktree, patch_path, retry_sandbox, verification_argv, profile),
-                            cwd=worktree, timeout=min(retry_timeout, profile.max_seconds),
-                            pid_log=parent_ledger / "processes.tsv",
-                        )
-                        sandbox_dir = retry_sandbox
-                        verified = retried
-                        proposed = repaired
-                        model = repair
+                    retry_sandbox = proof_dir / f"{safe_task}-verification-sandbox"
+                    retry_sandbox.mkdir(parents=True, exist_ok=True)
+                    retried = self.run_cmd(
+                        sandbox_patch_command(worktree, patch_path, retry_sandbox, verification_argv, profile),
+                        cwd=worktree, timeout=min(retry_timeout, profile.max_seconds),
+                        pid_log=parent_ledger / "processes.tsv",
+                    )
+                    sandbox_dir = retry_sandbox
+                    verified = retried
+                    proposed = repaired
+                    model = repair
         (sandbox_dir / "runner.txt").write_text(
             (verified.stdout + "\n" + verified.stderr).strip() + "\n",
             encoding="utf-8",
