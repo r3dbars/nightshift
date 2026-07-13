@@ -1373,7 +1373,7 @@ def detect_test_commands(repo: Path, tracked: list[str], source_ref: str = "") -
             ]
             behavioral_scripts = [
                 script for script in ("test", *sorted(named_checks))
-                if script == "test" or script.startswith("test:")
+                if script in scripts and (script == "test" or script.startswith("test:"))
             ]
             static_scripts = [
                 script for script in ("lint", "typecheck", "check", "verify", *sorted(named_checks))
