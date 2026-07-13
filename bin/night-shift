@@ -35,7 +35,7 @@ from night_shift_policy import PROFILE_NAME, PROTECTED_PATHS, command_display, p
 from night_shift_sandbox import build_runner_image, detect_sandbox, sandbox_command
 from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
-from night_shift_redaction import redact
+from night_shift_redaction import contains_secret, context_path_is_sensitive, redact
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, should_record_feedback_event, should_record_review_outcome, task_family
@@ -1343,11 +1343,14 @@ def build_board(mode: str, queue: list[dict] | None = None, permission: str = "b
 
 
 def task_context_block(task: dict) -> str:
-    files = task.get("files") or []
+    files = [path for path in (task.get("files") or []) if not context_path_is_sensitive(path)]
     file_lines = "\n".join(f"- {path}" for path in files[:6]) if files else "- No specific files preselected; infer from repo context."
     commands = task.get("verification_commands") or []
     command_lines_text = "\n".join(f"- {command}" for command in commands[:8]) if commands else "- No test command was detected; propose a read-only inspection command or reject."
-    evidence_sources = task.get("evidence_sources") or {}
+    evidence_sources = {
+        path: value for path, value in (task.get("evidence_sources") or {}).items()
+        if not context_path_is_sensitive(path)
+    }
     evidence_lines = "\n".join(f"- {path}" for path in evidence_sources) if evidence_sources else "- None."
     citation_examples = coverage_citation_examples(evidence_sources)
     citation_lines = "\n".join(f"- {citation}" for citation in citation_examples) if citation_examples else "- None."
@@ -1460,10 +1463,14 @@ def task_evidence_pack(
         candidates = narrow_task_files([
             path
             for path in task.get("files", [])
-            if run_cmd(["git", "cat-file", "-e", f"{source_ref}:{path}"], cwd=repo, timeout=20).rc == 0
+            if not context_path_is_sensitive(path)
+            and run_cmd(["git", "cat-file", "-e", f"{source_ref}:{path}"], cwd=repo, timeout=20).rc == 0
         ])[:6]
     else:
-        candidates = narrow_task_files([path for path in task.get("files", []) if path in tracked])[:6]
+        candidates = narrow_task_files([
+            path for path in task.get("files", [])
+            if path in tracked and not context_path_is_sensitive(path)
+        ])[:6]
     sections = ["## prior-user-feedback\n" + feedback_context(repo)]
     if task.get("signal"):
         signal_text = redact(str(task["signal"]))
@@ -1471,6 +1478,8 @@ def task_evidence_pack(
             signal_text = signal_text[:1000] + "\n...[earlier log lines omitted]...\n" + signal_text[-13000:]
         sections.append("## live-signal\n" + signal_text)
     for relative, source_text in (task.get("evidence_sources") or {}).items():
+        if context_path_is_sensitive(relative):
+            continue
         numbered = "\n".join(
             f"{index:>5} | {line}" for index, line in enumerate(redact(str(source_text)).splitlines(), start=1)
         )
