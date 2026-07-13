@@ -152,3 +152,10 @@ run evidence separate from model claims and from human/manual proof.
   resolved the installed command, a second install stayed idempotent, and the
   installed command completed setup with GitHub and Claude absent. Proof:
   `docs/proofs/2026-07-13-fresh-install.md`.
+- The real LM Studio process was stopped and restarted on port 1234. Doctor
+  reported local AI `YELLOW` with connection refused while it was down, then
+  `GREEN` with chat recovery after restart; the Windows worker stayed healthy.
+  The runner was also rebuilt from a pinned multi-architecture Swift image,
+  and a real Draft Swift test subset passed 128/128 in the no-network
+  sandbox. Proof:
+  `docs/proofs/2026-07-13-real-provider-swift-runner.md`.
