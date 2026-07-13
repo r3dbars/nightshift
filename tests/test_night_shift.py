@@ -4641,6 +4641,21 @@ buildThing() { return 1; }
                 for name, value in originals.items():
                     setattr(night_shift, name, value)
 
+    def test_macos_node_repos_use_runner_native_dependencies_by_default(self):
+        original_system = night_shift.platform.system
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text("{}\n", encoding="utf-8")
+            (repo / "package-lock.json").write_text("{}\n", encoding="utf-8")
+            try:
+                night_shift.platform.system = lambda: "Darwin"
+                self.assertTrue(night_shift.should_prepare_runner_dependencies(repo))
+                self.assertTrue(night_shift.should_prepare_runner_dependencies(repo, requested=True))
+                (repo / "package-lock.json").unlink()
+                self.assertFalse(night_shift.should_prepare_runner_dependencies(repo))
+            finally:
+                night_shift.platform.system = original_system
+
     def test_patch_correction_allows_any_approved_file(self):
         correction = __import__("night_shift_drafts").patch_format_correction(
             ["src/first.py", "src/actual.py"]
