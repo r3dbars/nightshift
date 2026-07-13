@@ -48,7 +48,7 @@ def permission_label(permission: str) -> str:
     return {
         "brief": "Read only and make a morning brief",
         "draft-local": "Draft local patch plans and issue candidates, but do not push",
-        "draft-prs": "Prepare local patch candidates for review, but do not push or merge",
+        "draft-prs": "Open tested draft PRs only when you allow it; never merge",
     }.get(permission, permission)
 
 
@@ -56,7 +56,7 @@ def autonomy_copy(permission: str) -> str:
     return {
         "brief": "Read-only. Make a brief and a ranked queue.",
         "draft-local": "More helpful. Draft exact local patch plans, tests, and issue candidates.",
-        "draft-prs": "Most autonomous. Prepare local candidates only after the repo owner enables its sandbox profile.",
+        "draft-prs": "Most autonomous. Open only tested draft PRs after you allow it and the repo sandbox is ready.",
     }.get(permission, "Read-only. Make a brief and a ranked queue.")
 
 
