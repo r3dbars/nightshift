@@ -1924,11 +1924,17 @@ buildThing() { return 1; }
 
     def test_retry_tie_prefers_corrected_attempt(self):
         attempts = [
-            {"score": "REJECT", "res": SimpleNamespace(rc=0), "name": "original"},
-            {"score": "REJECT", "res": SimpleNamespace(rc=0), "name": "corrected"},
+            {"score": "REJECT", "res": SimpleNamespace(rc=0, stdout="first"), "name": "original"},
+            {"score": "REJECT", "res": SimpleNamespace(rc=0, stdout="second"), "name": "corrected"},
         ]
         self.assertEqual(night_shift.select_best_attempt(attempts)["name"], "corrected")
         attempts[0]["score"] = "MAYBE"
+        self.assertEqual(night_shift.select_best_attempt(attempts)["name"], "original")
+
+        attempts[0]["score"] = "REJECT"
+        attempts[0]["quality_reasons"] = ["one issue"]
+        attempts[1]["quality_reasons"] = ["one issue"]
+        attempts[1]["res"].stdout = ""
         self.assertEqual(night_shift.select_best_attempt(attempts)["name"], "original")
 
     def test_task_family_normalizes_known_and_numbered_slugs(self):

@@ -151,6 +151,8 @@ def select_best_attempt(attempts: list[dict]) -> dict:
         key=lambda indexed: (
             rank[indexed[1]["score"]],
             -indexed[1]["res"].rc,
+            bool(getattr(indexed[1]["res"], "stdout", "").strip()),
+            -len(indexed[1].get("quality_reasons", [])),
             indexed[0],
         ),
     )[1]
@@ -204,6 +206,16 @@ def dispatch_one(
         (ledger / "artifacts" / f"{safe_label}-{lane}-attempt-{attempt}.stderr.txt").write_text(
             redact(result.stderr).strip() + "\n", encoding="utf-8"
         )
+        quality_reasons = output_quality_reasons(
+            result.rc,
+            result.stdout,
+            candidate_files,
+            verification_commands,
+            repo,
+            proof_kind,
+            evidence_sources,
+            source_ref,
+        )
         return {
             "res": result,
             "proof": proof or "",
@@ -218,6 +230,7 @@ def dispatch_one(
                 evidence_sources,
                 source_ref,
             ),
+            "quality_reasons": quality_reasons,
             "artifact": attempt_artifact,
         }
 
@@ -280,16 +293,8 @@ def dispatch_one(
         "files": concrete_paths(safe_output, candidate_files),
         "tests": clean_inline_code(first_label_value(safe_output, ["TESTS_TO_RUN", "TESTS TO RUN", "VERIFICATION"])),
         "expected_result": clean_inline_code(first_label_value(safe_output, ["EXPECTED_RESULT", "EXPECTED RESULT"])),
-        "quality_reasons": output_quality_reasons(
-            res.rc,
-            res.stdout,
-            candidate_files,
-            verification_commands,
-            repo,
-            proof_kind,
-            evidence_sources,
-            source_ref,
-        ) + (["correction switched to a different named code target"] if selected.get("identity_drift") else []),
+        "quality_reasons": selected["quality_reasons"]
+        + (["correction switched to a different named code target"] if selected.get("identity_drift") else []),
         "source_ref": source_ref,
         "evidence_sources": sanitize_evidence_sources(evidence_sources),
         "retry_count": len(attempts) - 1,

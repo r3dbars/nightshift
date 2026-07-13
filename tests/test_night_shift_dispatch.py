@@ -92,6 +92,15 @@ class DispatchOneTests(unittest.TestCase):
         self.assertEqual(outcome["retry_count"], 0)
         self.assertEqual(outcome["score"], "MAYBE")
 
+    def test_empty_rejected_retry_does_not_erase_informative_first_attempt(self):
+        first = SimpleNamespace(rc=0, stdout=REJECT_OUTPUT, stderr="", timed_out=False)
+        second = SimpleNamespace(rc=0, stdout="", stderr="", timed_out=False)
+        outcome, run_cmd, _ledger = self._dispatch([first, second])
+        self.assertEqual(len(run_cmd.calls), 2)
+        self.assertEqual(outcome["score"], "REJECT")
+        self.assertEqual(outcome["summary"], "inspect `helper`")
+        self.assertEqual(outcome["output"], REJECT_OUTPUT)
+
     def test_reasoning_model_gets_visible_output_budget(self):
         result = SimpleNamespace(rc=0, stdout=GOOD_OUTPUT, stderr="", timed_out=False)
         _outcome, run_cmd, _ledger = self._dispatch(
