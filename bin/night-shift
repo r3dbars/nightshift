@@ -41,6 +41,7 @@ from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handof
 from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
+from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, repo_outcome_adjustment
 from night_shift_autopilot import AutopilotCycleState
 from night_shift_selection import (
     declared_symbols,
@@ -118,6 +119,7 @@ REPO_APPROVALS_ROOT = CONFIG_DIR / "repo-approvals"
 FEEDBACK_PATH = CONFIG_DIR / "feedback.jsonl"
 REVIEW_OUTCOMES_PATH = CONFIG_DIR / "review-outcomes.jsonl"
 TASK_HISTORY_PATH = CONFIG_DIR / "task-history.jsonl"
+REPO_OUTCOMES_PATH = CONFIG_DIR / "repo-outcomes.jsonl"
 TASK_ATTEMPTS_PATH = CONFIG_DIR / "task-attempts.jsonl"
 AUTOPILOT_LOCK_PATH = CONFIG_DIR / "autopilot.lock"
 REPO_CACHE_ROOT = CONFIG_DIR / "repos"
@@ -470,7 +472,13 @@ def load_repo_profile(repo: Path):
     return load_effective_profile(repo, REPO_APPROVALS_ROOT, repo_remote, remote_advertises_current_revision)
 
 
-PORTFOLIO = PortfolioEngine(run_cmd, REPO_CACHE_ROOT, TASK_HISTORY_PATH, now_stamp)
+PORTFOLIO = PortfolioEngine(
+    run_cmd,
+    REPO_CACHE_ROOT,
+    TASK_HISTORY_PATH,
+    now_stamp,
+    lambda slug: repo_outcome_adjustment(load_repo_outcomes(REPO_OUTCOMES_PATH), slug),
+)
 DRAFTS = DraftEngine(run_cmd, WORKTREE_ROOT, now_stamp)
 
 
@@ -2769,6 +2777,18 @@ def command_autopilot(args) -> int:
                                 controller.attach_publish(cycle_row, publish)
                     else:
                         controller.finish_draft_attempt(cycle_row, None)
+                child_metrics = parse_json_text(
+                    (child_ledger / "outcome-metrics.json").read_text(encoding="utf-8"), {}
+                ) if (child_ledger / "outcome-metrics.json").exists() else {}
+                draft_status = str((cycle_row.get("draft") or {}).get("status") or "")
+                append_repo_outcome(REPO_OUTCOMES_PATH, {
+                    "accepted_candidates": int(child_metrics.get("accepted_candidates") or 0),
+                    "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "estimated_tokens": int(child_metrics.get("estimated_tokens") or 0),
+                    "repo": cycle_row["repo"],
+                    "source_ref": str((planned[0].get("source_ref") if planned else "") or ""),
+                    "verified_drafts": 1 if draft_status in {"VERIFIED_DRAFT", "PROVEN_REPAIR"} else 0,
+                })
                 controller.append(cycle_row)
             portfolio_brief(ledger, controller.rows, controller.status)
             if getattr(args, "once", False):

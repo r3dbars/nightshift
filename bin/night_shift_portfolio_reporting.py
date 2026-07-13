@@ -51,6 +51,8 @@ class PortfolioReportEngine:
                         "checkout_ready": bool(row.get("checkout")),
                         "failed_runs": len((row.get("signals") or {}).get("failed_runs") or []),
                         "issues": len((row.get("signals") or {}).get("issues") or []),
+                        "outcome_adjustment": int(row.get("outcome_adjustment") or 0),
+                        "outcome_summary": row.get("outcome_summary") or {},
                         "primary": bool(row.get("primary")),
                         "prs": len((row.get("signals") or {}).get("prs") or []),
                         "score": int(row.get("score") or 0),

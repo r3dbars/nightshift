@@ -35,11 +35,13 @@ class PortfolioEngine:
         repo_cache_root: Path,
         task_history_path: Path,
         now_stamp: Callable[[], str],
+        outcome_adjustment: Callable[[str], tuple[int, dict]] | None = None,
     ) -> None:
         self.run_cmd = run_cmd
         self.repo_cache_root = repo_cache_root
         self.task_history_path = task_history_path
         self.now_stamp = now_stamp
+        self.outcome_adjustment = outcome_adjustment or (lambda _slug: (0, {}))
 
     def repo_slug(self, repo: Path | None) -> str:
         if not repo:
@@ -207,11 +209,15 @@ class PortfolioEngine:
                     )
                     for candidate in candidates[: max(10, max_repos * 4)]:
                         signals = self.github_repo_signals(candidate["slug"], candidate["default_branch"])
+                        outcome_adjustment, outcome_summary = self.outcome_adjustment(candidate["slug"])
                         candidate["signals"] = signals
+                        candidate["outcome_adjustment"] = outcome_adjustment
+                        candidate["outcome_summary"] = outcome_summary
                         candidate["score"] = (
                             signals["score"]
                             + candidate.pop("activity_score")
                             + (40 if candidate.get("primary") else 0)
+                            + outcome_adjustment
                         )
                         rows.append(candidate)
         if primary_repo and not any(row.get("primary") for row in rows):
