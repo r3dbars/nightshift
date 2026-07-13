@@ -51,6 +51,9 @@ run evidence separate from model claims and from human/manual proof.
   repeat-use proof yet.
 - The current package gate passes 371 tests, including the wrapper error proof
   and the complete empty-run artifact regression.
+- The repeatable blank-home recovery proof now passes from a temporary HOME
+  outside any Git repo with no GitHub credentials: it returns clear `--repo`,
+  Git-repo, and `gh auth login` next steps, exits safely, and saves no config.
 
 ## Remaining Proof Gaps
 
