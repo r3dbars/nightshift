@@ -72,7 +72,7 @@ def task_selection_priority(task: dict) -> int:
         return priority + 1000
     if complete_index and files and commands:
         return priority + 500
-    return priority
+    return priority + min(100, max(0, int(task.get("signal_strength") or 0)) * 10)
 
 
 def relevant_tests_for_source(
