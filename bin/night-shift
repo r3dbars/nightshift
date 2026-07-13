@@ -512,13 +512,27 @@ def post_url_json(url: str, payload: dict, headers=None, timeout=20):
         return json.loads(response.read().decode("utf-8", errors="replace"))
 
 
+def retry_transient(call, *args, **kwargs):
+    """Retry one brief local-network interruption, but never HTTP or data errors."""
+    for attempt in range(2):
+        try:
+            return call(*args, **kwargs)
+        except (urllib.error.URLError, TimeoutError, ConnectionResetError, BrokenPipeError) as exc:
+            if isinstance(exc, urllib.error.HTTPError):
+                raise
+            if attempt:
+                raise
+            time.sleep(0.25)
+
+
 def model_ids(data: dict) -> list[str]:
     return [str(m.get("id")) for m in data.get("data", []) if m.get("id")]
 
 
 def chat_probe(name: str, base_url: str, model: str, headers=None) -> tuple[str, str]:
     try:
-        data = post_url_json(
+        data = retry_transient(
+            post_url_json,
             f"{base_url.rstrip('/')}/chat/completions",
             {
                 "model": model,
@@ -707,7 +721,7 @@ def repo_root(repo: str | None) -> Path | None:
 
 def check_endpoint(name: str, url: str, headers=None) -> tuple[str, str]:
     try:
-        data = read_url_json(url, headers=headers, timeout=8)
+        data = retry_transient(read_url_json, url, headers=headers, timeout=8)
         models = model_ids(data)
         return "GREEN", f"{name} reachable; models={models[:8]}"
     except urllib.error.URLError as exc:
@@ -721,7 +735,7 @@ def check_model_endpoint(name: str, url: str, expected_model: str | None = None,
     if state != "GREEN" or not expected_model:
         return state, message
     try:
-        data = read_url_json(url, headers=headers, timeout=8)
+        data = retry_transient(read_url_json, url, headers=headers, timeout=8)
         models = model_ids(data)
     except Exception:
         return state, message
