@@ -2542,8 +2542,13 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
     for repo_name, row in sorted(latest_by_repo.items()):
         child = Path(row.get("ledger", ""))
         summary = "No new grounded task survived."
+        draft = row.get("draft") or {}
         morning = child / "morning.md"
-        if morning.exists():
+        if draft.get("status") == "PROVEN_REPAIR":
+            summary = "1 proven local repair; failing-before and passing-after checks succeeded."
+        elif draft.get("status") == "VERIFIED_DRAFT":
+            summary = "1 verified local draft; full checks passed. Human usefulness review remains."
+        elif morning.exists():
             text = morning.read_text(encoding="utf-8", errors="replace")
             match = re.search(r"Start here:\n- (.+)", text)
             if match and morning_status(morning) == "GREEN":
@@ -2552,7 +2557,6 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
                 summary = f"{row['new_tasks']} unproven candidate(s); no deterministic outcome."
         lines.append(f"- {repo_name}: {summary}")
         lines.append(f"  Proof: {child}")
-        draft = row.get("draft") or {}
         if draft:
             lines.append(f"  Draft: {draft.get('status', 'unknown')} | {draft.get('patch') or draft.get('reason', '')}")
         publish = row.get("publish") or {}

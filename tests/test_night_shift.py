@@ -117,6 +117,20 @@ class NightShiftQualityTests(unittest.TestCase):
             self.assertIn("Status: YELLOW", brief)
             self.assertIn("ACTION REQUIRED", brief)
 
+    def test_portfolio_brief_calls_verified_draft_a_verified_outcome(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            child = ledger / "child"
+            child.mkdir()
+            night_shift.portfolio_brief(ledger, [{
+                "repo": "owner/repo", "ledger": str(child), "new_tasks": 1,
+                "draft": {"status": "VERIFIED_DRAFT", "patch": "/tmp/candidate.patch"},
+            }], "YELLOW")
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("1 verified local draft; full checks passed", brief)
+            self.assertIn("Human usefulness review remains", brief)
+            self.assertNotIn("no deterministic outcome", brief)
+
     def test_evidence_module_parses_and_prioritizes_worker_results(self):
         output = """CLAIM: Add a focused regression test
 ACTION_TYPE: patch-plan
