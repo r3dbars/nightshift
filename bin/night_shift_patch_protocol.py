@@ -419,7 +419,8 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "signatures shown in SOURCE EXCERPT; do not monkeypatch attributes that the class does not define. "
             "Fake command results must expose the exact attributes read by source, such as rc rather than a dict. "
             "For fake command results, use an object with attributes such as `SimpleNamespace(rc=0)` and reuse the "
-            "existing test import; never return a dict like `{'rc': 0}`. "
+            "existing test import; import SimpleNamespace from `types` and patch helpers from `unittest.mock`; "
+            "never import SimpleNamespace from unittest.mock or return a dict like `{'rc': 0}`. "
             + import_guidance
             + "Any new import must be inside the new test method; the isolated materializer retains only that method, not module or class-scope imports. "
             + "For parser tests, follow the exact source branches shown in SOURCE EXCERPT: assert empty for malformed or mismatched inputs when the source returns empty, and do not invent normalization behavior that the source does not implement. "
@@ -431,6 +432,7 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "Command argv lists may contain Path objects. Compare the complete list to an exact expected list, such as "
             "['git', 'worktree', 'remove', '--force', worktree], and do not apply string membership tests to each raw argument. "
             "Preserve exact argument types: compare a Path as a Path unless source explicitly converts it. "
+            "When constructing the target owner, provide every required __init__ argument shown in SOURCE EXCERPT; do not call a multi-argument owner with an empty constructor. "
             "For output-parsing tests, include every expected positive fixture in the sample output before asserting a non-empty result; "
             "to prove deduplication and a maximum limit, include enough matching fixtures to exercise both behaviors and assert the exact ordered result. "
                 "Assert exact observed call order, arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
