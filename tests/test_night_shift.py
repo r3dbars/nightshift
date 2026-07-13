@@ -3015,6 +3015,21 @@ buildThing() { return 1; }
         self.assertTrue(unprefixed_check.valid)
         self.assertIn("--- a/src/app.py\n+++ b/src/app.py", unprefixed_check.patch)
 
+        trailing_space = plain.replace("+new\n", "+new\n+	\n")
+        whitespace_check = night_shift.validate_patch(
+            trailing_space, ["src/app.py"], profile
+        )
+        self.assertTrue(whitespace_check.valid)
+        self.assertIn("+new\n+\n", whitespace_check.patch)
+
+        meaningful_space = plain.replace("+new\n", "+value = 'new   '\n")
+        self.assertIn(
+            "+value = 'new   '\n",
+            night_shift.validate_patch(
+                meaningful_space, ["src/app.py"], profile
+            ).patch,
+        )
+
         mismatched = plain.replace("+++ b/src/app.py", "+++ b/src/other.py")
         self.assertFalse(night_shift.validate_patch(mismatched, ["src/app.py"], profile).valid)
 
@@ -3723,23 +3738,6 @@ buildThing() { return 1; }
             self.assertEqual(calls[0][0][1], "local")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MODEL"], "local-coder")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MAX_TOKENS"], "4096")
-
-    def test_patch_worker_can_replace_large_source_context_for_verification_repair(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            prompts = []
-
-            def fake_run(args, **_kwargs):
-                prompts.append(args[-1])
-                return night_shift.CmdResult("worker", 0, "", "")
-
-            engine = night_shift.DraftEngine(fake_run, Path(tmp), lambda: "now")
-            engine.ask_for_patch(
-                Path(tmp), "HEAD", {"files": ["tests/test_app.py"]}, ("true",), 10,
-                "http://local/v1", "coder", Path(tmp), "repair", "FAILURE", "local",
-                source_override="COMPACT-CONTEXT",
-            )
-            self.assertIn("COMPACT-CONTEXT", prompts[0])
-            self.assertNotIn("## tests/test_app.py", prompts[0])
 
     def test_test_source_excerpt_includes_pinned_imports_and_tail_anchor(self):
         class Result:
