@@ -39,6 +39,10 @@ run evidence separate from model claims and from human/manual proof.
   contain spaces and added a concrete not-useful note example.
 - PR #159 added an optional local elapsed-time signal from viewed brief to
   feedback vote; hosted Ubuntu/macOS checks passed and the PR merged.
+- PR #160 made direct `autopilot` inherit the saved plan and exposed its
+  bounded draft controls; hosted Ubuntu/macOS checks passed and a real
+  malformed worker patch was rejected in isolated execution. Proof:
+  `docs/proofs/2026-07-13-direct-autopilot-draft-rejection.md`.
 - A fresh two-lane analysis-only run against current `main` displayed the new
   feedback commands and repo-scoped learning snapshot in a real morning brief;
   it produced two honest `MAYBE` candidates and no source change. Proof:
@@ -75,6 +79,8 @@ run evidence separate from model claims and from human/manual proof.
   feedback-timestamp handling. A disposable CLI run recorded a `3.0` second
   feedback delay without touching the source repo. Proof:
   `docs/proofs/2026-07-13-feedback-timing.md`.
+- The current package gate now passes 399 tests, including direct-autopilot
+  saved-plan and visible safety-control coverage.
 - The repeatable blank-home recovery proof now passes from a temporary HOME
   outside any Git repo with no GitHub credentials: it returns clear `--repo`,
   Git-repo, and `gh auth login` next steps, exits safely, and saves no config.
