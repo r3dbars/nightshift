@@ -68,7 +68,15 @@ class PortfolioReportEngine:
 
     def morning_items(self, latest_by_repo: dict[str, dict]) -> list[dict]:
         items: list[dict] = []
-        for repo_name, row in sorted(latest_by_repo.items()):
+        ordered = sorted(
+            latest_by_repo.items(),
+            key=lambda pair: (
+                int(pair[1].get("portfolio_rank") or 999999),
+                -int(pair[1].get("portfolio_score") or 0),
+                pair[0],
+            ),
+        )
+        for repo_name, row in ordered:
             child = Path(row.get("ledger", ""))
             try:
                 child_items = json.loads((child / "work-queue.json").read_text(encoding="utf-8"))
@@ -96,6 +104,7 @@ class PortfolioReportEngine:
                 "files": item.get("files") or [],
                 "verification": item.get("tests") or item.get("verification_commands") or "",
                 "proof": item.get("proof") or item.get("primary_artifact", ""),
+                "selection_reason": row.get("portfolio_reason") or "recent activity",
             })
         return items
 
@@ -123,7 +132,15 @@ class PortfolioReportEngine:
         ]
         if not latest_by_repo:
             lines.append("- No repository produced a new task this cycle.")
-        for repo_name, row in sorted(latest_by_repo.items()):
+        ordered_rows = sorted(
+            latest_by_repo.items(),
+            key=lambda pair: (
+                int(pair[1].get("portfolio_rank") or 999999),
+                -int(pair[1].get("portfolio_score") or 0),
+                pair[0],
+            ),
+        )
+        for repo_name, row in ordered_rows:
             child = Path(row.get("ledger", ""))
             summary = "I checked this repo, but nothing was strong enough to work on safely tonight."
             draft = row.get("draft") or {}
@@ -139,7 +156,8 @@ class PortfolioReportEngine:
                     summary = match.group(1).strip()
                 elif row.get("new_tasks"):
                     summary = f"{row['new_tasks']} unproven candidate(s); no deterministic outcome."
-            lines.extend([f"- {repo_name}: {summary}", f"  Proof: {child}"])
+            reason = row.get("portfolio_reason") or "recent activity"
+            lines.extend([f"- {repo_name}: {summary}", f"  Why this repo: {reason}", f"  Proof: {child}"])
             if draft:
                 lines.append(
                     f"  Draft: {draft.get('status', 'unknown')} | "
@@ -158,7 +176,10 @@ class PortfolioReportEngine:
             ledger_arg = shlex.quote(str(ledger))
             lines.extend(["", "Your morning choices:"])
             for item in morning_items[:3]:
-                lines.append(f"{item['rank']}. {item['repo']}: {item['summary']} [{item['score']}]")
+                lines.append(
+                    f"{item['rank']}. {item['repo']}: {item['summary']} "
+                    f"[{item['score']}] ({item['selection_reason']})"
+                )
                 if item.get("evidence"):
                     lines.append(f"   Evidence: {item['evidence']}")
                 if item.get("files"):

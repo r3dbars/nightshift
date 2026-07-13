@@ -269,5 +269,38 @@ class PortfolioReportingTests(unittest.TestCase):
             from night_shift_portfolio_reporting import PortfolioReportEngine
             self.assertEqual(PortfolioReportEngine.morning_status(path), "GREEN")
 
+    def test_brief_preserves_portfolio_priority_and_explains_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            children = []
+            for name, summary in (("owner/z-high", "High priority repair"), ("owner/a-low", "Lower priority repair")):
+                child = root / name.replace("/", "-")
+                child.mkdir()
+                (child / "work-queue.json").write_text(json.dumps([{
+                    "key": name + ":tests", "labels": ["tests"], "fingerprint": name,
+                    "source_ref": "a" * 40, "summary": summary, "score": "MAYBE",
+                    "evidence": "src/app.py:1 | return value", "files": ["src/app.py"],
+                    "tests": "python3 -m unittest", "proof": "/tmp/proof.json",
+                }]))
+                children.append((name, child))
+            self.engine(root).write_brief(root, [
+                {
+                    "repo": "owner/z-high", "checkout": str(root), "ledger": str(children[0][1]),
+                    "new_tasks": 1, "portfolio_rank": 1, "portfolio_score": 900,
+                    "portfolio_reason": "recent failing checks",
+                },
+                {
+                    "repo": "owner/a-low", "checkout": str(root), "ledger": str(children[1][1]),
+                    "new_tasks": 1, "portfolio_rank": 2, "portfolio_score": 100,
+                    "portfolio_reason": "recent activity",
+                },
+            ], "GREEN")
+            morning = (root / "morning.md").read_text()
+            self.assertLess(morning.index("owner/z-high"), morning.index("owner/a-low"))
+            self.assertIn("Why this repo: recent failing checks", morning)
+            items = json.loads((root / "morning-items.json").read_text())
+            self.assertEqual([item["repo"] for item in items], ["owner/z-high", "owner/a-low"])
+            self.assertEqual(items[0]["selection_reason"], "recent failing checks")
+
 if __name__ == "__main__":
     unittest.main()
