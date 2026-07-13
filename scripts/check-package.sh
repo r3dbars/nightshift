@@ -10,7 +10,8 @@ bash -n \
   bin/maestro-delegate \
   bin/maestro-local \
   bin/maestro-windows \
-  bin/maestro-claude
+  bin/maestro-claude \
+  scripts/prove-linux-install.sh
 
 python3 -m py_compile \
   bin/night-shift \
@@ -48,10 +49,28 @@ bin/night-shift --help >/dev/null
 tmp_home="$(mktemp -d)"
 trap 'rm -rf "$tmp_home"' EXIT
 copied_home="$tmp_home/copied-install"
-./install.sh --codex-home "$copied_home" >/dev/null
+profile_home="$tmp_home/profile-home"
+mkdir -p "$profile_home"
+HOME="$profile_home" SHELL=/bin/bash ./install.sh --codex-home "$copied_home" >/dev/null
 "$copied_home/bin/night-shift" --version | grep -q "Night Shift $version_file"
 test -s "$copied_home/containers/runner/Containerfile"
 grep -Eq '^FROM [^ ]+@sha256:[0-9a-f]{64}$' "$copied_home/containers/runner/Containerfile"
+grep -Fqx "export PATH=\"$copied_home/bin:\$PATH\"" "$profile_home/.bashrc"
+HOME="$profile_home" SHELL=/bin/bash ./install.sh --codex-home "$copied_home" >/dev/null
+test "$(grep -Fxc "export PATH=\"$copied_home/bin:\$PATH\"" "$profile_home/.bashrc")" -eq 1
+
+no_path_home="$tmp_home/no-path-home"
+mkdir -p "$no_path_home"
+HOME="$no_path_home" SHELL=/bin/bash ./install.sh --codex-home "$tmp_home/no-path-install" --no-path >/dev/null
+test ! -e "$no_path_home/.bashrc"
+
+symlink_home="$tmp_home/symlink-home"
+mkdir -p "$symlink_home"
+printf 'user-owned\n' > "$tmp_home/user-profile"
+ln -s "$tmp_home/user-profile" "$symlink_home/.bashrc"
+HOME="$symlink_home" SHELL=/bin/bash ./install.sh --codex-home "$tmp_home/symlink-install" >/dev/null 2>&1
+grep -Fxq 'user-owned' "$tmp_home/user-profile"
+"$tmp_home/symlink-install/bin/night-shift" --version | grep -q "Night Shift $version_file"
 
 CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --setup-only --skip-smoke >/dev/null
 test -s "$tmp_home/night-shift/config.json"

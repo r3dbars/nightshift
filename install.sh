@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: ./install.sh [--codex-home PATH] [--link] [--doctor REPO]
+usage: ./install.sh [--codex-home PATH] [--link] [--no-path] [--doctor REPO]
 
 Installs Night Shift into:
   ${CODEX_HOME:-$HOME/.codex}/bin
@@ -12,13 +12,15 @@ Installs Night Shift into:
 Options:
   --codex-home PATH  install under PATH instead of ${CODEX_HOME:-$HOME/.codex}
   --link             symlink bin files and the skill to this checkout for development
-  --doctor REPO   run night-shift doctor after installing
-  -h, --help      show this help
+  --no-path          do not add the Night Shift command directory to your shell profile
+  --doctor REPO      run night-shift doctor after installing
+  -h, --help         show this help
 EOF
 }
 
 doctor_repo=""
 link_install=0
+configure_path=1
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -32,6 +34,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --link)
       link_install=1
+      shift
+      ;;
+    --no-path)
+      configure_path=0
       shift
       ;;
     --doctor)
@@ -68,6 +74,26 @@ esac
 if [[ -z "$shell_profile" ]]; then
   shell_profile="$HOME/.profile"
 fi
+
+path_start="# Night Shift command"
+path_line="export PATH=\"$bin_dir:\$PATH\""
+
+configure_shell_path() {
+  if [[ ":$PATH:" == *":$bin_dir:"* ]]; then
+    return 0
+  fi
+  if [[ "$configure_path" -eq 0 ]]; then
+    return 0
+  fi
+  if [[ -L "$shell_profile" ]]; then
+    echo "refusing to edit symlinked shell profile: $shell_profile" >&2
+    return 1
+  fi
+  touch "$shell_profile"
+  if ! grep -Fqx "$path_line" "$shell_profile"; then
+    printf '\n%s\n%s\n' "$path_start" "$path_line" >> "$shell_profile"
+  fi
+}
 
 for required in git python3 curl rsync; do
   if ! command -v "$required" >/dev/null 2>&1; then
@@ -106,20 +132,28 @@ echo "Installed command: $bin_dir/night-shift"
 "$bin_dir/night-shift" --version
 
 if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
-  echo
-  echo "Use it in this terminal now:"
+  path_configured=0
+  if configure_shell_path; then
+    path_configured="$configure_path"
+  else
+    echo "PATH setup skipped for safety. Your install is still ready." >&2
+  fi
+  if [[ "$path_configured" -eq 1 ]]; then
+    echo "Command added to $shell_profile."
+    echo "Open a new terminal, or run this once now:"
+  else
+    echo "PATH setup skipped. Run this once in each terminal:"
+  fi
   echo "  export PATH=\"$bin_dir:\$PATH\""
-  echo
-  echo "Make that permanent:"
-  echo "  printf '%s\n' 'export PATH=\"$bin_dir:\$PATH\"' >> \"$shell_profile\""
-  echo
-  echo "Or skip PATH setup and run it directly:"
-  echo "  $bin_dir/night-shift start"
 fi
 
 echo
 echo "Next:"
-echo "  night-shift start"
+if [[ ":$PATH:" == *":$bin_dir:"* ]]; then
+  echo "  night-shift start"
+else
+  echo "  $bin_dir/night-shift start"
+fi
 echo
 echo "Optional compute to start before a real run:"
 echo "  Mac local: open LM Studio, start the local server, and load phi-4-mini-instruct."
