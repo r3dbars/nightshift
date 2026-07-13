@@ -217,6 +217,29 @@ class NightShiftQualityTests(unittest.TestCase):
             finally:
                 night_shift.FEEDBACK_PATH = original
 
+    def test_portfolio_feedback_canonicalizes_cached_checkout_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "real-cache" / "owner--repo"
+            target.mkdir(parents=True)
+            alias_root = root / "cache-alias"
+            alias_root.symlink_to(root / "real-cache", target_is_directory=True)
+            child = root / "child"
+            parent = root / "parent"
+            child.mkdir()
+            parent.mkdir()
+            (child / "work-queue.json").write_text(json.dumps([{
+                "key": "issue-7:tests:patch-plan", "labels": ["issue-7"],
+                "fingerprint": "cached-candidate", "source_ref": "b" * 40,
+                "summary": "Repair cached repo issue", "score": "MAYBE",
+            }]), encoding="utf-8")
+            night_shift.portfolio_brief(parent, [{
+                "repo": "owner/repo", "checkout": str(alias_root / "owner--repo"),
+                "ledger": str(child), "new_tasks": 1,
+            }], "YELLOW")
+            item = json.loads((parent / "morning-items.json").read_text(encoding="utf-8"))[0]
+            self.assertEqual(item["repo_path"], str(target.resolve()))
+
     def test_evidence_module_parses_and_prioritizes_worker_results(self):
         output = """CLAIM: Add a focused regression test
 ACTION_TYPE: patch-plan

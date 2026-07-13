@@ -2549,7 +2549,9 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
         morning_items.append({
             "rank": len(morning_items) + 1,
             "repo": repo_name,
-            "repo_path": row.get("repo_path") or row.get("checkout") or "",
+            "repo_path": str(Path(
+                row.get("repo_path") or row.get("checkout") or ""
+            ).expanduser().resolve()) if (row.get("repo_path") or row.get("checkout")) else "",
             "child_ledger": str(child),
             "key": item.get("key", ""),
             "family": task_family(labels[0] if labels else str(item.get("key", "")).split(":", 1)[0]),
@@ -2788,7 +2790,7 @@ def command_autopilot(args) -> int:
                 cycle_row = {
                     "cycle": cycle,
                     "repo": item.get("slug", str(checkout)),
-                    "checkout": str(checkout),
+                    "checkout": str(checkout.expanduser().resolve()),
                     "ledger": str(child_ledger),
                     "rc": rc,
                     "new_tasks": len(planned),
