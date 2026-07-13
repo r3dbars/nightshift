@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+import urllib.error
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -3845,6 +3846,44 @@ buildThing() { return 1; }
             state, _ = night_shift.chat_probe("Local", "http://localhost:11434/v1", "reasoning-model")
             self.assertEqual(state, "GREEN")
             self.assertEqual(captured["max_tokens"], 1024)
+        finally:
+            night_shift.post_url_json = original_post
+
+    def test_chat_probe_recovers_from_one_transient_disconnect(self):
+        original_post = night_shift.post_url_json
+        original_sleep = night_shift.time.sleep
+        calls = []
+        try:
+            def flaky_post(*args, **kwargs):
+                calls.append(args[0])
+                if len(calls) == 1:
+                    raise urllib.error.URLError("connection reset")
+                return {"choices": [{"message": {"content": "NIGHT_SHIFT_OK"}}]}
+
+            night_shift.post_url_json = flaky_post
+            night_shift.time.sleep = lambda _: None
+            state, message = night_shift.chat_probe(
+                "Windows worker", "http://windows.test/v1", "coder"
+            )
+            self.assertEqual(state, "GREEN")
+            self.assertIn("chat works", message)
+            self.assertEqual(len(calls), 2)
+        finally:
+            night_shift.post_url_json = original_post
+            night_shift.time.sleep = original_sleep
+
+    def test_chat_probe_does_not_retry_non_transient_response_errors(self):
+        original_post = night_shift.post_url_json
+        calls = []
+        try:
+            def invalid_response(*args, **kwargs):
+                calls.append(args[0])
+                raise ValueError("invalid JSON")
+
+            night_shift.post_url_json = invalid_response
+            state, _ = night_shift.chat_probe("Local", "http://local.test/v1", "coder")
+            self.assertEqual(state, "YELLOW")
+            self.assertEqual(len(calls), 1)
         finally:
             night_shift.post_url_json = original_post
 
