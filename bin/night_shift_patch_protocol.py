@@ -32,11 +32,15 @@ def extract_unified_diff(output: str) -> str:
         patch = output[start:].strip()
     else:
         cleaned = output.replace("```diff\n", "").replace("```\n", "").strip()
-        pairs = re.findall(r"(?m)^--- a/([^\n]+)\n\+\+\+ b/([^\n]+)$", cleaned)
+        pairs = re.findall(r"(?m)^--- (?:a/)?([^\n]+)\n\+\+\+ (?:b/)?([^\n]+)$", cleaned)
         if len(pairs) != 1 or pairs[0][0] != pairs[0][1]:
             return ""
         path = pairs[0][0]
-        patch = f"diff --git a/{path} b/{path}\n{cleaned}"
+        normalized = re.sub(
+            r"(?m)^--- (?:a/)?[^\n]+\n\+\+\+ (?:b/)?[^\n]+$",
+            f"--- a/{path}\n+++ b/{path}", cleaned, count=1,
+        )
+        patch = f"diff --git a/{path} b/{path}\n{normalized}"
     patch = patch.replace("```diff\n", "").replace("```\n", "")
     return patch + "\n"
 
