@@ -37,6 +37,10 @@ run evidence separate from model claims and from human/manual proof.
   repo-scoped learning snapshot into single-repo morning briefs.
 - PR #158 made portfolio feedback commands safe to copy when ledger paths
   contain spaces and added a concrete not-useful note example.
+- A fresh two-lane analysis-only run against current `main` displayed the new
+  feedback commands and repo-scoped learning snapshot in a real morning brief;
+  it produced two honest `MAYBE` candidates and no source change. Proof:
+  `docs/proofs/2026-07-13-feedback-brief-real-run.md`.
 
 ## Live Evidence
 
