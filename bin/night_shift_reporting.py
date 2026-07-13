@@ -65,16 +65,26 @@ class ReportEngine:
             adjustment += 20 if row.get("verdict") == "useful" else -120
         return max(-240, min(40, adjustment))
 
-    def feedback_snapshot(self, repo: str = "") -> tuple[int, int, int]:
-        """Return current useful, not-useful, and history counts for one repo."""
+    def feedback_snapshot(self, repo: str = "") -> tuple[int, int, int, int, float | None]:
+        """Return current votes, history, and optional review timing for one repo."""
         history = self.load_feedback()
         if repo:
             history = [row for row in history if row.get("repo") == repo]
         current = latest_feedback_events(history)
+        delays = []
+        for row in current:
+            try:
+                delay = float(row.get("feedback_delay_seconds"))
+            except (TypeError, ValueError):
+                continue
+            if delay >= 0:
+                delays.append(delay)
         return (
             sum(row.get("verdict") == "useful" for row in current),
             sum(row.get("verdict") == "not-useful" for row in current),
             len(history),
+            len(delays),
+            round(sum(delays) / len(delays), 3) if delays else None,
         )
 
     @staticmethod
@@ -264,7 +274,7 @@ class ReportEngine:
         status = self.run_status(results, target_tokens, overall, mode)
         work_items = self.deduped_work_items(results, limit=3)
         factual = self.factual_change_surface(scan)
-        feedback_useful, feedback_not_useful, feedback_history = self.feedback_snapshot(
+        feedback_useful, feedback_not_useful, feedback_history, feedback_timing_count, feedback_delay_average = self.feedback_snapshot(
             str((scan or {}).get("repo") or "")
         )
         if work_items: first_action = work_items[0]["primary"]["summary"]
@@ -293,7 +303,12 @@ class ReportEngine:
         else:
             lines.append("1. I did not keep a draft this time. Check the startup gate before another run.")
         all_items = self.deduped_work_items(results)
-        lines.extend(["", "Run totals:", f"- Mode: {mode}", f"- Startup gate: {overall}", f"- Local loops: {len(local)}", f"- Windows loops: {len(windows)}", f"- Estimated local+Windows tokens: {total_tokens}", f"- Token target: {target_tokens}", f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}", f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}", f"- Weak signals skipped before model calls: {sum(row.get('category') == 'pre-model' for row in task_skips)}", f"- User-rejected task families skipped: {sum(row.get('category') == 'feedback' for row in task_skips)}", f"- Evidence-backed candidates awaiting proof: {sum(item['primary']['score'] == 'MAYBE' for item in work_items)}", f"- Unique work queue items: {len(all_items)}", f"- Learning signals for this repo: useful={feedback_useful} not useful={feedback_not_useful} history events={feedback_history}", "", "Token totals by lane:"])
+        lines.extend(["", "Run totals:", f"- Mode: {mode}", f"- Startup gate: {overall}", f"- Local loops: {len(local)}", f"- Windows loops: {len(windows)}", f"- Estimated local+Windows tokens: {total_tokens}", f"- Token target: {target_tokens}", f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}", f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}", f"- Weak signals skipped before model calls: {sum(row.get('category') == 'pre-model' for row in task_skips)}", f"- User-rejected task families skipped: {sum(row.get('category') == 'feedback' for row in task_skips)}", f"- Evidence-backed candidates awaiting proof: {sum(item['primary']['score'] == 'MAYBE' for item in work_items)}", f"- Unique work queue items: {len(all_items)}", f"- Learning signals for this repo: useful={feedback_useful} not useful={feedback_not_useful} history events={feedback_history}"])
+        if feedback_timing_count:
+            lines.append(
+                f"- Review timing signals: {feedback_timing_count} vote(s), average {feedback_delay_average:g} seconds from brief view to vote"
+            )
+        lines.extend(["", "Token totals by lane:"])
         totals = self.token_totals_by_lane(results)
         for lane in sorted(totals):
             row = totals[lane]

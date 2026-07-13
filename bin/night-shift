@@ -45,7 +45,7 @@ from night_shift_state import append_attempt, exclusive_lock, latest_attempts, l
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
-from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
+from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
 from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, repo_outcome_adjustment
@@ -4027,8 +4027,9 @@ def command_feedback(args) -> int:
     family = item.get("family") or task_family(
         labels[0] if labels else str(item.get("key", "")).split(":", 1)[0]
     )
+    created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     row = {
-        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created_at": created_at,
         "repo": item.get("repo_path") or item.get("repo") or mode.get("repo", ""),
         "ledger": str(ledger),
         "child_ledger": item.get("child_ledger", ""),
@@ -4041,6 +4042,13 @@ def command_feedback(args) -> int:
         "verdict": verdict,
         "note": args.note or "",
     }
+    try:
+        reviewed_at = (ledger / "REVIEWED").read_text(encoding="utf-8").strip()
+    except OSError:
+        reviewed_at = ""
+    delay = feedback_delay_seconds(reviewed_at, created_at)
+    if delay is not None:
+        row["feedback_delay_seconds"] = delay
     existing = load_feedback()
     if not should_record_feedback_event(existing, row):
         print(
