@@ -275,6 +275,8 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "side effects unless the fake explicitly implements them, so prove behavior from its recorded calls. "
             "When testing command arguments, record the incoming command itself (for example `calls.append(list(cmd))`) "
             "before returning the fake result; never inspect the result object for command arguments. "
+            "Command argv lists may contain Path objects. Compare the complete list to an exact expected list, such as "
+            "['git', 'worktree', 'remove', '--force', worktree], and do not apply string membership tests to each raw argument. "
             "Preserve exact argument types: compare a Path as a Path unless source explicitly converts it. "
             "Assert exact observed call order, arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
             "EXCERPT, preferably near the test file tail. Keep the patch under 80 changed lines."
