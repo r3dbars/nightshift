@@ -1348,15 +1348,16 @@ buildThing() { return 1; }
         outcomes = [
             {
                 "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "reject-me",
-                "valid_review": True, "verdict": "REJECTED",
+                "valid_review": True, "utility_valid": True, "utility_schema": 2, "verdict": "REJECTED",
             },
             {
                 "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "confirm-me",
-                "valid_review": True, "verdict": "CONFIRMED",
+                "valid_review": True, "utility_valid": True, "utility_schema": 2,
+                "ready_for_implementation": True, "verdict": "CONFIRMED",
             },
             {
                 "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "untouched",
-                "valid_review": False, "verdict": "REJECTED",
+                "valid_review": False, "utility_valid": True, "utility_schema": 2, "verdict": "REJECTED",
             },
         ]
         ready, skipped = night_shift.apply_review_outcomes(tasks, outcomes, "/repo", "a" * 40)
@@ -1373,10 +1374,29 @@ buildThing() { return 1; }
         task = {"slug": "same-family", "fingerprint": "new", "ladder_priority": 300}
         outcomes = [{
             "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "old",
-            "valid_review": True, "verdict": "REJECTED",
+            "valid_review": True, "utility_valid": True, "utility_schema": 2, "verdict": "REJECTED",
         }]
         ready, skipped = night_shift.apply_review_outcomes([task], outcomes, "/repo", "a" * 40)
         self.assertEqual(ready, [task])
+        self.assertEqual(skipped, [])
+
+        legacy = [{
+            "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "new",
+            "valid_review": True, "verdict": "REJECTED",
+        }]
+        ready, skipped = night_shift.apply_review_outcomes([task], legacy, "/repo", "a" * 40)
+        self.assertEqual(ready, [])
+        self.assertEqual(skipped[0]["category"], "review-outcome")
+
+        legacy_confirmed = [{
+            "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "new",
+            "valid_review": True, "verdict": "CONFIRMED",
+        }]
+        ready, skipped = night_shift.apply_review_outcomes(
+            [task], legacy_confirmed, "/repo", "a" * 40
+        )
+        self.assertEqual(ready[0]["review_outcome"], "CONFIRMED")
+        self.assertNotIn("selection_priority", ready[0])
         self.assertEqual(skipped, [])
 
     def test_review_outcomes_preserve_manual_feedback_ordering(self):
@@ -1409,13 +1429,25 @@ buildThing() { return 1; }
         task = {"slug": "candidate", "fingerprint": "abc", "ladder_priority": 300}
         base = {
             "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "abc",
-            "valid_review": True,
+            "valid_review": True, "utility_valid": True, "utility_schema": 2,
         }
         ready, skipped = night_shift.apply_review_outcomes(
             [task], [{**base, "verdict": "REJECTED"}, {**base, "verdict": "NEEDS_INFO"}],
             "/repo", "a" * 40,
         )
         self.assertEqual(ready[0]["review_outcome"], "NEEDS_INFO")
+        self.assertEqual(skipped, [])
+
+    def test_confirmed_but_not_ready_review_does_not_boost_candidate(self):
+        task = {"slug": "candidate", "fingerprint": "abc", "ladder_priority": 300}
+        outcome = {
+            "repo": "/repo", "source_ref": "a" * 40, "fingerprint": "abc",
+            "valid_review": True, "utility_valid": True, "utility_schema": 2,
+            "verdict": "CONFIRMED", "ready_for_implementation": False,
+        }
+        ready, skipped = night_shift.apply_review_outcomes([task], [outcome], "/repo", "a" * 40)
+        self.assertEqual(ready[0]["review_outcome"], "CONFIRMED")
+        self.assertNotIn("selection_priority", ready[0])
         self.assertEqual(skipped, [])
 
     def test_feedback_command_persists_family_and_fingerprint(self):
@@ -1690,6 +1722,9 @@ buildThing() { return 1; }
             self.assertEqual(outcome["source_ref"], source_ref)
             self.assertEqual(outcome["verdict"], "CONFIRMED")
             self.assertTrue(outcome["valid_review"])
+            self.assertTrue(outcome["utility_valid"])
+            self.assertEqual(outcome["utility_schema"], 2)
+            self.assertTrue(outcome["ready_for_implementation"])
 
     def test_handoff_refuses_unavailable_pinned_revision(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1761,6 +1796,40 @@ buildThing() { return 1; }
             "review must cite a current repo-relative path and line",
             "review must state READY_FOR_IMPLEMENTATION: yes/no",
         ])
+
+    def test_handoff_review_rejects_symbol_presence_test_theater(self):
+        output = (
+            "CONFIRMED\n"
+            "src/app.py:2 | def cleanup(self):\n"
+            "Smallest action: add an import and signature test for cleanup.\n"
+            "READY_FOR_IMPLEMENTATION: yes"
+        )
+        reasons = night_shift.validate_handoff_review(output, allowed_files=["src/app.py"])
+        self.assertIn(
+            "review proposes symbol-presence test theater instead of observable behavior",
+            reasons,
+        )
+
+    def test_handoff_review_accepts_observable_behavior_test(self):
+        output = (
+            "CONFIRMED\n"
+            "src/app.py:2 | return error_message\n"
+            "Smallest action: test the failure path returns the exact error message.\n"
+            "READY_FOR_IMPLEMENTATION: yes"
+        )
+        self.assertEqual(
+            night_shift.validate_handoff_review(output, allowed_files=["src/app.py"]),
+            [],
+        )
+
+    def test_handoff_utility_gate_ignores_markdown_citation_prose(self):
+        output = (
+            "CONFIRMED\n"
+            "[tests/test_app.py:42](https://example.com/test.ts:42) has an import test and existence check.\n"
+            "Smallest action: test that importing invalid input succeeds without raising an exception.\n"
+            "READY_FOR_IMPLEMENTATION: yes"
+        )
+        self.assertFalse(night_shift.proposes_test_theater(output))
         self.assertEqual(
             night_shift.validate_handoff_review(
                 "REJECTED\nsrc/app.py:2 | return 41\nREADY_FOR_IMPLEMENTATION: no"

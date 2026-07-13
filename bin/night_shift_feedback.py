@@ -103,7 +103,12 @@ def apply_review_outcomes(
                 "reason": "independent review rejected this exact candidate at this revision",
             })
             continue
-        if verdict == "CONFIRMED":
+        if (
+            verdict == "CONFIRMED"
+            and outcome.get("utility_valid") is True
+            and outcome.get("utility_schema") == 2
+            and outcome.get("ready_for_implementation") is True
+        ):
             row["selection_priority"] = int(
                 row.get("selection_priority") or row.get("ladder_priority") or 0
             ) + 30
@@ -124,11 +129,13 @@ def should_record_review_outcome(existing: list[dict], outcome: dict) -> bool:
     identity = (
         outcome.get("ledger"), outcome.get("item"), outcome.get("fingerprint"),
         outcome.get("source_ref"), outcome.get("verdict"),
+        outcome.get("utility_schema"), outcome.get("ready_for_implementation"),
     )
     return not any(
         (
             row.get("ledger"), row.get("item"), row.get("fingerprint"),
             row.get("source_ref"), row.get("verdict"),
+            row.get("utility_schema"), row.get("ready_for_implementation"),
         ) == identity
         for row in existing
     )
