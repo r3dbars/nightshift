@@ -11,7 +11,9 @@ from typing import Callable
 
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
 from night_shift_sandbox import sandbox_command, sandbox_patch_command
-from night_shift_patch_protocol import patch_prompt, validate_patch
+from night_shift_patch_protocol import materialize_test_method_patch, patch_prompt, validate_patch
+from night_shift_python_evidence import owner_symbol_call_count_text
+from night_shift_queue import is_test_path
 from night_shift_state import record_state
 
 
@@ -51,6 +53,69 @@ def patch_format_correction(files: list[str]) -> str:
     )
 
 
+def test_strengthening_contract(evidence_sources: dict[str, str] | None) -> dict[str, str] | None:
+    contracts: list[dict[str, str]] = []
+    for path, text in (evidence_sources or {}).items():
+        if not path.startswith("invocation-index/"):
+            continue
+        fields: dict[str, str] = {}
+        for line in text.splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                fields[key.strip()] = value.strip()
+        call_match = re.search(r"^symbol=([^\s]+) call_matches=(\d+)$", text, re.MULTILINE)
+        if call_match:
+            fields["symbol"] = call_match.group(1)
+            fields["call_matches"] = call_match.group(2)
+        if (
+            fields.get("analysis") == "python-ast"
+            and fields.get("scan_complete") == "true"
+            and fields.get("call_matches") == "0"
+            and fields.get("symbol")
+            and fields.get("source_file", "").endswith(".py")
+            and fields.get("owner") not in {None, "", "none"}
+        ):
+            contracts.append(fields)
+    return contracts[0] if len(contracts) == 1 else None
+
+
+def owner_symbol_call_count(paths: list[Path], owner: str, symbol: str) -> int | None:
+    calls = 0
+    for path in paths:
+        try:
+            count = owner_symbol_call_count_text(path.read_text(encoding="utf-8"), owner, symbol)
+        except (OSError, UnicodeError):
+            return None
+        if count is None:
+            return None
+        calls += count
+    return calls
+
+
+def valid_test_strengthening_candidate(candidate: dict, worktree: Path) -> dict[str, str] | None:
+    contract = candidate.get("strengthening_contract")
+    files = candidate.get("files") or []
+    if candidate.get("draft_intent") != "test-strengthening" or not isinstance(contract, dict):
+        return None
+    if not files or any(not is_test_path(path) or not path.endswith(".py") for path in files):
+        return None
+    if (
+        contract.get("analysis") != "python-ast"
+        or contract.get("scan_complete") != "true"
+        or contract.get("call_matches") != "0"
+        or not contract.get("symbol")
+        or not contract.get("owner")
+        or contract.get("owner") == "none"
+        or not str(contract.get("source_file") or "").endswith(".py")
+        or contract.get("source_file") not in (candidate.get("context_files") or [])
+    ):
+        return None
+    baseline_calls = owner_symbol_call_count(
+        [worktree / path for path in files], contract["owner"], contract["symbol"]
+    )
+    return contract if baseline_calls == 0 else None
+
+
 class DraftEngine:
     def __init__(self, run_cmd: Callable, worktree_root: Path, now_stamp: Callable[[], str]) -> None:
         self.run_cmd = run_cmd
@@ -88,6 +153,23 @@ class DraftEngine:
                 files = [path for path in item.get("files") or [] if (repo / path).is_file()]
             known_commands = item.get("verification_commands") or default_commands
             verification = next((command for command in known_commands if command in (item.get("tests") or "")), "")
+            contract = test_strengthening_contract(item.get("evidence_sources"))
+            if contract:
+                test_files = [path for path in files if is_test_path(path) and path.endswith(".py")]
+                source_file = contract["source_file"]
+                source_exists = (
+                    self.run_cmd(["git", "cat-file", "-e", f"{source_ref}:{source_file}"], cwd=repo, timeout=20).rc == 0
+                    if source_ref else (repo / source_file).is_file()
+                )
+                if not source_exists or not test_files:
+                    continue
+                files = test_files
+                item = {
+                    **item,
+                    "draft_intent": "test-strengthening",
+                    "strengthening_contract": contract,
+                    "context_files": [source_file, *test_files],
+                }
             if files and verification:
                 return {**item, "files": files[:6], "verification": verification}
         return None
@@ -151,7 +233,12 @@ class DraftEngine:
         for path in files:
             shown = self.run_cmd(["git", "show", f"{source_ref}:{path}"], cwd=repo, timeout=30)
             if shown.rc == 0:
-                sections.append(f"## {path}\n{shown.stdout[:6000]}")
+                text = shown.stdout
+                if is_test_path(path) and len(text) > 10_000:
+                    text = text[:2000] + "\n# ... pinned middle omitted ...\n" + text[-4000:]
+                else:
+                    text = text[:6000]
+                sections.append(f"## {path}\n{text}")
         return "\n\n".join(sections)
 
     def ask_for_patch(
@@ -169,16 +256,19 @@ class DraftEngine:
         patch_lane: str = "windows",
     ):
         delegate = shutil.which("maestro-delegate") or str(Path.home() / ".codex" / "bin" / "maestro-delegate")
-        prompt = patch_prompt(candidate, self.source_excerpt(repo, source_ref, candidate["files"]), command)
+        context_files = candidate.get("context_files") or candidate["files"]
+        prompt = patch_prompt(candidate, self.source_excerpt(repo, source_ref, context_files), command)
         if correction:
             prompt += "\n\n" + correction
         env = os.environ.copy()
         if patch_lane == "local":
             env["MAESTRO_LOCAL_BASE_URL"] = worker_url.rstrip("/")
             env["MAESTRO_LOCAL_MODEL"] = worker_model
+            env["MAESTRO_LOCAL_MAX_TOKENS"] = "4096"
         else:
             env["WINDOWS_WORKER_BASE_URL"] = worker_url.rstrip("/")
             env["WINDOWS_WORKER_MODEL"] = worker_model
+            env["MAESTRO_WINDOWS_MAX_TOKENS"] = "4096"
         return self.run_cmd(
             [delegate, patch_lane, "--label", f"{safe_task}-patch", "--", prompt],
             cwd=repo,
@@ -281,7 +371,8 @@ class DraftEngine:
                     "baseline_rc": baseline.rc,
                 }
             )
-        if baseline.rc == 0:
+        strengthening = valid_test_strengthening_candidate(candidate, worktree)
+        if baseline.rc == 0 and not strengthening:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="baseline did not reproduce a failure")
             return finish({
                 "status": "REJECT",
@@ -289,8 +380,15 @@ class DraftEngine:
                 "baseline_rc": baseline.rc,
                 "proof_level": "baseline clean",
             })
-        record_state(lifecycle_path, fingerprint, "REPRODUCED", baseline_rc=baseline.rc, verification=verification)
-        record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="reproduced failure handed to bounded patch worker")
+        if baseline.rc == 0:
+            record_state(
+                lifecycle_path, fingerprint, "GAP_CONFIRMED", baseline_rc=baseline.rc,
+                verification=verification, reason="complete zero-invocation gap reproduced",
+            )
+            record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="complete zero-invocation proof handed to bounded test worker")
+        else:
+            record_state(lifecycle_path, fingerprint, "REPRODUCED", baseline_rc=baseline.rc, verification=verification)
+            record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="reproduced failure handed to bounded patch worker")
         if not worker_url or not worker_model:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="sandboxed coding lane is not configured")
             return finish(
@@ -310,14 +408,33 @@ class DraftEngine:
             worker_url, worker_model, parent_ledger, safe_task, patch_lane=patch_lane,
         )
         worker_path = proof_dir / f"{safe_task}.patch-worker.txt"
+        first_model_output = model.stdout
         worker_path.write_text(
             (model.stdout + "\n" + model.stderr).strip() + "\n", encoding="utf-8"
         )
         proposed = validate_patch(model.stdout, candidate["files"], profile)
-        if model.rc == 0 and not proposed.valid and model.stdout.strip():
+        apply_reason = ""
+        patch_recovered = False
+        if proposed.valid:
+            patch_path.write_text(proposed.patch, encoding="utf-8")
+            applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
+            if applies.rc != 0:
+                apply_reason = "patch does not apply to the pinned source"
+        if model.rc == 0 and (not proposed.valid or apply_reason) and model.stdout.strip():
             retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
             if retry_timeout > 0:
                 correction = patch_format_correction(candidate["files"])
+                if candidate.get("draft_intent") == "test-strengthening":
+                    correction += (
+                        " Insert the one test method immediately before the exact final runner lines shown at "
+                        "the end of SOURCE EXCERPT. Keep those final lines unchanged as the hunk anchor, and "
+                        "ensure every @@ old/new line count matches the actual hunk body."
+                    )
+                if apply_reason:
+                    correction += (
+                        " The previous patch did not apply to the pinned commit. Use only exact unchanged "
+                        "context copied from SOURCE EXCERPT; do not invent a function, class, line number, or import."
+                    )
                 retry = self.ask_for_patch(
                     worktree, source_ref, candidate, verification_argv, retry_timeout,
                     worker_url, worker_model, parent_ledger, f"{safe_task}-retry", correction, patch_lane,
@@ -330,11 +447,36 @@ class DraftEngine:
                 )
                 model = retry
                 proposed = validate_patch(model.stdout, candidate["files"], profile)
-        if model.rc != 0 or not proposed.valid:
-            record_state(lifecycle_path, fingerprint, "REJECTED", reason="; ".join(proposed.reasons) if proposed.reasons else "patch worker failed")
+                apply_reason = ""
+                if proposed.valid:
+                    patch_path.write_text(proposed.patch, encoding="utf-8")
+                    applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
+                    if applies.rc != 0:
+                        apply_reason = "patch does not apply to the pinned source"
+        if candidate.get("draft_intent") == "test-strengthening" and (not proposed.valid or apply_reason):
+            test_file = candidate["files"][0] if len(candidate["files"]) == 1 else ""
+            try:
+                original_test = (worktree / test_file).read_text(encoding="utf-8") if test_file else ""
+            except (OSError, UnicodeError):
+                original_test = ""
+            for recovery_output in (first_model_output, model.stdout):
+                recovered = materialize_test_method_patch(recovery_output, original_test, test_file)
+                if not recovered:
+                    continue
+                recovered_check = validate_patch(recovered, candidate["files"], profile)
+                patch_path.write_text(recovered, encoding="utf-8")
+                applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
+                if recovered_check.valid and applies.rc == 0:
+                    proposed = recovered_check
+                    apply_reason = ""
+                    patch_recovered = True
+                    break
+        if (model.rc != 0 and not patch_recovered) or not proposed.valid or apply_reason:
+            rejection = "; ".join(proposed.reasons) or apply_reason or "patch worker failed"
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason=rejection)
             return finish({
                 "status": "REJECT",
-                "reason": "; ".join(proposed.reasons) if proposed.reasons else "patch worker failed",
+                "reason": rejection,
                 "baseline_rc": baseline.rc,
                 "patch_worker_rc": model.rc,
                 "proof_level": "reproduced only",
@@ -371,6 +513,20 @@ class DraftEngine:
             guards.append("isolated runner changed a different file set")
         if verified.rc != 0 or after_rc != 0:
             guards.append("isolated verification did not pass")
+        if strengthening:
+            if any(not is_test_path(path) or not path.endswith(".py") for path in paths):
+                guards.append("test strengthening changed a non-test file")
+            applied_host = self.run_cmd(["git", "apply", "--check", applied_path], cwd=worktree, timeout=30)
+            if applied_host.rc != 0:
+                guards.append("verified patch could not be replayed for invocation proof")
+            else:
+                replayed = self.run_cmd(["git", "apply", applied_path], cwd=worktree, timeout=30)
+                count = owner_symbol_call_count(
+                    [worktree / path for path in candidate["files"]],
+                    strengthening["owner"], strengthening["symbol"],
+                ) if replayed.rc == 0 else None
+                if count is None or count <= 0:
+                    guards.append("test strengthening did not add a proven owner-aware invocation")
         status, proof_level = draft_proof_status(baseline.rc, after_rc, guards)
         record_state(
             lifecycle_path, fingerprint, "VERIFIED" if status != "REJECT" else "REJECTED",

@@ -19,9 +19,10 @@ from night_shift_redaction import redact
 
 
 def coverage_citation_examples(evidence_sources: dict[str, str] | None) -> list[str]:
+    """Return copy-ready citations for every bounded synthetic evidence source."""
     examples: list[str] = []
     for path, source in (evidence_sources or {}).items():
-        if not path.startswith("coverage-index/"):
+        if not path.startswith(("coverage-index/", "goal-source/", "invocation-index/")):
             continue
         for line_number, line in enumerate(str(source).splitlines(), start=1):
             if line.strip():
@@ -217,6 +218,7 @@ def dispatch_one(
             source_ref,
         ),
         "source_ref": source_ref,
+        "evidence_sources": dict(evidence_sources or {}),
         "retry_count": len(attempts) - 1,
         "output": res.stdout,
         "output_preview": " ".join(res.stdout.strip().split())[:240],

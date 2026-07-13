@@ -1,6 +1,8 @@
 """Validate model-produced patches before an isolated runner ever sees them."""
 from __future__ import annotations
 
+import ast
+import difflib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +32,34 @@ def extract_unified_diff(output: str) -> str:
     patch = output[start:].strip()
     patch = patch.replace("```diff\n", "").replace("```\n", "")
     return patch + "\n"
+
+
+def materialize_test_method_patch(output: str, original: str, relative: str) -> str:
+    added = [line[1:] for line in output.splitlines() if line.startswith("+") and not line.startswith("+++")]
+    start = next((index for index, line in enumerate(added) if re.match(r"^    def test_[A-Za-z0-9_]+\(self[^)]*\):$", line)), None)
+    if start is None:
+        return ""
+    method = added[start:]
+    while method and not method[-1].strip():
+        method.pop()
+    if not method or len(method) > 80 or any(re.match(r"^\s*(?:from\s+\S+\s+)?import\s+", line) for line in method):
+        return ""
+    try:
+        tree = ast.parse("class _Generated:\n" + "\n".join(method) + "\n")
+    except SyntaxError:
+        return ""
+    body = tree.body[0].body if tree.body and isinstance(tree.body[0], ast.ClassDef) else []
+    if len(body) != 1 or not isinstance(body[0], ast.FunctionDef) or not body[0].name.startswith("test_"):
+        return ""
+    marker = original.rfind('\nif __name__ == "__main__":')
+    if marker < 0:
+        return ""
+    revised = original[:marker].rstrip() + "\n\n" + "\n".join(method) + "\n" + original[marker:]
+    unified = "".join(difflib.unified_diff(
+        original.splitlines(keepends=True), revised.splitlines(keepends=True),
+        fromfile=f"a/{relative}", tofile=f"b/{relative}", n=3,
+    ))
+    return f"diff --git a/{relative} b/{relative}\n{unified}" if unified else ""
 
 
 def _safe_path(path: str) -> bool:
@@ -102,16 +132,31 @@ def validate_patch(
 
 
 def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...]) -> str:
+    contract = candidate.get("strengthening_contract") or {}
+    if candidate.get("draft_intent") == "test-strengthening":
+        edit_policy = (
+            "You may modify only an existing allowed TEST file. Add a focused behavioral test "
+            "that invokes the exact owner and symbol in the strengthening contract. Do not change "
+            "source, manifests, lockfiles, workflows, configuration, secrets, dependencies, or policy. "
+            "Reuse existing imports and test helpers; add no dependency. Assert exact observed call order, "
+            "arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
+            "EXCERPT, preferably near the test file tail. Keep the patch under 80 changed lines."
+        )
+    else:
+        edit_policy = (
+            "You may modify only an existing allowed file. Do not change tests, manifests, "
+            "lockfiles, workflows, configuration, secrets, dependencies, or policy."
+        )
     return f"""ROLE: isolated patch author. Return ONLY a standard unified git diff.
 TASK: {candidate.get('summary', '')}
 EVIDENCE: {candidate.get('evidence', '')}
 EXPECTED RESULT: {candidate.get('expected_result', '')}
+STRENGTHENING CONTRACT: {contract.get('owner', '')}.{contract.get('symbol', '')}
 ALLOWED FILES: {', '.join(candidate.get('files', []))}
 VERIFICATION ARGV: {' '.join(command)}
 SOURCE EXCERPT:
 {source_excerpt[:24000]}
 
-You may modify only an existing allowed file. Do not change tests, manifests,
-lockfiles, workflows, configuration, secrets, dependencies, or policy. Do not
+{edit_policy} Do not
 include prose, markdown fences, commands, or explanations. If a safe patch is
 not possible, return an empty response."""

@@ -17,6 +17,7 @@ def result(label="tests-001", score="KEEP", lane="local", summary="Add focused t
         "artifact": f"/tmp/{label}.md", "tokens": 100, "input_tokens": 60,
         "output_tokens": 40, "rc": 0, "timed_out": False,
         "evidence": "src/app.py:1 | def app():", "files": ["src/app.py"],
+        "evidence_sources": {"invocation-index/app.txt": "scan_complete=true"},
         "tests": "python3 -m unittest", "expected_result": "tests pass",
     }
 
@@ -68,6 +69,7 @@ class ReportingTests(unittest.TestCase):
             self.assertIn("KEEP: 2", (ledger / "harvest.md").read_text())
             queue = json.loads((ledger / "work-queue.json").read_text())
             self.assertEqual(queue[0]["supporting_artifacts"], 2)
+            self.assertEqual(queue[0]["evidence_sources"], rows[0]["evidence_sources"])
 
     def test_morning_lists_keep_and_maybe(self):
         with tempfile.TemporaryDirectory() as tmp:

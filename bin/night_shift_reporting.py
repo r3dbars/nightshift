@@ -162,7 +162,7 @@ class ReportEngine:
         for event in self.latest_states(ledger / "task-lifecycle.jsonl").values():
             counts[event["state"]] = counts.get(event["state"], 0) + 1
         lines = ["# Task Lifecycle", ""]
-        for state in ("DISCOVERED", "REPRODUCED", "DIAGNOSED", "PATCHED", "VERIFIED", "REVIEWED", "PROMOTED", "REJECTED"):
+        for state in ("DISCOVERED", "GAP_CONFIRMED", "REPRODUCED", "DIAGNOSED", "PATCHED", "VERIFIED", "REVIEWED", "PROMOTED", "REJECTED"):
             lines.append(f"- {state}: {counts.get(state, 0)}")
         (ledger / "task-lifecycle.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -177,6 +177,7 @@ class ReportEngine:
                 "labels": item["labels"], "ladder": row.get("ladder", "strengthen"),
                 "proof_kind": row.get("proof_kind", "source"), "executable": bool(row.get("executable", False)),
                 "source_ref": row.get("source_ref", ""), "fingerprint": row.get("fingerprint", ""),
+                "evidence_sources": row.get("evidence_sources", {}),
                 "verification_commands": row.get("verification_commands", []), "priority": item["priority"],
                 "summary": row["summary"], "score": row["score"], "evidence": row.get("evidence", ""),
                 "files": row.get("files", []), "tests": row.get("tests", ""),

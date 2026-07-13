@@ -158,9 +158,10 @@ def sandbox_patch_command(
     runtime = sandbox_runtime() or "docker"
     # Approved checks may compile and execute test binaries. The workspace is
     # disposable, no-network tmpfs; the host source remains mounted read-only.
+    # The pinned image runs as UID 0 with every capability dropped. Let the
+    # runtime give /work to that UID; forcing nobody:nogroup makes mode 700
+    # inaccessible without CAP_DAC_OVERRIDE.
     tmpfs_options = "rw,exec,nosuid,size=512m,mode=700"
-    if Path(runtime).name != "podman":
-        tmpfs_options += ",uid=65534,gid=65534"
     return [
         runtime, "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",

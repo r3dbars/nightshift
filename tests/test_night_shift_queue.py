@@ -275,6 +275,20 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
             model_task_readiness_reasons(task, "afterburner", "test cleanup"),
         )
 
+    def test_empty_test_corpus_never_claims_complete_invocation_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "drafts.py").write_text(
+                "class DraftEngine:\n    def cleanup(self): return True\n", encoding="utf-8"
+            )
+            index = QueueEvidenceIndex(repo, {
+                "tracked_files": ["drafts.py"], "source_files": ["drafts.py"],
+                "test_files": [], "coverage_test_files": [],
+            })
+            evidence = "\n".join(index.invocation_gap("drafts.py", "cleanup", "DraftEngine").values())
+            self.assertIn("tracked_test_files=0", evidence)
+            self.assertIn("scan_complete=false", evidence)
+
     def test_non_dotted_goal_never_enables_ast_backed_execution(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

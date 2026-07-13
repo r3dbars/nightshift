@@ -54,7 +54,7 @@ def first_label_value(output: str, labels: list[str]) -> str:
         for label in labels:
             needle = label.lower()
             if lower.startswith(needle):
-                value = line[len(label) :].strip(" :-")
+                value = line[len(label) :].lstrip(" :-")
                 if value:
                     return clean_value(value)
                 for next_line in lines[index + 1 :]:
@@ -79,7 +79,7 @@ def label_block(output: str, labels: list[str]) -> str:
             for label in labels:
                 if lower.startswith(label.lower()):
                     active = True
-                    inline = normalized[len(label) :].strip(" :-")
+                    inline = normalized[len(label) :].lstrip(" :-")
                     if inline:
                         collected.append(inline)
                     break

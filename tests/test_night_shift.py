@@ -22,9 +22,45 @@ sys.modules[LOADER.name] = night_shift
 LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
+from night_shift_drafts import owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate
+from night_shift_patch_protocol import materialize_test_method_patch
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_controller_materializes_ast_valid_test_method_at_pinned_tail(self):
+        original = (
+            "import unittest\n\nclass Tests(unittest.TestCase):\n"
+            "    def test_existing(self):\n        pass\n\n"
+            "if __name__ == \"__main__\":\n    unittest.main()\n"
+        )
+        worker = (
+            "--- a/tests/test_app.py\n+++ b/tests/test_app.py\n@@ -99 +99 @@\n"
+            "+    def test_cleanup(self):\n+        engine = DraftEngine()\n"
+            "+        self.assertTrue(engine.cleanup())\n"
+        )
+        patch = materialize_test_method_patch(worker, original, "tests/test_app.py")
+        self.assertTrue(patch.startswith("diff --git a/tests/test_app.py b/tests/test_app.py"))
+        self.assertIn("+    def test_cleanup(self):", patch)
+        self.assertIn(' if __name__ == "__main__":', patch)
+        self.assertEqual(materialize_test_method_patch("+import os\n", original, "tests/test_app.py"), "")
+
+    def test_inline_label_parsing_preserves_terminal_source_punctuation(self):
+        evidence = (
+            "2. CLAIM: cleanup behavior\n"
+            "3. EVIDENCE: goal-source/drafts-cleanup.txt:2 | "
+            "source_line=10 | def cleanup(self) -> bool:\n"
+            "4. WHY_NOW: requested\n"
+        )
+        module = __import__("night_shift_evidence")
+        self.assertTrue(module.first_label_value(evidence, ["EVIDENCE"]).endswith("bool:"))
+        self.assertTrue(module.label_block(evidence, ["EVIDENCE"]).endswith("bool:"))
+        with tempfile.TemporaryDirectory() as tmp:
+            reasons = module.evidence_validation_reasons(
+                evidence, Path(tmp), ["tests/test.py"], "test",
+                {"goal-source/drafts-cleanup.txt": "source_file=drafts.py\nsource_line=10 | def cleanup(self) -> bool:"},
+            )
+            self.assertEqual(reasons, [])
+
     def test_mac_only_preview_never_promises_lan_worker(self):
         rows = [
             ("local-models", "GREEN", "ready"), ("local-chat", "GREEN", "ready"),
@@ -80,6 +116,20 @@ class NightShiftQualityTests(unittest.TestCase):
             brief = (ledger / "morning.md").read_text(encoding="utf-8")
             self.assertIn("Status: YELLOW", brief)
             self.assertIn("ACTION REQUIRED", brief)
+
+    def test_portfolio_brief_calls_verified_draft_a_verified_outcome(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            child = ledger / "child"
+            child.mkdir()
+            night_shift.portfolio_brief(ledger, [{
+                "repo": "owner/repo", "ledger": str(child), "new_tasks": 1,
+                "draft": {"status": "VERIFIED_DRAFT", "patch": "/tmp/candidate.patch"},
+            }], "YELLOW")
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("1 verified local draft; full checks passed", brief)
+            self.assertIn("Human usefulness review remains", brief)
+            self.assertNotIn("no deterministic outcome", brief)
 
     def test_evidence_module_parses_and_prioritizes_worker_results(self):
         output = """CLAIM: Add a focused regression test
@@ -2353,7 +2403,7 @@ buildThing() { return 1; }
             self.assertIn("/tmp:rw,exec,nosuid,size=256m,mode=1777", read_only_check)
             self.assertIn("cp -a /source/. /work/", __import__("night_shift_sandbox").fixed_verify_script())
 
-    def test_podman_patch_tmpfs_avoids_docker_only_ownership_options(self):
+    def test_patch_tmpfs_uses_container_user_ownership_for_every_runtime(self):
         sandbox = __import__("night_shift_sandbox")
         original_runtime = sandbox.sandbox_runtime
         sandbox.sandbox_runtime = lambda: "/opt/homebrew/bin/podman"
@@ -2370,6 +2420,13 @@ buildThing() { return 1; }
             self.assertNotIn("gid=", tmpfs)
             self.assertIn("mode=700", tmpfs)
             self.assertIn("exec", tmpfs)
+            sandbox.sandbox_runtime = lambda: "/usr/local/bin/docker"
+            docker_command = sandbox.sandbox_patch_command(
+                Path("/tmp/source"), Path("/tmp/patch"), Path("/tmp/artifacts"), ("true",), profile,
+            )
+            docker_tmpfs = docker_command[docker_command.index("--tmpfs") + 1]
+            self.assertNotIn("uid=", docker_tmpfs)
+            self.assertNotIn("gid=", docker_tmpfs)
         finally:
             sandbox.sandbox_runtime = original_runtime
 
@@ -2645,6 +2702,216 @@ buildThing() { return 1; }
             lifecycle = night_shift.latest_states(ledger / "task-lifecycle.jsonl")
             self.assertEqual(lifecycle["repair"]["state"], "VERIFIED")
 
+    def test_strengthening_contract_requires_one_complete_zero_call_ast_index(self):
+        valid = {
+            "invocation-index/drafts-cleanup.txt": (
+                "symbol=cleanup\nsource_file=src/drafts.py\nowner=DraftEngine\n"
+                "analysis=python-ast\nsymbol=cleanup call_matches=0\nscan_complete=true"
+            )
+        }
+        self.assertEqual(test_strengthening_contract(valid)["owner"], "DraftEngine")
+        for replacement in ("analysis=mixed-regex", "symbol=cleanup call_matches=1", "scan_complete=false"):
+            broken = {key: value.replace(
+                "analysis=python-ast" if replacement.startswith("analysis") else
+                "symbol=cleanup call_matches=0" if replacement.startswith("symbol") else
+                "scan_complete=true", replacement
+            ) for key, value in valid.items()}
+            self.assertIsNone(test_strengthening_contract(broken))
+        duplicated = {**valid, "invocation-index/other.txt": next(iter(valid.values()))}
+        self.assertIsNone(test_strengthening_contract(duplicated))
+
+    def test_owner_symbol_call_count_ignores_unrelated_same_named_methods(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_drafts.py"
+            path.write_text(
+                "from drafts import DraftEngine as DE\n"
+                "class Other:\n    def cleanup(self): pass\n"
+                "Other().cleanup()\nengine = DE()\nengine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 1)
+            path.write_text(
+                "from drafts import DraftEngine\nengine = DraftEngine()\n"
+                "class Other:\n    def cleanup(self): pass\n"
+                "def test_cleanup():\n    engine = Other()\n    engine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
+                "import importlib.util\nnight_shift = importlib.util.module_from_spec(spec)\n"
+                "def test_cleanup():\n    engine = night_shift.DraftEngine(run, root, stamp)\n"
+                "    engine.cleanup(repo, worktree)\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 1)
+            path.write_text(
+                "import importlib.util\nnight_shift = importlib.util.module_from_spec(spec)\n"
+                "def test_cleanup():\n    night_shift = fake_module\n"
+                "    engine = night_shift.DraftEngine(run, root, stamp)\n    engine.cleanup(repo, worktree)\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
+                "from drafts import DraftEngine\nengine = DraftEngine()\n"
+                "if enabled:\n    engine = Other()\nengine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+
+    def test_execution_boundary_revalidates_strengthening_contract_and_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            test_file = root / "tests" / "test_drafts.py"
+            test_file.parent.mkdir()
+            test_file.write_text("from drafts import DraftEngine\n", encoding="utf-8")
+            contract = {
+                "symbol": "cleanup", "source_file": "drafts.py", "owner": "DraftEngine",
+                "analysis": "python-ast", "call_matches": "0", "scan_complete": "true",
+            }
+            candidate = {
+                "draft_intent": "test-strengthening", "strengthening_contract": contract,
+                "files": ["tests/test_drafts.py"], "context_files": ["drafts.py", "tests/test_drafts.py"],
+            }
+            self.assertEqual(valid_test_strengthening_candidate(candidate, root), contract)
+            self.assertIsNone(valid_test_strengthening_candidate({
+                **candidate, "strengthening_contract": {**contract, "scan_complete": "false"}
+            }, root))
+            test_file.write_text(
+                "from drafts import DraftEngine\nengine = DraftEngine()\nengine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertIsNone(valid_test_strengthening_candidate(candidate, root))
+
+    def test_candidate_selection_keeps_source_read_only_for_test_strengthening(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger"
+            ledger.mkdir()
+            source_ref = "a" * 40
+            evidence = {
+                "invocation-index/drafts-cleanup.txt": (
+                    "symbol=cleanup\nsource_file=src/drafts.py\nowner=DraftEngine\n"
+                    "analysis=python-ast\nsymbol=cleanup call_matches=0\nscan_complete=true"
+                )
+            }
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "key": "test-gap", "executable": True, "proof_kind": "test", "score": "MAYBE",
+                "action_type": "draft-pr-candidate", "source_ref": source_ref,
+                "files": ["tests/test_drafts.py"], "verification_commands": ["python -m unittest"],
+                "tests": "python -m unittest", "evidence_sources": evidence,
+            }]), encoding="utf-8")
+
+            def fake_run(args, **_kwargs):
+                exists = args[:3] == ["git", "cat-file", "-e"] and args[3] in {
+                    f"{source_ref}:tests/test_drafts.py", f"{source_ref}:src/drafts.py",
+                }
+                return night_shift.CmdResult("git", 0 if exists else 1, "", "")
+
+            selected = night_shift.DraftEngine(fake_run, root / "worktrees", lambda: "now").select_candidate(
+                ledger, root, lambda _repo: {"test_commands": []}, {"strengthen": 300},
+            )
+            self.assertEqual(selected["files"], ["tests/test_drafts.py"])
+            self.assertEqual(selected["context_files"], ["src/drafts.py", "tests/test_drafts.py"])
+            self.assertEqual(selected["draft_intent"], "test-strengthening")
+
+    def test_clean_baseline_can_only_promote_proven_test_strengthening(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            ledger = Path(tmp) / "ledger"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            (repo / "src").mkdir()
+            (repo / "tests").mkdir()
+            (repo / "src" / "drafts.py").write_text(
+                "class DraftEngine:\n    def cleanup(self):\n        return True\n", encoding="utf-8"
+            )
+            (repo / "tests" / "test_drafts.py").write_text(
+                "from src.drafts import DraftEngine\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
+            source_ref = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True, capture_output=True
+            ).stdout.strip()
+            profile = SimpleNamespace(
+                commands=(("true",),), max_seconds=60,
+                protected_paths=(".night-shift.json",), allowed_paths=("src", "tests"),
+                max_pids=64, max_cpu=1, max_memory_mb=512, image="sha256:" + "a" * 64,
+            )
+            patch = (
+                "diff --git a/tests/test_drafts.py b/tests/test_drafts.py\n"
+                "--- a/tests/test_drafts.py\n+++ b/tests/test_drafts.py\n@@ -1 +1,5 @@\n"
+                " from src.drafts import DraftEngine\n"
+                "+\n+def test_cleanup():\n+    engine = DraftEngine()\n+    assert engine.cleanup() is True\n"
+            )
+
+            def fake_run(args, cwd=None, timeout=60, env=None, pid_log=None):
+                parts = [str(part) for part in args]
+                if parts[0] == "git":
+                    result = subprocess.run(parts, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+                    return night_shift.CmdResult(" ".join(parts), result.returncode, result.stdout, result.stderr)
+                if "maestro-delegate" in parts[0]:
+                    return night_shift.CmdResult("worker", 0, patch, "")
+                if Path(parts[0]).name in {"docker", "podman"}:
+                    volumes = [parts[index + 1] for index, value in enumerate(parts) if value == "--volume"]
+                    patch_run = any(value.endswith(":/input/candidate.patch:ro") for value in volumes)
+                    if patch_run:
+                        artifact_dir = Path(next(
+                            value for value in volumes if value.endswith(":/artifacts:rw")
+                        ).removesuffix(":/artifacts:rw"))
+                        artifact_dir.mkdir(parents=True, exist_ok=True)
+                        (artifact_dir / "changed-paths.txt").write_text("tests/test_drafts.py\n", encoding="utf-8")
+                        (artifact_dir / "applied.patch").write_text(patch, encoding="utf-8")
+                        (artifact_dir / "verification.rc").write_text("0\n", encoding="utf-8")
+                        return night_shift.CmdResult("docker patch", 0, "", "")
+                    return night_shift.CmdResult("docker baseline", 0, "passed", "")
+                raise AssertionError(parts)
+
+            contract = {
+                "symbol": "cleanup", "source_file": "src/drafts.py", "owner": "DraftEngine",
+                "analysis": "python-ast", "call_matches": "0", "scan_complete": "true",
+            }
+            candidate = {
+                "key": "strengthen", "source_ref": source_ref,
+                "summary": "add cleanup test", "evidence": "invocation gap", "expected_result": "passes",
+                "files": ["tests/test_drafts.py"], "context_files": ["src/drafts.py", "tests/test_drafts.py"],
+                "verification_argv": ["true"], "draft_intent": "test-strengthening",
+                "strengthening_contract": contract,
+            }
+            result = night_shift.DraftEngine(
+                fake_run, Path(tmp) / "worktrees", lambda: "now"
+            ).run_draft(repo, "owner/repo", candidate, ledger, 900, "http://local/v1", "coder", profile=profile)
+            self.assertEqual(result["status"], "VERIFIED_DRAFT")
+            self.assertEqual(result["proof_level"], "passing repository check after a bounded patch")
+
+            patch = (
+                "diff --git a/tests/test_drafts.py b/tests/test_drafts.py\n"
+                "--- a/tests/test_drafts.py\n+++ b/tests/test_drafts.py\n@@ -1 +1,3 @@\n"
+                " from src.drafts import DraftEngine\n+\n+def test_unrelated(): assert True\n"
+            )
+            no_invocation = night_shift.DraftEngine(
+                fake_run, Path(tmp) / "no-call-worktrees", lambda: "no-call"
+            ).run_draft(
+                repo, "owner/repo", candidate, Path(tmp) / "no-call-ledger", 900,
+                "http://local/v1", "coder", profile=profile,
+            )
+            self.assertEqual(no_invocation["status"], "REJECT")
+            self.assertIn(
+                "test strengthening did not add a proven owner-aware invocation",
+                no_invocation["guard_reasons"],
+            )
+
+            rejected = night_shift.DraftEngine(
+                fake_run, Path(tmp) / "other-worktrees", lambda: "later"
+            ).run_draft(
+                repo, "owner/repo", {**candidate, "draft_intent": "repair", "strengthening_contract": None},
+                Path(tmp) / "other-ledger", 900, "http://local/v1", "coder", profile=profile,
+            )
+            self.assertEqual(rejected["status"], "REJECT")
+            self.assertIn("only patches reproduced failures", rejected["reason"])
+
     def test_patch_worker_gets_one_strict_format_correction(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
@@ -2686,6 +2953,63 @@ buildThing() { return 1; }
             )
             self.assertEqual(calls[0][0][1], "local")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MODEL"], "local-coder")
+            self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MAX_TOKENS"], "4096")
+
+    def test_test_source_excerpt_includes_pinned_imports_and_tail_anchor(self):
+        class Result:
+            rc = 0
+            stdout = "IMPORT_ANCHOR\n" + ("middle\n" * 3000) + "TAIL_ANCHOR\n"
+
+        engine = night_shift.DraftEngine(lambda *_args, **_kwargs: Result(), Path("/tmp"), lambda: "now")
+        excerpt = engine.source_excerpt(Path("/repo"), "a" * 40, ["tests/test_app.py"])
+        self.assertIn("IMPORT_ANCHOR", excerpt)
+        self.assertIn("pinned middle omitted", excerpt)
+        self.assertIn("TAIL_ANCHOR", excerpt)
+
+    def test_patch_that_does_not_apply_gets_one_source_anchoring_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / "test_app.py").write_text("def test_existing():\n    pass\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+            bad = (
+                "diff --git a/test_app.py b/test_app.py\n--- a/test_app.py\n+++ b/test_app.py\n"
+                "@@ -99 +99 @@\n-pass\n+assert True\n"
+            )
+            good = (
+                "diff --git a/test_app.py b/test_app.py\n--- a/test_app.py\n+++ b/test_app.py\n"
+                "@@ -1,2 +1,2 @@\n def test_existing():\n-    pass\n+    assert True\n"
+            )
+            prompts = []
+
+            def fake_run(args, cwd=None, timeout=60, **kwargs):
+                parts = [str(part) for part in args]
+                if parts[0] == "git":
+                    result = subprocess.run(parts, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+                    return night_shift.CmdResult("git", result.returncode, result.stdout, result.stderr)
+                if "maestro-delegate" in parts[0]:
+                    prompts.append(parts[-1])
+                    return night_shift.CmdResult("worker", 0, bad if len(prompts) == 1 else good, "")
+                return night_shift.CmdResult("baseline", 1, "", "failed")
+
+            profile = SimpleNamespace(
+                commands=(("true",),), max_seconds=60, protected_paths=(), allowed_paths=("test_app.py",),
+                max_pids=64, max_cpu=1, max_memory_mb=512, image="sha256:" + "a" * 64,
+            )
+            result = night_shift.DraftEngine(fake_run, root / "worktrees", lambda: "now").run_draft(
+                repo, "owner/repo", {
+                    "key": "repair", "source_ref": "HEAD", "files": ["test_app.py"],
+                    "verification_argv": ["true"], "summary": "repair", "evidence": "test_app.py:1",
+                }, root / "ledger", 60, "http://local/v1", "coder", profile=profile, patch_lane="local",
+            )
+            self.assertEqual(len(prompts), 2)
+            self.assertIn("did not apply to the pinned commit", prompts[1])
+            self.assertNotIn("patch does not apply to the pinned source", result.get("guard_reasons", []))
 
     def test_isolated_draft_falls_back_to_mac_when_windows_is_absent(self):
         original_profile = night_shift.load_repo_profile
@@ -2709,6 +3033,36 @@ buildThing() { return 1; }
                 "http://localhost:1234/v1", "mac-coder", "", "windows-coder",
             )
             self.assertEqual(result["status"], "PROVEN_REPAIR")
+            self.assertEqual(captured["args"][5:7], ("http://localhost:1234/v1", "mac-coder"))
+            self.assertEqual(captured["kwargs"]["patch_lane"], "local")
+        finally:
+            night_shift.load_repo_profile = original_profile
+            night_shift.detect_sandbox = original_sandbox
+            night_shift.draft_engine = original_engine
+
+    def test_test_strengthening_prefers_mac_even_when_windows_is_available(self):
+        original_profile = night_shift.load_repo_profile
+        original_sandbox = night_shift.detect_sandbox
+        original_engine = night_shift.draft_engine
+        captured = {}
+        profile = SimpleNamespace(may_execute=True, commands=(("true",),))
+
+        class FakeEngine:
+            def run_draft(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return {"status": "VERIFIED_DRAFT"}
+
+        try:
+            night_shift.load_repo_profile = lambda _repo: (profile, "loaded")
+            night_shift.detect_sandbox = lambda _run: SimpleNamespace(available=True, detail="ready")
+            night_shift.draft_engine = lambda: FakeEngine()
+            result = night_shift.run_isolated_draft(
+                Path("/tmp/repo"), "owner/repo", {"draft_intent": "test-strengthening"},
+                Path("/tmp/ledger"), 60, "http://localhost:1234/v1", "mac-coder",
+                "http://windows/v1", "windows-coder",
+            )
+            self.assertEqual(result["status"], "VERIFIED_DRAFT")
             self.assertEqual(captured["args"][5:7], ("http://localhost:1234/v1", "mac-coder"))
             self.assertEqual(captured["kwargs"]["patch_lane"], "local")
         finally:

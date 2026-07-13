@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from night_shift_portfolio import parse_json_text
+from night_shift_python_evidence import owner_symbol_call_count_text
 from night_shift_selection import (
     declared_symbols,
     relevant_tests_for_source,
@@ -253,45 +254,11 @@ class QueueEvidenceIndex:
             total_bytes += len(text.encode("utf-8", errors="replace"))
             scanned += 1
             if Path(path).suffix == ".py":
-                try:
-                    tree = ast.parse(text)
-                except SyntaxError:
+                counted = owner_symbol_call_count_text(text, owner, symbol)
+                if counted is None:
                     complete = False
                     continue
-                owner_aliases = {owner} if owner else set()
-                if owner:
-                    owner_aliases.update(
-                        alias.asname or alias.name
-                        for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-                        for alias in node.names if alias.name == owner
-                    )
-                owner_instances: set[str] = set()
-                if owner:
-                    for node in ast.walk(tree):
-                        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-                            continue
-                        value = node.value
-                        if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
-                            continue
-                        if value.func.id not in owner_aliases:
-                            continue
-                        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                        owner_instances.update(target.id for target in targets if isinstance(target, ast.Name))
-                for node in ast.walk(tree):
-                    if not isinstance(node, ast.Call):
-                        continue
-                    if not owner and isinstance(node.func, ast.Name) and node.func.id == symbol:
-                        calls += 1
-                    elif owner and isinstance(node.func, ast.Attribute) and node.func.attr == symbol:
-                        receiver = node.func.value
-                        direct_owner = (
-                            isinstance(receiver, ast.Call)
-                            and isinstance(receiver.func, ast.Name)
-                            and receiver.func.id in owner_aliases
-                        )
-                        named_owner = isinstance(receiver, ast.Name) and receiver.id in owner_instances
-                        if direct_owner or named_owner:
-                            calls += 1
+                calls += counted
             else:
                 calls += len(re.findall(rf"(?:\.|\b){re.escape(symbol)}\s*\(", text))
         safe_source = re.sub(r"[^A-Za-z0-9_.-]+", "-", source_path).strip("-")
@@ -304,7 +271,7 @@ class QueueEvidenceIndex:
             f"tracked_test_files={len(coverage_test_paths)}",
             f"files_scanned={scanned}",
             f"symbol={symbol} call_matches={calls}",
-            f"scan_complete={'true' if complete and scanned == len(coverage_test_paths) else 'false'}",
+            f"scan_complete={'true' if coverage_test_paths and complete and scanned == len(coverage_test_paths) else 'false'}",
         ])}
 
     def symbol_source_evidence(self, source_path: str, symbol: str) -> dict[str, str]:
