@@ -111,7 +111,9 @@ def _task_signal(task: dict) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def model_task_readiness_reasons(task: dict, mode: str, goal: str = "") -> list[str]:
+def model_task_readiness_reasons(
+    task: dict, mode: str, goal: str = "", permission: str = "brief"
+) -> list[str]:
     """Reject low-signal work before it consumes local or LAN model tokens."""
     reasons: list[str] = []
     slug = str(task.get("slug") or "")
@@ -163,6 +165,14 @@ def model_task_readiness_reasons(task: dict, mode: str, goal: str = "") -> list[
         if not task.get("evidence_sources"):
             reasons.append("coverage mission has no deterministic gap evidence; use a coverage-index task")
 
+    if (
+        permission in {"draft-local", "draft-prs"}
+        and task.get("kind") == "tests"
+        and task.get("proof_kind") == "test"
+        and not task.get("executable")
+    ):
+        reasons.append("test candidate has no safe automatic patch path")
+
     broad_kind = task.get("kind") in {"map", "docs", "proof"} or (
         task.get("kind") == "triage" and not slug.startswith("pr-")
     )
@@ -171,11 +181,13 @@ def model_task_readiness_reasons(task: dict, mode: str, goal: str = "") -> list[
     return list(dict.fromkeys(reasons))
 
 
-def model_ready_tasks(queue: list[dict], mode: str, goal: str = "") -> tuple[list[dict], list[dict]]:
+def model_ready_tasks(
+    queue: list[dict], mode: str, goal: str = "", permission: str = "brief"
+) -> tuple[list[dict], list[dict]]:
     ready: list[dict] = []
     skipped: list[dict] = []
     for task in queue:
-        reasons = model_task_readiness_reasons(task, mode, goal)
+        reasons = model_task_readiness_reasons(task, mode, goal, permission)
         if reasons:
             skipped.append({"slug": task.get("slug", ""), "category": "pre-model", "reason": "; ".join(reasons)})
         else:

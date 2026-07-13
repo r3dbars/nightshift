@@ -2419,7 +2419,9 @@ def command_run(args) -> int:
         build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text),
         str(scan.get("head") or ""),
     )
-    queue, readiness_skips = model_ready_tasks(discovered_queue, args.mode, getattr(args, "goal", ""))
+    queue, readiness_skips = model_ready_tasks(
+        discovered_queue, args.mode, getattr(args, "goal", ""), permission
+    )
     queue, feedback_skips = apply_task_feedback(queue, load_feedback(), str(root), args.mode)
     grounded_queue_count = len(queue)
     discovered_queue_count = len(discovered_queue)

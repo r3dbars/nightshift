@@ -8,7 +8,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from night_shift_portfolio import parse_json_text
-from night_shift_js_evidence import JS_EXTENSIONS, top_level_symbol_call_count_text as js_symbol_call_count_text
+from night_shift_js_evidence import (
+    JS_EXTENSIONS,
+    simple_exported_function,
+    top_level_symbol_call_count_text as js_symbol_call_count_text,
+)
 from night_shift_python_evidence import owner_symbol_call_count_text, top_level_symbol_call_count_text
 from night_shift_selection import (
     declared_symbols,
@@ -105,6 +109,27 @@ def symbol_is_test_addressable(path: str, source: str, symbol: str) -> bool:
 
 def contains_identifier(text: str, term: str) -> bool:
     return bool(re.search(rf"\b{re.escape(term)}\b", text))
+
+
+def typescript_gap_is_draftable(
+    evidence: dict[str, str], read_current_text: Callable[[str], str]
+) -> bool:
+    """Keep automatic JS/TS test patches limited to small pure exports."""
+    invocation = next(
+        (
+            value
+            for key, value in evidence.items()
+            if key.startswith("invocation-index/")
+            and "analysis=typescript-regex" in value
+        ),
+        "",
+    )
+    source_match = re.search(r"(?m)^source_file=([^\n]+)", invocation)
+    symbol_match = re.search(r"(?m)^symbol=([^\n]+)", invocation)
+    if not source_match or not symbol_match:
+        return False
+    source = read_current_text(source_match.group(1).strip())
+    return bool(source and simple_exported_function(source, symbol_match.group(1).strip()))
 
 
 def python_owned_methods(text: str) -> list[tuple[str, str]]:
@@ -633,10 +658,16 @@ def build_repo_work_queue(
             mission_tests.extend(relevant_tests_for_source(path, tests, read_current_text)[:2])
         mission_files = list(dict.fromkeys(mission_sources + mission_tests + recent_source[:6]))
         mission_semantic_contract = goal_semantic_contract(goal_text)
+        mission_draftable = True
+        if mission_sources and Path(mission_sources[0]).suffix.lower() in JS_EXTENSIONS:
+            mission_draftable = simple_exported_function(
+                read_current_text(mission_sources[0]), dotted_symbols[0]
+            ) if dotted_symbols else False
         mission_executable = bool(
             dotted_symbols
             and mission_evidence
             and test_commands
+            and mission_draftable
             and any(
                 key.startswith("invocation-index/")
                 and complete_invocation_evidence(value)
@@ -802,6 +833,10 @@ def build_repo_work_queue(
             key.startswith("invocation-index/") and "analysis=typescript-regex" in value
             for key, value in gap_evidence.items()
         )
+        draftable_gap = has_supported_gap and (
+            not is_typescript_gap
+            or typescript_gap_is_draftable(gap_evidence, read_current_text)
+        )
         add(
             f"changed-file-proof-{index:02d}-{safe}",
             "tests",
@@ -820,7 +855,7 @@ def build_repo_work_queue(
             ladder="strengthen",
             preferred_lane="local",
             proof_kind="test",
-            executable=bool(test_commands and has_supported_gap),
+            executable=bool(test_commands and draftable_gap),
             evidence_sources=gap_evidence,
             semantic_contract={"minimum_target_invocations": 1} if has_supported_gap else {},
         )

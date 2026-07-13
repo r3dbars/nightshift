@@ -574,6 +574,42 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
             mission = next(item for item in queue if item["slug"] == "mission-brief")
             self.assertFalse(mission["executable"])
 
+    def test_typescript_side_effect_gap_stays_analysis_only_for_draft_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "analytics.ts").write_text(
+                "export async function loadAnalytics(id: string) {\n"
+                "  return withUserContext(id, async () => []);\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            (repo / "analytics.test.ts").write_text(
+                "describe('analytics', () => {});\n", encoding="utf-8"
+            )
+            scan = {
+                "recent_files": ["analytics.ts"],
+                "source_files": ["analytics.ts"],
+                "test_files": ["analytics.test.ts"],
+                "coverage_test_files": ["analytics.test.ts"],
+                "tracked_files": ["analytics.ts", "analytics.test.ts"],
+                "test_commands": ["npm run test:unit"],
+                "doc_files": [], "todo_sample": [],
+            }
+            queue = build_repo_work_queue(
+                repo, scan, "quiet", "draft-local",
+                run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            )
+            gap = next(item for item in queue if item["slug"].startswith("changed-file-proof-"))
+            self.assertFalse(gap["executable"])
+
+            from night_shift_selection import model_ready_tasks
+            ready, skipped = model_ready_tasks(queue, "quiet", permission="draft-local")
+            self.assertNotIn(gap, ready)
+            self.assertTrue(any(row["slug"] == gap["slug"] for row in skipped))
+            self.assertIn("no safe automatic patch path", next(
+                row["reason"] for row in skipped if row["slug"] == gap["slug"]
+            ))
+
     def test_failed_ci_uses_injected_run_cmd_and_detect_test_commands(self):
         calls = []
 
