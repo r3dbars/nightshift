@@ -1503,6 +1503,46 @@ buildThing() { return 1; }
         finally:
             night_shift.select_ledger = original
 
+    def test_setup_only_repeat_says_setup_was_unchanged(self):
+        originals = (
+            night_shift.load_config,
+            night_shift.resolve_start_repo,
+            night_shift.repo_root,
+            night_shift.run_cmd,
+            night_shift.doctor_checks,
+            night_shift.setup_has_changed,
+        )
+        try:
+            saved = {"project": {"repo": "/repo"}, "preferences": {"mode": "night-shift"}}
+            night_shift.load_config = lambda: saved
+            night_shift.resolve_start_repo = lambda args, config: ("/repo", "")
+            night_shift.repo_root = lambda repo: "/repo"
+            night_shift.run_cmd = lambda *args, **kwargs: SimpleNamespace(rc=0, stdout="/repo\n", stderr="")
+            night_shift.doctor_checks = lambda *args, **kwargs: ("GREEN", [])
+            night_shift.setup_has_changed = lambda old, new: False
+            output = io.StringIO()
+            with redirect_stdout(output):
+                rc = night_shift.command_start(SimpleNamespace(
+                    reset=False, advanced=False, yes=True, dry_run=False, setup_only=True,
+                    repo="/repo", local_url=None, local_model=None, windows_url=None,
+                    windows_model=None, privacy=None, wake_goal=None, guidance=None,
+                    goal=None, permission=None, mode=None, stop_after=None, scope=None,
+                    active_days=None, max_repos=None, execute_drafts=False,
+                    allow_draft_prs=False, skip_smoke=True, once=False, timeout=1,
+                ))
+            self.assertEqual(rc, 0)
+            self.assertIn("setup unchanged | no run started", output.getvalue())
+            self.assertNotIn("I saved setup", output.getvalue())
+        finally:
+            (
+                night_shift.load_config,
+                night_shift.resolve_start_repo,
+                night_shift.repo_root,
+                night_shift.run_cmd,
+                night_shift.doctor_checks,
+                night_shift.setup_has_changed,
+            ) = originals
+
     def test_outcome_metrics_separate_free_pre_model_skips(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)

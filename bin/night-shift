@@ -3066,8 +3066,12 @@ def command_start(args) -> int:
         print("Cloud note: Night Shift will still store credentials outside config and will not send secrets on purpose.")
 
     if args.setup_only:
-        print("All set. I saved setup and did not start a run.")
-        print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
+        if setup_changed:
+            print("All set. I saved setup and did not start a run.")
+            print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
+        else:
+            print("All set. Your existing setup is ready; no run was started.")
+            print("NIGHTSHIFT_START: GREEN | setup unchanged | no run started")
         return 0
 
     if not args.yes and is_interactive():
