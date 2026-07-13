@@ -60,7 +60,9 @@ def correction_prompt(
         + correction
         + ". Return the complete requested schema once. Use only supplied evidence; reject the task if evidence is insufficient.\n"
         + "Every EVIDENCE entry must use `path:line | exact source line`. Copy a path below character-for-character; "
-        + "never invent a path, alter punctuation, or write `path:none`. Do not add prose-only evidence bullets.\n"
+        + "never invent a path, alter punctuation, or write `path:none`. Use one physical source line with ASCII digits only: "
+        + "`src/app.py:123 | return value`. Never use a line range, Unicode dash, HTML `<br>`, Markdown bullet, or backticks around the entry. "
+        + "Do not add prose-only evidence bullets. If no exact single line proves the claim, set ACTION_TYPE: reject.\n"
         + "Make CLAIM no broader than the literal cited line. Do not infer intent, root cause, or that a proposed change will fix the full issue.\n"
         + "Allowed evidence paths:\n"
         + path_lines

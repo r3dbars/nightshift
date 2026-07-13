@@ -532,6 +532,16 @@ CONFIDENCE: high
         self.assertIn("coverage-index/app.py-run.txt:2 | identifier_matches=0", context)
         self.assertNotIn("github-actions/run-1.log:1 | failure", context)
 
+    def test_worker_prompts_forbid_ranged_or_html_evidence(self):
+        task = {"slug": "exact", "files": ["src/app.py"]}
+        for prompt in (
+            night_shift.local_prompt("exact", "Inspect", "context", task),
+            night_shift.windows_prompt("exact", "Inspect", "context", task),
+        ):
+            self.assertIn("one physical source line per entry", prompt)
+            self.assertIn("no ranges, Unicode dashes, HTML", prompt)
+            self.assertIn("ASCII digits only", prompt)
+
     def test_model_context_excludes_sensitive_paths_and_redacts_source_secrets(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

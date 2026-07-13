@@ -1563,6 +1563,7 @@ def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict |
 
         QUALITY BAR:
         - Use only the supplied repo and live evidence. Never invent a path, line number, command result, issue, or failure.
+        - EVIDENCE uses one physical source line per entry: `src/app.py:123 | return value`. ASCII digits only; no ranges, Unicode dashes, HTML, Markdown bullets, or wrapper backticks.
         - Cite only a path listed under candidate files or supplied live-evidence paths. If the needed file is absent, reject the task.
         - If the evidence does not support a useful task, set ACTION_TYPE: reject and say what evidence is missing.
         - A suggestion without an exact path plus evidence is not useful.
@@ -1608,6 +1609,7 @@ def windows_prompt(task_slug: str, task_text: str, context_pack: str, task: dict
 
         QUALITY BAR:
         - Use only supplied repo and live evidence; never invent files, line numbers, issue state, failures, or command results.
+        - EVIDENCE uses one physical source line per entry: `src/app.py:123 | return value`. ASCII digits only; no ranges, Unicode dashes, HTML, Markdown bullets, or wrapper backticks.
         - Cite only a path listed under candidate files or supplied live-evidence paths. If the needed file is absent, reject the task.
         - If evidence is insufficient, return ACTION_TYPE: reject and name the missing evidence.
         - A review claim without an exact path plus evidence is not useful.
