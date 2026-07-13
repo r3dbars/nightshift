@@ -4646,6 +4646,21 @@ buildThing() { return 1; }
         self.assertLess(priority(["npm", "run", "test:unit:vitest"]), priority(["npm", "run", "test:ai"]))
         self.assertLess(priority(["npm", "run", "test:ai"]), priority(["npm", "run", "lint"]))
 
+    def test_trust_repo_prefers_owner_profile_commands_over_detected_commands(self):
+        original = night_shift.load_repo_profile
+        try:
+            night_shift.load_repo_profile = lambda _repo: (
+                SimpleNamespace(commands=(("bash", "scripts/check-package.sh"),)),
+                "profile loaded",
+            )
+            commands = night_shift.trust_repo_commands(
+                Path("/tmp/repo"),
+                {"test_commands": ["python3 -m unittest discover -s tests"]},
+            )
+        finally:
+            night_shift.load_repo_profile = original
+        self.assertEqual(commands, [["bash", "scripts/check-package.sh"]])
+
     def test_github_portfolio_prioritizes_failed_runs(self):
         original_run_cmd = night_shift.run_cmd
         now = night_shift.datetime.now(night_shift.timezone.utc).isoformat().replace("+00:00", "Z")
