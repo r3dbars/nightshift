@@ -23,7 +23,8 @@ python3 -m py_compile \
   bin/night_shift_*.py \
   bin/maestro-token-report \
   scripts/prove-prompt-injection-defense.py \
-  scripts/prove-worker-wrapper-errors.py
+  scripts/prove-worker-wrapper-errors.py \
+  scripts/prove-provider-process-restart.py
 
 python3 -m unittest discover -s tests -p 'test_*.py'
 
