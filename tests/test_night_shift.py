@@ -22,7 +22,7 @@ sys.modules[LOADER.name] = night_shift
 LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
-from night_shift_drafts import owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
+from night_shift_drafts import MAX_VERIFICATION_REPAIRS, owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
 from night_shift_patch_protocol import materialize_test_method_patch
 from night_shift_python_evidence import semantic_test_contract_reasons
 
@@ -2918,12 +2918,28 @@ buildThing() { return 1; }
                 "files": ["tests/test_drafts.py"], "context_files": ["src/drafts.py", "tests/test_drafts.py"],
                 "verification_argv": ["true"], "draft_intent": "test-strengthening",
                 "strengthening_contract": contract,
+                "semantic_contract": {"minimum_target_invocations": 1},
             }
             result = night_shift.DraftEngine(
                 fake_run, Path(tmp) / "worktrees", lambda: "now"
             ).run_draft(repo, "owner/repo", candidate, ledger, 900, "http://local/v1", "coder", profile=profile)
             self.assertEqual(result["status"], "VERIFIED_DRAFT")
             self.assertEqual(result["proof_level"], "passing repository check after a bounded patch")
+            self.assertEqual(result["semantic_contract"], {"minimum_target_invocations": 1})
+            self.assertEqual(
+                night_shift.latest_states(ledger / "task-lifecycle.jsonl")["strengthen"]["semantic_contract"],
+                {"minimum_target_invocations": 1},
+            )
+
+            missing_semantics = night_shift.DraftEngine(
+                fake_run, Path(tmp) / "missing-semantics-worktrees", lambda: "missing-semantics"
+            ).run_draft(
+                repo, "owner/repo", {**candidate, "semantic_contract": {}},
+                Path(tmp) / "missing-semantics-ledger", 900,
+                "http://local/v1", "coder", profile=profile,
+            )
+            self.assertEqual(missing_semantics["status"], "REJECT")
+            self.assertIn("no explicit semantic contract", missing_semantics["reason"])
 
             patch = (
                 "diff --git a/tests/test_drafts.py b/tests/test_drafts.py\n"
@@ -3320,6 +3336,7 @@ buildThing() { return 1; }
         self.assertIn("FAILURE-SENTINEL", correction)
         self.assertIn("Change only the allowed test file", correction)
         self.assertIn("rc is not returncode", correction)
+        self.assertEqual(MAX_VERIFICATION_REPAIRS, 2)
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:

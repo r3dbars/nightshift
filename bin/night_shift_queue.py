@@ -36,7 +36,7 @@ def goal_semantic_contract(goal: str) -> dict:
     contract: dict[str, object] = {}
     if re.search(r"\bboth\b.{0,40}\b(?:outcomes?|paths?|results?)\b", low):
         contract["minimum_target_invocations"] = 2
-    if "true" in low and "false" in low or re.search(r"\bboth boolean\b", low):
+    if re.search(r"\btrue\b", low) and re.search(r"\bfalse\b", low) or re.search(r"\bboth boolean\b", low):
         contract["required_boolean_outcomes"] = [True, False]
     ordered = re.search(
         r"\border(?:ed|ing)?\s+([a-z_][a-z0-9_-]*)\s+(?:and|then|before)\s+"

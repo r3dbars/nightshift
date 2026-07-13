@@ -16,6 +16,8 @@ from night_shift_python_evidence import owner_symbol_call_count_text, semantic_t
 from night_shift_queue import is_test_path
 from night_shift_state import record_state
 
+MAX_VERIFICATION_REPAIRS = 2
+
 
 def draft_proof_status(baseline_rc: int, after_rc: int, guards: list[str]) -> tuple[str, str]:
     if guards:
@@ -402,6 +404,18 @@ class DraftEngine:
         else:
             record_state(lifecycle_path, fingerprint, "REPRODUCED", baseline_rc=baseline.rc, verification=verification)
             record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="reproduced failure handed to bounded patch worker")
+        if strengthening and not candidate.get("semantic_contract"):
+            record_state(
+                lifecycle_path, fingerprint, "REJECTED",
+                reason="test-strengthening mission has no explicit semantic contract",
+            )
+            return finish({
+                "status": "REJECT",
+                "reason": "test-strengthening mission has no explicit semantic contract",
+                "baseline_rc": baseline.rc,
+                "semantic_contract": {},
+                "proof_level": "gap confirmed only",
+            })
         if not worker_url or not worker_model:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="sandboxed coding lane is not configured")
             return finish(
@@ -510,7 +524,7 @@ class DraftEngine:
         )
         if verified.rc != 0 and strengthening:
             repair_sandbox = sandbox_dir
-            for attempt in range(1, 3):
+            for attempt in range(1, MAX_VERIFICATION_REPAIRS + 1):
                 verification_output_path = repair_sandbox / "verification.txt"
                 retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
                 if retry_timeout <= 0:
@@ -620,6 +634,7 @@ class DraftEngine:
         record_state(
             lifecycle_path, fingerprint, "VERIFIED" if status != "REJECT" else "REJECTED",
             patch=str(applied_path if applied_path.exists() else patch_path), after_rc=after_rc, guards=guards,
+            semantic_contract=candidate.get("semantic_contract") or {},
         )
         return finish({
             "status": status,
@@ -638,5 +653,6 @@ class DraftEngine:
             "sandbox_rc": verified.rc,
             "sandbox_output": str(sandbox_dir / "runner.txt"),
             "guard_reasons": guards,
+            "semantic_contract": candidate.get("semantic_contract") or {},
             "proof": str(proof_path),
         })
