@@ -2930,6 +2930,36 @@ buildThing() { return 1; }
             night_shift.detect_sandbox = original_sandbox
             night_shift.draft_engine = original_engine
 
+    def test_test_strengthening_prefers_mac_even_when_windows_is_available(self):
+        original_profile = night_shift.load_repo_profile
+        original_sandbox = night_shift.detect_sandbox
+        original_engine = night_shift.draft_engine
+        captured = {}
+        profile = SimpleNamespace(may_execute=True, commands=(("true",),))
+
+        class FakeEngine:
+            def run_draft(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return {"status": "VERIFIED_DRAFT"}
+
+        try:
+            night_shift.load_repo_profile = lambda _repo: (profile, "loaded")
+            night_shift.detect_sandbox = lambda _run: SimpleNamespace(available=True, detail="ready")
+            night_shift.draft_engine = lambda: FakeEngine()
+            result = night_shift.run_isolated_draft(
+                Path("/tmp/repo"), "owner/repo", {"draft_intent": "test-strengthening"},
+                Path("/tmp/ledger"), 60, "http://localhost:1234/v1", "mac-coder",
+                "http://windows/v1", "windows-coder",
+            )
+            self.assertEqual(result["status"], "VERIFIED_DRAFT")
+            self.assertEqual(captured["args"][5:7], ("http://localhost:1234/v1", "mac-coder"))
+            self.assertEqual(captured["kwargs"]["patch_lane"], "local")
+        finally:
+            night_shift.load_repo_profile = original_profile
+            night_shift.detect_sandbox = original_sandbox
+            night_shift.draft_engine = original_engine
+
     def test_isolated_draft_rejects_when_no_patch_lane_is_configured(self):
         original_profile = night_shift.load_repo_profile
         original_sandbox = night_shift.detect_sandbox

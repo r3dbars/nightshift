@@ -2468,7 +2468,8 @@ def run_isolated_draft(
             "reason": f"candidate has no approved argv verification from {PROFILE_NAME}",
             "proof_level": "not executed",
         }
-    patch_lane = "windows" if windows_url and windows_model else "local"
+    local_strengthening = candidate.get("draft_intent") == "test-strengthening" and local_url and local_model
+    patch_lane = "local" if local_strengthening or not (windows_url and windows_model) else "windows"
     patch_url = windows_url if patch_lane == "windows" else local_url
     patch_model = windows_model if patch_lane == "windows" else local_model
     if not patch_url or not patch_model:
