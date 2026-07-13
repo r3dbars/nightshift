@@ -57,7 +57,14 @@ def materialize_test_method_patch(
     start = next((index for index, line in enumerate(added) if re.match(r"^    def test_[A-Za-z0-9_]+\(self[^)]*\):$", line)), None)
     if start is None:
         return ""
-    method = added[start:]
+    end = next(
+        (
+            index for index in range(start + 1, len(added))
+            if re.match(r"^    def test_[A-Za-z0-9_]+\(self[^)]*\):$", added[index])
+        ),
+        len(added),
+    )
+    method = added[start:end]
     while method and not method[-1].strip():
         method.pop()
     if not method or len(method) > 80:
