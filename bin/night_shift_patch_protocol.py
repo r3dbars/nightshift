@@ -28,9 +28,15 @@ class PatchCheck:
 
 def extract_unified_diff(output: str) -> str:
     start = output.find("diff --git ")
-    if start < 0:
-        return ""
-    patch = output[start:].strip()
+    if start >= 0:
+        patch = output[start:].strip()
+    else:
+        cleaned = output.replace("```diff\n", "").replace("```\n", "").strip()
+        pairs = re.findall(r"(?m)^--- a/([^\n]+)\n\+\+\+ b/([^\n]+)$", cleaned)
+        if len(pairs) != 1 or pairs[0][0] != pairs[0][1]:
+            return ""
+        path = pairs[0][0]
+        patch = f"diff --git a/{path} b/{path}\n{cleaned}"
     patch = patch.replace("```diff\n", "").replace("```\n", "")
     return patch + "\n"
 
