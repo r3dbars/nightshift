@@ -34,6 +34,18 @@ class RepoOutcomeTests(unittest.TestCase):
         self.assertEqual(adjustment, 0)
         self.assertEqual(summary["wasted_token_runs"], 0)
 
+    def test_feedback_changes_portfolio_ranking(self):
+        useful, useful_summary = repo_outcome_adjustment(
+            [{"repo": "owner/useful", "feedback_useful": 1}], "owner/useful"
+        )
+        not_useful, not_useful_summary = repo_outcome_adjustment(
+            [{"repo": "owner/not-useful", "feedback_not_useful": 1}], "owner/not-useful"
+        )
+        self.assertEqual(useful, 25)
+        self.assertEqual(not_useful, -25)
+        self.assertEqual(useful_summary["useful_feedback"], 1)
+        self.assertEqual(not_useful_summary["not_useful_feedback"], 1)
+
     def test_outcome_ledger_is_bounded_and_keeps_latest(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "repo-outcomes.jsonl"
