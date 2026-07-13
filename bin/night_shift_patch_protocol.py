@@ -168,8 +168,11 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "You may modify only an existing allowed TEST file. Add a focused behavioral test "
             "that invokes the exact owner and symbol in the strengthening contract. Do not change "
             "source, manifests, lockfiles, workflows, configuration, secrets, dependencies, or policy. "
-            "Reuse existing imports and test helpers; add no dependency. Assert exact observed call order, "
-            "arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
+            "Reuse existing imports and test helpers; add no dependency. Use the exact constructor and method "
+            "signatures shown in SOURCE EXCERPT; do not monkeypatch attributes that the class does not define. "
+            "Fake command results must expose the exact attributes read by source, such as rc rather than a dict. "
+            "Preserve exact argument types: compare a Path as a Path unless source explicitly converts it. "
+            "Assert exact observed call order, arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
             "EXCERPT, preferably near the test file tail. Keep the patch under 80 changed lines."
         )
     else:

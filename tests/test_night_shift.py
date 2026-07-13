@@ -83,6 +83,9 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn("Invoke the target at least 2 times", prompt)
         self.assertIn("distinct fake or fixture preconditions", prompt)
         self.assertIn("assert remove occurs before prune", prompt)
+        self.assertIn("exact constructor and method signatures", prompt)
+        self.assertIn("rc rather than a dict", prompt)
+        self.assertIn("compare a Path as a Path", prompt)
 
     def test_inline_label_parsing_preserves_terminal_source_punctuation(self):
         evidence = (
