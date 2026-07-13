@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Callable
 
@@ -63,6 +64,18 @@ class ReportEngine:
                 continue
             adjustment += 20 if row.get("verdict") == "useful" else -120
         return max(-240, min(40, adjustment))
+
+    def feedback_snapshot(self, repo: str = "") -> tuple[int, int, int]:
+        """Return current useful, not-useful, and history counts for one repo."""
+        history = self.load_feedback()
+        if repo:
+            history = [row for row in history if row.get("repo") == repo]
+        current = latest_feedback_events(history)
+        return (
+            sum(row.get("verdict") == "useful" for row in current),
+            sum(row.get("verdict") == "not-useful" for row in current),
+            len(history),
+        )
 
     @staticmethod
     def ranked_results(results: list[dict], include_reject: bool = False) -> list[dict]:
@@ -251,6 +264,9 @@ class ReportEngine:
         status = self.run_status(results, target_tokens, overall, mode)
         work_items = self.deduped_work_items(results, limit=3)
         factual = self.factual_change_surface(scan)
+        feedback_useful, feedback_not_useful, feedback_history = self.feedback_snapshot(
+            str((scan or {}).get("repo") or "")
+        )
         if work_items: first_action = work_items[0]["primary"]["summary"]
         elif results: first_action = factual[0].removeprefix("- ") if factual else "No evidence-backed item survived. Review the deterministic repo scan before another model run."
         elif scan and scan.get("status") == "ok":
@@ -277,7 +293,7 @@ class ReportEngine:
         else:
             lines.append("1. I did not keep a draft this time. Check the startup gate before another run.")
         all_items = self.deduped_work_items(results)
-        lines.extend(["", "Run totals:", f"- Mode: {mode}", f"- Startup gate: {overall}", f"- Local loops: {len(local)}", f"- Windows loops: {len(windows)}", f"- Estimated local+Windows tokens: {total_tokens}", f"- Token target: {target_tokens}", f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}", f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}", f"- Weak signals skipped before model calls: {sum(row.get('category') == 'pre-model' for row in task_skips)}", f"- User-rejected task families skipped: {sum(row.get('category') == 'feedback' for row in task_skips)}", f"- Evidence-backed candidates awaiting proof: {sum(item['primary']['score'] == 'MAYBE' for item in work_items)}", f"- Unique work queue items: {len(all_items)}", "", "Token totals by lane:"])
+        lines.extend(["", "Run totals:", f"- Mode: {mode}", f"- Startup gate: {overall}", f"- Local loops: {len(local)}", f"- Windows loops: {len(windows)}", f"- Estimated local+Windows tokens: {total_tokens}", f"- Token target: {target_tokens}", f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}", f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}", f"- Weak signals skipped before model calls: {sum(row.get('category') == 'pre-model' for row in task_skips)}", f"- User-rejected task families skipped: {sum(row.get('category') == 'feedback' for row in task_skips)}", f"- Evidence-backed candidates awaiting proof: {sum(item['primary']['score'] == 'MAYBE' for item in work_items)}", f"- Unique work queue items: {len(all_items)}", f"- Learning signals for this repo: useful={feedback_useful} not useful={feedback_not_useful} history events={feedback_history}", "", "Token totals by lane:"])
         totals = self.token_totals_by_lane(results)
         for lane in sorted(totals):
             row = totals[lane]
@@ -300,9 +316,17 @@ class ReportEngine:
         if reject == 0: lines.append("- None.")
         lines.extend(["", "Needs user review:", "- Start with the first KEEP/MAYBE item; worker output is a draft, not the final truth."])
         if work_items:
+            ledger_arg = shlex.quote(str(ledger))
             lines.append(
                 "- One-action independent review (read-only cloud; this command is explicit consent): "
-                f"`night-shift handoff --ledger {ledger} --item 1 --agent codex --run --allow-cloud`"
+                f"`night-shift handoff --ledger {ledger_arg} --item 1 --agent codex --run --allow-cloud`"
             )
+            lines.extend([
+                "",
+                "Teach Night Shift (one quick vote):",
+                f"- If choice 1 would save you time: `night-shift feedback --ledger {ledger_arg} --item 1 --useful`",
+                f"- If it missed the mark: `night-shift feedback --ledger {ledger_arg} --item 1 --not-useful --note \"one short reason\"`",
+                "- This stays on this computer and changes future rankings for this repo.",
+            ])
         lines.extend(["- Treat manual hardware/audio proof as UNKNOWN unless a human verified it.", "", "Safety:", "- No merges, releases, tags, notarization, deploys, appcast/cask updates, billing, credentials, or user-file cleanup were performed by this command.", "- Local and Windows outputs are drafts, not truth.", "", "Proof files:", f"- Repo scan: {ledger / 'repo-scan.md'}", f"- Work queue: {ledger / 'work-queue.md'}", f"- Harvest: {ledger / 'harvest.md'}", f"- Token report: {ledger / 'token-report.txt'}"])
         (ledger / "morning.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
