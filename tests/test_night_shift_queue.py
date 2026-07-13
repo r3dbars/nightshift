@@ -594,6 +594,22 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
         self.assertTrue(detect_calls)
         self.assertTrue(any(argv[:3] == ["git", "ls-tree", "-r"] for argv in calls))
 
+    def test_symbol_source_evidence_returns_empty_when_symbol_not_declared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            source_file = repo / "lib.py"
+            source_file.write_text("def existing_func(): pass\n", encoding="utf-8")
+
+            from night_shift_queue import QueueEvidenceIndex
+            index = QueueEvidenceIndex(repo, {
+                "tracked_files": ["lib.py"],
+                "source_files": ["lib.py"],
+                "test_files": [],
+                "coverage_test_files": [],
+            })
+            evidence = index.symbol_source_evidence("lib.py", "nonexistent_symbol")
+
+            self.assertEqual(evidence, {})
 
 if __name__ == "__main__":
     unittest.main()
