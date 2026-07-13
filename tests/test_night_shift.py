@@ -3887,6 +3887,21 @@ buildThing() { return 1; }
         finally:
             night_shift.post_url_json = original_post
 
+    def test_chat_probe_does_not_retry_http_errors(self):
+        original_post = night_shift.post_url_json
+        calls = []
+        try:
+            def http_error(*args, **kwargs):
+                calls.append(args[0])
+                raise urllib.error.HTTPError(args[0], 429, "rate limited", {}, None)
+
+            night_shift.post_url_json = http_error
+            state, _ = night_shift.chat_probe("Local", "http://local.test/v1", "coder")
+            self.assertEqual(state, "YELLOW")
+            self.assertEqual(len(calls), 1)
+        finally:
+            night_shift.post_url_json = original_post
+
 
 if __name__ == "__main__":
     unittest.main()

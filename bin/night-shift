@@ -517,7 +517,9 @@ def retry_transient(call, *args, **kwargs):
     for attempt in range(2):
         try:
             return call(*args, **kwargs)
-        except (urllib.error.URLError, TimeoutError, ConnectionResetError, BrokenPipeError):
+        except (urllib.error.URLError, TimeoutError, ConnectionResetError, BrokenPipeError) as exc:
+            if isinstance(exc, urllib.error.HTTPError):
+                raise
             if attempt:
                 raise
             time.sleep(0.25)
