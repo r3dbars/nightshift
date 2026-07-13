@@ -14,6 +14,13 @@ run evidence separate from model claims and from human/manual proof.
   behavioral test in `tests/test_night_shift_queue.py`.
 - PR #112 merged disk-headroom and ledger-growth metrics for the soak.
 - PR #113 merged clearer first-run permission copy and the updated wizard guide.
+- PR #115 merged friendlier no-work morning language.
+- PR #116 merged fail-closed first-run prompts, clear blank-project recovery,
+  completed-brief selection, and evidence-rich portfolio choices.
+- PR #117 merged fail-closed Mac/Windows worker transport handling and a
+  loopback wrapper proof.
+- PR #118 merged complete empty-run artifacts so no-compute and no-task runs
+  retain harvest, queue, metrics, lifecycle, token, and morning files.
 
 ## Live Evidence
 
@@ -33,6 +40,13 @@ run evidence separate from model claims and from human/manual proof.
 - The short soak rehearsal completed with 18/18 killed controllers recovered,
   no active state remaining, and disk-headroom metrics. The full 10-hour soak
   is running separately; its final result is intentionally not claimed here.
+- A disposable native `night-shift start --yes` run was started from a clean
+  temporary home with an eight-hour stop. Its setup was saved, its controller
+  is live, and its first completed portfolio brief is YELLOW with no unsafe
+  task claimed. The run is still in progress and is not counted as complete
+  repeat-use proof yet.
+- The current package gate passes 370 tests, including the wrapper error proof
+  and the complete empty-run artifact regression.
 
 ## Remaining Proof Gaps
 
