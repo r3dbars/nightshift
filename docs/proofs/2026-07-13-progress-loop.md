@@ -71,6 +71,15 @@ run evidence separate from model claims and from human/manual proof.
 - The approval and scan paths now both surface that focused runner before
   umbrella, AI, e2e, or smoke scripts. This keeps the morning instruction and
   isolated preflight on the same command.
+- PR #127 merged runner-native npm dependency preparation, automatic cache
+  reuse, bounded local verification repair, and the BetterFeedback
+  `VERIFIED_DRAFT` proof.
+- PR #128 merged owner-profile command precedence, so a reviewed
+  `.night-shift.json` package gate wins over filename heuristics during trust.
+- PRs #129 and #130 merged explicit behavioral-test semantic contracts and
+  draft routing. A malformed Python cleanup patch was rejected with the
+  source checkout clean; this is recorded as a safety outcome, not a useful
+  patch.
 
 ## Remaining Proof Gaps
 
