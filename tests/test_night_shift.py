@@ -2964,6 +2964,19 @@ buildThing() { return 1; }
             )
             self.assertFalse(rename.valid)
 
+    def test_patch_protocol_normalizes_one_matching_plain_unified_diff(self):
+        profile = SimpleNamespace(protected_paths=(), allowed_paths=("src",))
+        plain = (
+            "```diff\n--- a/src/app.py\n+++ b/src/app.py\n"
+            "@@ -1 +1 @@\n-old\n+new\n```\n"
+        )
+        check = night_shift.validate_patch(plain, ["src/app.py"], profile)
+        self.assertTrue(check.valid)
+        self.assertTrue(check.patch.startswith("diff --git a/src/app.py b/src/app.py\n"))
+
+        mismatched = plain.replace("+++ b/src/app.py", "+++ b/src/other.py")
+        self.assertFalse(night_shift.validate_patch(mismatched, ["src/app.py"], profile).valid)
+
     def test_patch_protocol_rejects_header_without_complete_hunk(self):
         profile = SimpleNamespace(protected_paths=(), allowed_paths=("src",))
         check = night_shift.validate_patch(
