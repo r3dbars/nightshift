@@ -35,7 +35,7 @@ from night_shift_policy import PROFILE_NAME, PROTECTED_PATHS, command_display, p
 from night_shift_sandbox import build_runner_image, detect_sandbox, sandbox_command
 from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
-from night_shift_redaction import redact
+from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, should_record_feedback_event, should_record_review_outcome, task_family
@@ -1343,11 +1343,14 @@ def build_board(mode: str, queue: list[dict] | None = None, permission: str = "b
 
 
 def task_context_block(task: dict) -> str:
-    files = task.get("files") or []
+    files = [path for path in (task.get("files") or []) if not context_path_is_sensitive(path)]
     file_lines = "\n".join(f"- {path}" for path in files[:6]) if files else "- No specific files preselected; infer from repo context."
     commands = task.get("verification_commands") or []
     command_lines_text = "\n".join(f"- {command}" for command in commands[:8]) if commands else "- No test command was detected; propose a read-only inspection command or reject."
-    evidence_sources = task.get("evidence_sources") or {}
+    evidence_sources = {
+        path: value for path, value in (task.get("evidence_sources") or {}).items()
+        if not context_path_is_sensitive(path)
+    }
     evidence_lines = "\n".join(f"- {path}" for path in evidence_sources) if evidence_sources else "- None."
     citation_examples = coverage_citation_examples(evidence_sources)
     citation_lines = "\n".join(f"- {citation}" for citation in citation_examples) if citation_examples else "- None."
@@ -1460,10 +1463,14 @@ def task_evidence_pack(
         candidates = narrow_task_files([
             path
             for path in task.get("files", [])
-            if run_cmd(["git", "cat-file", "-e", f"{source_ref}:{path}"], cwd=repo, timeout=20).rc == 0
+            if not context_path_is_sensitive(path)
+            and run_cmd(["git", "cat-file", "-e", f"{source_ref}:{path}"], cwd=repo, timeout=20).rc == 0
         ])[:6]
     else:
-        candidates = narrow_task_files([path for path in task.get("files", []) if path in tracked])[:6]
+        candidates = narrow_task_files([
+            path for path in task.get("files", [])
+            if path in tracked and not context_path_is_sensitive(path)
+        ])[:6]
     sections = ["## prior-user-feedback\n" + feedback_context(repo)]
     if task.get("signal"):
         signal_text = redact(str(task["signal"]))
@@ -1471,6 +1478,8 @@ def task_evidence_pack(
             signal_text = signal_text[:1000] + "\n...[earlier log lines omitted]...\n" + signal_text[-13000:]
         sections.append("## live-signal\n" + signal_text)
     for relative, source_text in (task.get("evidence_sources") or {}).items():
+        if context_path_is_sensitive(relative):
+            continue
         numbered = "\n".join(
             f"{index:>5} | {line}" for index, line in enumerate(redact(str(source_text)).splitlines(), start=1)
         )
@@ -2005,7 +2014,8 @@ def command_plan(args) -> int:
     write_repo_scan(ledger, scan)
     queue = build_repo_work_queue(root, scan, args.mode, "brief")
     (ledger / "board.md").write_text(build_board(args.mode, queue, "brief"), encoding="utf-8")
-    (ledger / "planned-work-queue.json").write_text(json.dumps(queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    safe_queue = [sanitize_task_for_ledger(item) for item in queue]
+    (ledger / "planned-work-queue.json").write_text(json.dumps(safe_queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
     (ledger / "mode.json").write_text(json.dumps({"mode": args.mode, **MODE_DEFAULTS[args.mode]}, indent=2) + "\n", encoding="utf-8")
     (ledger / "startup-gate.md").write_text("# Startup Gate\n\nStatus: NOT_RUN\n\nRun `night-shift doctor --repo <repo>` before a real night.\n", encoding="utf-8")
@@ -2135,7 +2145,8 @@ def command_run(args) -> int:
     task_limit = getattr(args, "task_limit", None)
     if task_limit is not None:
         queue = queue[: max(0, task_limit)]
-    (ledger / "planned-work-queue.json").write_text(json.dumps(queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    safe_queue = [sanitize_task_for_ledger(item) for item in queue]
+    (ledger / "planned-work-queue.json").write_text(json.dumps(safe_queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
     (ledger / "board.md").write_text(build_board(args.mode, queue, permission), encoding="utf-8")
 
@@ -2305,7 +2316,7 @@ def command_run(args) -> int:
                     result["executable"] = pending_item["executable"]
                     result["source_ref"] = pending_item["source_ref"]
                     result["verification_commands"] = pending_item["verification_commands"]
-                    result["evidence_sources"] = pending_item["evidence_sources"]
+                    result["evidence_sources"] = sanitize_evidence_sources(pending_item["evidence_sources"])
                     result["semantic_contract"] = pending_item["semantic_contract"]
                     results.append(result)
                     if result.get("score") == "REJECT":
@@ -2336,7 +2347,7 @@ def command_run(args) -> int:
                             "executable": pending_item["executable"],
                             "source_ref": pending_item["source_ref"],
                             "verification_commands": pending_item["verification_commands"],
-                            "evidence_sources": pending_item["evidence_sources"],
+                            "evidence_sources": sanitize_evidence_sources(pending_item["evidence_sources"]),
                             "semantic_contract": pending_item["semantic_contract"],
                         }
                     )

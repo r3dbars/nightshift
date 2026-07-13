@@ -7,6 +7,8 @@ import signal
 import subprocess
 from pathlib import Path
 
+from night_shift_redaction import contains_secret
+
 
 FORBIDDEN_ACTION_RE = re.compile(
     r"\b(merge|release|publish|tag|notarize|deploy|appcast|cask|credential|billing|delete|destructive|move user files?)\b",
@@ -264,6 +266,8 @@ def output_quality_reasons(
     if not output.strip():
         return ["worker returned no output"]
     reasons: list[str] = []
+    if contains_secret(output):
+        reasons.append("worker output contained secret material")
     evidence = first_label_value(output, ["EVIDENCE"])
     verification = first_label_value(output, ["TESTS_TO_RUN", "TESTS TO RUN", "VERIFICATION"])
     expected = first_label_value(output, ["EXPECTED_RESULT", "EXPECTED RESULT"])
@@ -325,12 +329,7 @@ def score_output(
         return "REJECT"
     if not output.strip():
         return "REJECT"
-    if UNSAFE_APPROVAL_RE.search(output) and (
-        "safe_for_draft_pr: yes" in low
-        or "safe for draft pr: yes" in low
-        or "safe_for_codex_to_attempt: yes" in low
-        or "safe for codex to attempt: yes" in low
-    ):
+    if UNSAFE_APPROVAL_RE.search(output) or contains_secret(output):
         return "REJECT"
     if action_type(output) == "reject":
         return "REJECT"
