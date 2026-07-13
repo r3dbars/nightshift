@@ -492,7 +492,10 @@ class DraftEngine:
             except (OSError, UnicodeError):
                 original_test = ""
             for recovery_output in (first_model_output, model.stdout):
-                recovered = materialize_test_method_patch(recovery_output, original_test, test_file)
+                recovered = materialize_test_method_patch(
+                    recovery_output, original_test, test_file,
+                    {Path(strengthening["source_file"]).stem} if strengthening else set(),
+                )
                 if not recovered:
                     continue
                 recovered_check = validate_patch(recovered, candidate["files"], profile)
@@ -567,7 +570,8 @@ class DraftEngine:
                     except (OSError, UnicodeError):
                         original_test = ""
                     repaired_patch = materialize_test_method_patch(
-                        repair.stdout, original_test, candidate["files"][0]
+                        repair.stdout, original_test, candidate["files"][0],
+                        {Path(strengthening["source_file"]).stem} if strengthening else set(),
                     )
                     repaired = validate_patch(repaired_patch, candidate["files"], profile)
                     if repaired.valid:
