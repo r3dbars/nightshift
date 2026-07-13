@@ -156,10 +156,12 @@ def materialize_ts_test_case_patch(
     expected_import: str | None = None,
 ) -> str:
     """Extract one conservative Vitest/Jest test block into an existing suite."""
-    added = [
+    diff_lines = [
         line[1:] for line in output.splitlines()
         if line.startswith("+") and not line.startswith("+++")
     ]
+    raw_response = not diff_lines
+    added = output.splitlines() if raw_response else diff_lines
     start = next(
         (
             index for index, line in enumerate(added)
@@ -169,6 +171,11 @@ def materialize_ts_test_case_patch(
     )
     if start is None:
         return ""
+    if raw_response:
+        # Some local workers return a useful test block with a short prose
+        # preamble. Only the bounded block below is eligible for materializing.
+        added = added[start:]
+        start = 0
     if any(line.strip() for line in added[:start]):
         return ""
     block: list[str] = []
@@ -186,17 +193,40 @@ def materialize_ts_test_case_patch(
             break
     if end is None or len(block) > 60:
         return ""
-    if any(line.strip() for line in added[end + 1:]):
+    if not raw_response and any(line.strip() for line in added[end + 1:]):
         return ""
     if not re.search(rf"(?:\b{re.escape(symbol)}|\.{re.escape(symbol)})\s*\(", "\n".join(block)):
         return ""
+    if raw_response:
+        suite_match = re.search(r"(?m)^(?P<indent>[ \t]+)(?:it|test)\s*\(", original)
+        suite_indent = suite_match.group("indent") if suite_match else "  "
+        base_indent = len(block[0]) - len(block[0].lstrip())
+        block = [
+            (suite_indent + line[base_indent:]) if line.strip() else line
+            for line in block
+        ]
     block_text = "\n".join(block)
     if re.search(r"(?m)^\s*import\s+|\brequire\s*\(", block_text):
         return ""
     if expected_import:
         imported = rf"await\s+import\(\s*['\"]{re.escape(expected_import)}['\"]\s*\)"
         if not re.search(imported, block_text):
-            return ""
+            # Keep the repair local and deterministic when the model called
+            # the approved pure export but omitted the required dynamic import.
+            if re.search(r"\bawait\s+import\s*\(", block_text):
+                return ""
+            if not re.search(rf"\b{re.escape(symbol)}\s*\(", block_text):
+                return ""
+            lines = block_text.splitlines()
+            opening = next((index for index, line in enumerate(lines) if "{" in line), None)
+            if opening is None:
+                return ""
+            indent = re.match(r"\s*", lines[opening]).group(0) + "  "
+            lines.insert(
+                opening + 1,
+                f"{indent}const {{ {symbol} }} = await import('{expected_import}');",
+            )
+            block_text = "\n".join(lines)
         destructured = rf"(?:const|let|var)\s*\{{\s*{re.escape(symbol)}\s*\}}\s*=\s*{imported}"
         namespace = rf"(?:const|let|var)\s+(?P<module>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*{imported}"
         if not re.search(destructured, block_text):
