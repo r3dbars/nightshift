@@ -61,7 +61,9 @@ def verification_correction_prompt(patch: str, failure_output: str) -> str:
         "Return a complete corrected unified diff against the original pinned source. Change only "
         "the allowed test file and preserve every semantic proof requirement. Match every fake result "
         "attribute to the exact attribute consumed by the pinned source (for example, rc is not "
-        "returncode). Fix the exact latest failure without weakening assertions.\n\n"
+        "returncode). Match exact source argument types too: a Path object is not its string form. "
+        "The corrected diff must make a real textual change; never replace a line with identical text. "
+        "Fix the exact latest failure without weakening assertions.\n\n"
         f"CURRENT PATCH:\n{patch[-8000:]}\n\nFAILURE OUTPUT:\n{failure_output[-5000:]}"
     )
 

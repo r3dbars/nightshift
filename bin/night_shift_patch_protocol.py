@@ -124,6 +124,19 @@ def validate_patch(
     changed = sum(1 for line in patch.splitlines() if line.startswith(("+", "-")) and not line.startswith(("+++", "---")))
     if changed > max_changed_lines:
         reasons.append("patch exceeds 500 changed lines")
+    hunks: list[tuple[list[str], list[str]]] = []
+    removed: list[str] | None = None
+    added: list[str] | None = None
+    for line in patch.splitlines():
+        if line.startswith("@@"):
+            removed, added = [], []
+            hunks.append((removed, added))
+        elif removed is not None and line.startswith("-") and not line.startswith("---"):
+            removed.append(line[1:])
+        elif added is not None and line.startswith("+") and not line.startswith("+++"):
+            added.append(line[1:])
+    if hunks and all(removed and added and removed == added for removed, added in hunks):
+        reasons.append("patch makes no textual change")
     additions = "\n".join(line[1:] for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++"))
     if re.search(r"(?i)(api[_-]?key|secret|password|private[_-]?key)\s*[:=]", additions):
         reasons.append("patch appears to add a secret")

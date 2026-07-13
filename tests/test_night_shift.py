@@ -3993,7 +3993,29 @@ buildThing() { return 1; }
         self.assertIn("FAILURE-SENTINEL", correction)
         self.assertIn("Change only the allowed test file", correction)
         self.assertIn("rc is not returncode", correction)
+        self.assertIn("a Path object is not its string form", correction)
+        self.assertIn("never replace a line with identical text", correction)
         self.assertEqual(MAX_VERIFICATION_REPAIRS, 2)
+
+    def test_patch_protocol_rejects_identical_removed_and_added_text(self):
+        profile = SimpleNamespace(protected_paths=(), allowed_paths=("src",))
+        check = night_shift.validate_patch(
+            "diff --git a/src/app.py b/src/app.py\n"
+            "--- a/src/app.py\n+++ b/src/app.py\n"
+            "@@ -1 +1 @@\n-same\n+same\n",
+            ["src/app.py"], profile,
+        )
+        self.assertFalse(check.valid)
+        self.assertIn("patch makes no textual change", check.reasons)
+
+        moved = night_shift.validate_patch(
+            "diff --git a/src/app.py b/src/app.py\n"
+            "--- a/src/app.py\n+++ b/src/app.py\n"
+            "@@ -1 +0,0 @@\n-helper()\n"
+            "@@ -10,0 +10 @@\n+helper()\n",
+            ["src/app.py"], profile,
+        )
+        self.assertTrue(moved.valid)
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
