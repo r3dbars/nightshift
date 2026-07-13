@@ -682,7 +682,7 @@ CONFIDENCE: high
             self.assertIn("source_file=app.py", evidence)
             self.assertIn("identifier_matches=0", evidence)
             self.assertIn("scan_complete=true", evidence)
-            self.assertEqual(night_shift.model_task_readiness_reasons(task, "night-shift"), [])
+            self.assertEqual(night_shift.model_task_readiness_reasons(task, "afterburner"), [])
 
     def test_incomplete_coverage_index_is_rejected_before_model(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1011,6 +1011,59 @@ buildThing() { return 1; }
         self.assertEqual(normal, [])
         self.assertEqual(afterburner, [task])
         self.assertIn("reserved for afterburner", skipped[0]["reason"])
+
+    def test_normal_mode_skips_coverage_only_work_unless_explicitly_requested(self):
+        task = {
+            "slug": "changed-file-proof-src-app-py",
+            "kind": "tests",
+            "files": ["src/app.py"],
+            "verification_commands": ["python -m pytest"],
+            "signal": "{}",
+            "evidence_sources": {
+                "coverage-index/src-app-py.txt": "scan_complete=true\nidentifier_matches=0",
+            },
+        }
+        normal, skipped = night_shift.model_ready_tasks([task], "night-shift")
+        afterburner, _ = night_shift.model_ready_tasks([task], "afterburner")
+        explicit, _ = night_shift.model_ready_tasks([task], "night-shift", "improve regression test coverage")
+        self.assertEqual(normal, [])
+        self.assertEqual(afterburner, [task])
+        self.assertEqual(explicit, [task])
+        self.assertIn("coverage-index-only work", skipped[0]["reason"])
+
+    def test_coverage_override_requires_explicit_action_and_target(self):
+        self.assertTrue(night_shift.requests_coverage_work("improve regression test coverage"))
+        self.assertTrue(night_shift.requests_coverage_work("testing needs a focused review"))
+        self.assertFalse(night_shift.requests_coverage_work("do not run tests; inspect the API issue"))
+        self.assertFalse(night_shift.requests_coverage_work("summarize the test results"))
+
+    def test_morning_status_is_strict_and_shared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            morning = Path(tmp) / "morning.md"
+            self.assertEqual(night_shift.morning_status(morning), "UNKNOWN")
+            morning.write_text("Status: YELLOW\n", encoding="utf-8")
+            self.assertEqual(night_shift.morning_status(morning), "YELLOW")
+            morning.write_text("Status: GREENISH\n", encoding="utf-8")
+            self.assertEqual(night_shift.morning_status(morning), "UNKNOWN")
+
+    def test_portfolio_brief_does_not_repeat_unproven_child_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            child = ledger / "child"
+            child.mkdir()
+            (child / "morning.md").write_text(
+                "# Morning Brief\n\nStatus: YELLOW\n\nStart here:\n- This weak claim should not be repeated.\n",
+                encoding="utf-8",
+            )
+            night_shift.portfolio_brief(
+                ledger,
+                [{"repo": "owner/repo", "ledger": str(child), "new_tasks": 2}],
+                "GREEN",
+            )
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("Status: YELLOW", brief)
+            self.assertIn("2 unproven candidate(s); no deterministic outcome", brief)
+            self.assertNotIn("weak claim", brief)
 
     def test_outcome_metrics_separate_free_pre_model_skips(self):
         with tempfile.TemporaryDirectory() as tmp:

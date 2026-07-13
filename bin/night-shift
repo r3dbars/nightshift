@@ -1785,7 +1785,13 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
     return sorted(queue, key=lambda item: -item["selection_priority"])[:limit]
 
 
-def model_task_readiness_reasons(task: dict, mode: str) -> list[str]:
+def requests_coverage_work(goal: str) -> bool:
+    action = r"(?:add|audit|create|expand|fix|improve|increase|review|strengthen|write)"
+    target = r"(?:test|tests|testing|coverage|regression)"
+    return bool(re.search(rf"\b(?:{action}\b.{{0,48}}\b{target}|{target}\b.{{0,48}}\b{action})\b", goal, re.IGNORECASE))
+
+
+def model_task_readiness_reasons(task: dict, mode: str, goal: str = "") -> list[str]:
     """Reject low-signal work before it consumes local or LAN model tokens."""
     reasons: list[str] = []
     slug = str(task.get("slug") or "")
@@ -1823,6 +1829,8 @@ def model_task_readiness_reasons(task: dict, mode: str) -> list[str]:
             reasons.append("coverage index is incomplete")
         if "identifier_matches=0" not in evidence:
             reasons.append("coverage index does not prove zero identifier matches")
+        if mode != "afterburner" and not requests_coverage_work(goal):
+            reasons.append("coverage-index-only work is reserved for afterburner or an explicit coverage goal")
 
     broad_kind = task.get("kind") in {"map", "docs", "proof"} or (
         task.get("kind") == "triage" and not slug.startswith("pr-")
@@ -1832,11 +1840,11 @@ def model_task_readiness_reasons(task: dict, mode: str) -> list[str]:
     return list(dict.fromkeys(reasons))
 
 
-def model_ready_tasks(queue: list[dict], mode: str) -> tuple[list[dict], list[dict]]:
+def model_ready_tasks(queue: list[dict], mode: str, goal: str = "") -> tuple[list[dict], list[dict]]:
     ready: list[dict] = []
     skipped: list[dict] = []
     for task in queue:
-        reasons = model_task_readiness_reasons(task, mode)
+        reasons = model_task_readiness_reasons(task, mode, goal)
         if reasons:
             skipped.append({"slug": task.get("slug", ""), "category": "pre-model", "reason": "; ".join(reasons)})
         else:
@@ -2675,7 +2683,7 @@ def command_run(args) -> int:
         build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text),
         str(scan.get("head") or ""),
     )
-    queue, readiness_skips = model_ready_tasks(discovered_queue, args.mode)
+    queue, readiness_skips = model_ready_tasks(discovered_queue, args.mode, getattr(args, "goal", ""))
     queue, feedback_skips = apply_task_feedback(queue, load_feedback(), str(root), args.mode)
     grounded_queue_count = len(queue)
     discovered_queue_count = len(discovered_queue)
@@ -3070,6 +3078,14 @@ def write_portfolio_snapshot(ledger: Path, rows: list[dict]) -> None:
     (ledger / "portfolio.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def morning_status(path: Path) -> str:
+    if not path.exists():
+        return "UNKNOWN"
+    text = path.read_text(encoding="utf-8", errors="replace")
+    match = re.search(r"^Status: (GREEN|YELLOW|RED)$", text, re.MULTILINE)
+    return match.group(1) if match else "UNKNOWN"
+
+
 def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
     latest_by_repo: dict[str, dict] = {}
     for row in cycle_rows:
@@ -3100,8 +3116,10 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
         if morning.exists():
             text = morning.read_text(encoding="utf-8", errors="replace")
             match = re.search(r"Start here:\n- (.+)", text)
-            if match:
+            if match and morning_status(morning) == "GREEN":
                 summary = match.group(1).strip()
+            elif row.get("new_tasks"):
+                summary = f"{row['new_tasks']} unproven candidate(s); no deterministic outcome."
         lines.append(f"- {repo_name}: {summary}")
         lines.append(f"  Proof: {child}")
         draft = row.get("draft") or {}
@@ -3278,6 +3296,9 @@ def command_autopilot(args) -> int:
                 )
                 rc = command_run(child_args)
                 child_ledger = Path(child_args.result_ledger)
+                child_morning = child_ledger / "morning.md"
+                if rc != 0 or morning_status(child_morning) != "GREEN":
+                    status = "YELLOW"
                 planned = parse_json_text((child_ledger / "planned-work-queue.json").read_text(encoding="utf-8"), [])
                 cycle_had_work = cycle_had_work or bool(planned)
                 cycle_row = {
