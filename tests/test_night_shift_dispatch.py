@@ -234,12 +234,19 @@ class CorrectionPromptTests(unittest.TestCase):
 
     def test_correction_prompt_includes_prior_answer_and_forbids_task_hopping(self):
         prompt = correction_prompt(
-            "Inspect the gap.", ["quote mismatch"], previous_output="CLAIM: test `Engine.run`"
+            "Inspect the gap.", ["quote mismatch"],
+            candidate_files=["src/engine.py", "tests/test_engine.py"],
+            previous_output="CLAIM: test `Engine.run`",
         )
         self.assertIn("Your rejected answer was:", prompt)
         self.assertIn("CLAIM: test `Engine.run`", prompt)
         self.assertIn("Do not switch files, symbols, claims, or task type", prompt)
         self.assertIn("Repeat the same named code target in backticks", prompt)
+        self.assertIn("Allowed existing repo paths for FILES_TO_TOUCH:", prompt)
+        self.assertIn("- tests/test_engine.py", prompt)
+        self.assertIn("do not invent a new test file", prompt)
+        self.assertIn("observable return value, exception, response, or state change", prompt)
+        self.assertIn("coverage count, identifier mention, import", prompt)
 
     def test_correction_identity_uses_explicit_code_targets(self):
         self.assertIn("engine.run", candidate_identity_terms("CLAIM: test `Engine.run`"))
