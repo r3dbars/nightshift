@@ -67,7 +67,18 @@ class PortfolioEngine:
             return None
         return match.group("owner"), match.group("repo")
 
-    def github_repo_signals(self, slug: str) -> dict:
+    @staticmethod
+    def select_ranked_rows(rows: list[dict], max_repos: int) -> list[dict]:
+        limit = max(1, max_repos)
+        ranked = sorted(rows, key=lambda row: (-int(row.get("score", 0)), row.get("slug", "")))
+        selected = ranked[:limit]
+        primary = next((row for row in ranked if row.get("primary")), None)
+        if primary and not any(row is primary for row in selected):
+            selected[-1] = primary
+            selected.sort(key=lambda row: (-int(row.get("score", 0)), row.get("slug", "")))
+        return selected
+
+    def github_repo_signals(self, slug: str, default_branch: str = "") -> dict:
         empty = {"prs": [], "issues": [], "failed_runs": [], "score": 0}
         if not slug or not shutil.which("gh"):
             return empty
@@ -81,7 +92,7 @@ class PortfolioEngine:
                 "--limit",
                 "30",
                 "--json",
-                "number,title,isDraft,reviewDecision,statusCheckRollup,updatedAt,url,headRefOid",
+                "number,title,isDraft,reviewDecision,statusCheckRollup,updatedAt,url,headRefOid,headRefName",
             ],
             timeout=60,
         )
@@ -120,17 +131,29 @@ class PortfolioEngine:
             row for row in failed_runs
             if not iso_datetime(row.get("updatedAt", "")) or iso_datetime(row.get("updatedAt", "")) >= recent_cutoff
         ]
+        active_branches = {str(pr.get("headRefName") or "") for pr in prs}
+        if default_branch:
+            active_branches.add(default_branch)
+        active_branches.discard("")
+        if active_branches:
+            failed_runs = [row for row in failed_runs if row.get("headBranch") in active_branches]
         score = min(len(failed_runs), 3) * 140
+        actionable_prs = 0
+        ready_prs = 0
+        draft_prs = 0
         for pr in prs:
             checks = pr.get("statusCheckRollup") or []
             failed = any(check.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for check in checks)
             if failed or pr.get("reviewDecision") == "CHANGES_REQUESTED":
-                score += 120
+                actionable_prs += 1
             elif pr.get("isDraft"):
-                score += 30
+                draft_prs += 1
             else:
-                score += 50
-        score += min(len(issues), 5) * 15
+                ready_prs += 1
+        score += min(actionable_prs, 3) * 120
+        score += min(ready_prs, 3) * 50
+        score += min(draft_prs, 3) * 15
+        score += min(len(issues), 5) * 10
         return {"prs": prs, "issues": issues, "failed_runs": failed_runs, "score": score}
 
     def discover(self, primary_repo: Path | None, active_days: int = 14, max_repos: int = 3) -> list[dict]:
@@ -183,7 +206,7 @@ class PortfolioEngine:
                         )
                     )
                     for candidate in candidates[: max(10, max_repos * 4)]:
-                        signals = self.github_repo_signals(candidate["slug"])
+                        signals = self.github_repo_signals(candidate["slug"], candidate["default_branch"])
                         candidate["signals"] = signals
                         candidate["score"] = (
                             signals["score"]
@@ -192,21 +215,22 @@ class PortfolioEngine:
                         )
                         rows.append(candidate)
         if primary_repo and not any(row.get("primary") for row in rows):
+            current_branch = self.run_cmd(["git", "branch", "--show-current"], cwd=primary_repo, timeout=20)
+            fallback_branch = current_branch.stdout.strip() if current_branch.rc == 0 else "main"
             rows.append(
                 {
                     "slug": primary_slug or primary_repo.name,
                     "pushed_at": "",
                     "private": True,
-                    "default_branch": "main",
+                    "default_branch": fallback_branch or "main",
                     "url": "",
                     "primary": True,
-                    "signals": self.github_repo_signals(primary_slug),
+                    "signals": self.github_repo_signals(primary_slug, fallback_branch or "main"),
                     "score": 1000,
                     "path": str(primary_repo),
                 }
             )
-        rows.sort(key=lambda row: (-int(row.get("score", 0)), row.get("slug", "")))
-        return rows[: max(1, max_repos)]
+        return self.select_ranked_rows(rows, max_repos)
 
     def ensure_checkout(self, item: dict, primary_repo: Path | None) -> tuple[Path | None, str]:
         if item.get("primary") and primary_repo:
