@@ -4584,6 +4584,22 @@ buildThing() { return 1; }
         finally:
             night_shift.post_url_json = original_post
 
+    def test_extract_unified_diff_with_quoted_diff_block(self):
+        from night_shift_patch_protocol import extract_unified_diff
+
+        quoted_input = "```diff\n" \
+                      "diff --git a/f b/f\n" \
+                      "--- a/f\n" \
+                      "+++ b/f\n" \
+                      "@@ -1 +1 @@\n" \
+                      "-old\n" \
+                      "+new\n" \
+                      "```"
+        result = extract_unified_diff(quoted_input)
+
+        self.assertIn("diff --git ", result)
+        self.assertNotEqual(result, "")
+        self.assertTrue(result.strip().startswith("diff --git "))
 
 if __name__ == "__main__":
     unittest.main()
