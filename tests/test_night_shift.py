@@ -3349,6 +3349,54 @@ buildThing() { return 1; }
             )
             self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 1)
             path.write_text(
+                "from drafts import DraftEngine as DE\n"
+                "DE = Other\nDE.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
+                "from drafts import DraftEngine as DE\n"
+                "DE, other = Other, 1\nDE.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
+                "from drafts import DraftEngine as DE\n"
+                "print(DE := Other())\nDE.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
+                "from drafts import DraftEngine as DE\n"
+                "try:\n    pass\nexcept Exception as DE:\n    DE.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
+                "from drafts import DraftEngine as DE\n"
+                "if (DE := Other()):\n    DE.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
+                "from drafts import DraftEngine as DE\n"
+                "def test_cleanup(DE):\n    DE.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
+                "class DraftEngine:\n    @staticmethod\n    def cleanup(): pass\n"
+                "DraftEngine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 1)
+            path.write_text(
+                "from drafts import DraftEngine as DE\n"
+                "DE.cleanup()\nOther.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 1)
+            path.write_text(
                 "from drafts import DraftEngine\nengine = DraftEngine()\n"
                 "class Other:\n    def cleanup(self): pass\n"
                 "def test_cleanup():\n    engine = Other()\n    engine.cleanup()\n",
