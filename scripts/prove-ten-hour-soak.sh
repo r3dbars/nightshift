@@ -29,6 +29,7 @@ python3 - "$repo_root" "$home" "$repo" "$duration" "$kill_after" <<'PY'
 import json
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -55,6 +56,9 @@ started = time.monotonic()
 killed = 0
 outputs = []
 rounds = 0
+initial_free = shutil.disk_usage(home).free
+minimum_free = initial_free
+maximum_ledgers = 0
 
 def launch(extra=()):
     return subprocess.Popen(
@@ -91,6 +95,8 @@ while time.monotonic() - started < duration:
         os.killpg(process.pid, signal.SIGKILL)
         output, _ = process.communicate()
     outputs.append(output)
+    minimum_free = min(minimum_free, shutil.disk_usage(home).free)
+    maximum_ledgers = max(maximum_ledgers, len(list(overnight.glob("night-shift-*"))))
     remaining = duration - (time.monotonic() - started)
     if remaining > 0:
         time.sleep(min(interval, remaining))
@@ -123,6 +129,9 @@ proof = {
     "ledgers": len(ledgers),
     "crash_recoveries": len(recovered),
     "active_state_remaining": active.exists(),
+    "initial_free_bytes": initial_free,
+    "minimum_free_bytes": minimum_free,
+    "maximum_ledger_count": maximum_ledgers,
 }
 print("TEN_HOUR_SOAK_PROOF: GREEN | " + json.dumps(proof, sort_keys=True))
 PY
