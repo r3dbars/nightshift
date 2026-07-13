@@ -254,7 +254,10 @@ class ReportEngine:
         if work_items: first_action = work_items[0]["primary"]["summary"]
         elif results: first_action = factual[0].removeprefix("- ") if factual else "No evidence-backed item survived. Review the deterministic repo scan before another model run."
         elif scan and scan.get("status") == "ok":
-            first_action = "Nothing had enough evidence to work on safely. Night Shift will try again after new repo or GitHub activity."
+            first_action = (
+                "I checked the repo, but nothing was strong enough to ask an AI to work on safely yet. "
+                "That is okay - I will try again after new repo or GitHub activity."
+            )
         else:
             first_action = "Fix the startup gate or run with reachable local/Windows lanes."
         try: task_skips = json.loads((ledger / "task-skips.json").read_text(encoding="utf-8"))
@@ -269,10 +272,10 @@ class ReportEngine:
                 if row.get("tests"): lines.append(f"   Verify: `{row['tests']}`")
                 lines.append(f"   Proof: {row['artifact']}")
         elif factual:
-            lines.append("1. No model draft survived the evidence gate. Here is the factual review surface:")
+            lines.append("1. I did not keep a model draft because it did not meet the proof bar. Here is what I verified:")
             lines.extend(f"   {line}" for line in factual)
         else:
-            lines.append("1. No usable artifacts survived scoring. Review the startup gate before another run.")
+            lines.append("1. I did not keep a draft this time. Check the startup gate before another run.")
         all_items = self.deduped_work_items(results)
         lines.extend(["", "Run totals:", f"- Mode: {mode}", f"- Startup gate: {overall}", f"- Local loops: {len(local)}", f"- Windows loops: {len(windows)}", f"- Estimated local+Windows tokens: {total_tokens}", f"- Token target: {target_tokens}", f"- Token target reached: {'yes' if total_tokens >= target_tokens else 'no'}", f"- Artifacts: KEEP={keep}, MAYBE={maybe}, REJECT={reject}", f"- Weak signals skipped before model calls: {sum(row.get('category') == 'pre-model' for row in task_skips)}", f"- User-rejected task families skipped: {sum(row.get('category') == 'feedback' for row in task_skips)}", f"- Evidence-backed candidates awaiting proof: {sum(item['primary']['score'] == 'MAYBE' for item in work_items)}", f"- Unique work queue items: {len(all_items)}", "", "Token totals by lane:"])
         totals = self.token_totals_by_lane(results)
@@ -292,7 +295,7 @@ class ReportEngine:
         rejected = sorted((row for row in results if row["score"] == "REJECT"), key=lambda row: (-row["priority"], row["label"]))
         lines.extend(f"- {row['label']}: {row['summary']}" for row in rejected[:5])
         if reject == 0: lines.append("- None.")
-        lines.extend(["", "Needs user review:", "- Review only the top ranked KEEP/MAYBE item first; worker output is draft input, not truth."])
+        lines.extend(["", "Needs user review:", "- Start with the first KEEP/MAYBE item; worker output is a draft, not the final truth."])
         if work_items:
             lines.append(
                 "- One-action independent review (read-only cloud; this command is explicit consent): "
