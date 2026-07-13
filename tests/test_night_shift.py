@@ -26,6 +26,23 @@ from night_shift_drafts import owner_symbol_call_count, test_strengthening_contr
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_inline_label_parsing_preserves_terminal_source_punctuation(self):
+        evidence = (
+            "2. CLAIM: cleanup behavior\n"
+            "3. EVIDENCE: goal-source/drafts-cleanup.txt:2 | "
+            "source_line=10 | def cleanup(self) -> bool:\n"
+            "4. WHY_NOW: requested\n"
+        )
+        module = __import__("night_shift_evidence")
+        self.assertTrue(module.first_label_value(evidence, ["EVIDENCE"]).endswith("bool:"))
+        self.assertTrue(module.label_block(evidence, ["EVIDENCE"]).endswith("bool:"))
+        with tempfile.TemporaryDirectory() as tmp:
+            reasons = module.evidence_validation_reasons(
+                evidence, Path(tmp), ["tests/test.py"], "test",
+                {"goal-source/drafts-cleanup.txt": "source_file=drafts.py\nsource_line=10 | def cleanup(self) -> bool:"},
+            )
+            self.assertEqual(reasons, [])
+
     def test_mac_only_preview_never_promises_lan_worker(self):
         rows = [
             ("local-models", "GREEN", "ready"), ("local-chat", "GREEN", "ready"),
