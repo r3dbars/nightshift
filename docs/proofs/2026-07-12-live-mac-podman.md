@@ -32,3 +32,5 @@ Local proof artifacts were written under:
 This proves one tiny Python repair in a disposable repository. It does not
 prove usefulness on a real project, unattended overnight reliability, Docker,
 draft PR creation, merging, or deployment.
+
+Publication behavior is proven separately so these evidence boundaries stay explicit.
