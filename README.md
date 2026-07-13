@@ -24,9 +24,12 @@ deploys. Free and open source under the [MIT License](LICENSE).
 The normal overnight mode is analysis and planning. It never runs a repository's
 `package.json`, Makefile, or shell script just because it discovered one.
 
-Optional sandboxed verification is deliberately a separate owner action. A repo
-must contain a reviewed [`.night-shift.json.example`](.night-shift.json.example)
-profile with an `owned` trust class, a pinned pre-installed runner image, explicit
+Optional sandboxed verification is deliberately a separate owner action. Preview
+the exact policy with `night-shift trust-repo --repo /path/to/project`, then save
+it with one explicit consent using `--apply`. The approval lives in Night Shift's
+private config, is bound to the exact Git remote, and never modifies the repo.
+Advanced users can instead supply a reviewed [`.night-shift.json.example`](.night-shift.json.example)
+profile. Both paths require an `owned` trust class, a pinned runner image, explicit
 argv command arrays, allowed paths, protected verifier files, and resource limits. Night Shift also requires Docker
 in rootless mode or Podman's rootless local engine and uses a read-only, no-network container. Without every one
 of those checks, it stays in planning mode.
@@ -91,9 +94,15 @@ It shows whether the controller is live, whether both AI lanes answer, whether
 the selected repo is analysis-only or sandbox-ready, the latest outcome totals,
 and how much local ledger storage Night Shift is using.
 
-When you are ready to enable sandboxed verification, check the provider and
-build the reviewed local runner with `night-shift sandbox --build-runner`. It
-prints the exact immutable image ID to put in the repo profile.
+When you are ready to enable sandboxed verification:
+
+```bash
+night-shift trust-repo --repo /path/to/project          # preview only
+night-shift trust-repo --repo /path/to/project --apply  # one consent, saved outside the repo
+```
+
+This proves GitHub ownership, detects a safe verification command, builds the
+reviewed immutable runner, and keeps GitHub writes disabled.
 
 Every selected task also has a durable lifecycle: `DISCOVERED`, `REPRODUCED`,
 `DIAGNOSED`, `PATCHED`, `VERIFIED`, then human-only `REVIEWED` and `PROMOTED`.

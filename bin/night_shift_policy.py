@@ -75,14 +75,7 @@ def _safe_paths(raw: Any, fallback: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values)) or fallback
 
 
-def load_repo_profile(repo: Path) -> tuple[RepoProfile | None, str]:
-    profile_path = repo / PROFILE_NAME
-    if not profile_path.is_file():
-        return None, f"missing {PROFILE_NAME}; execution stays disabled"
-    try:
-        raw = json.loads(profile_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        return None, f"could not read {PROFILE_NAME}: {exc}"
+def parse_repo_profile(raw: Any) -> tuple[RepoProfile | None, str]:
     if not isinstance(raw, dict) or raw.get("version") != PROFILE_VERSION:
         return None, f"{PROFILE_NAME} must set version to {PROFILE_VERSION}"
     trust = raw.get("trust", "unknown")
@@ -115,6 +108,17 @@ def load_repo_profile(repo: Path) -> tuple[RepoProfile | None, str]:
     if profile.execution_enabled and not profile.image:
         return None, "sandbox-only execution needs a pinned local runner image"
     return profile, "profile loaded"
+
+
+def load_repo_profile(repo: Path) -> tuple[RepoProfile | None, str]:
+    profile_path = repo / PROFILE_NAME
+    if not profile_path.is_file():
+        return None, f"missing {PROFILE_NAME}; execution stays disabled"
+    try:
+        raw = json.loads(profile_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, f"could not read {PROFILE_NAME}: {exc}"
+    return parse_repo_profile(raw)
 
 
 def path_is_protected(path: str, protected_paths: tuple[str, ...] = tuple(PROTECTED_PATHS)) -> bool:
