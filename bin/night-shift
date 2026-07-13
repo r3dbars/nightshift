@@ -561,6 +561,15 @@ def repo_dependency_source(repo: Path, profile) -> Path | None:
     )
 
 
+def should_prepare_runner_dependencies(repo: Path, requested: bool = False) -> bool:
+    """Avoid mounting macOS-native packages into the Linux Colima runner."""
+    return requested or (
+        platform.system() == "Darwin"
+        and (repo / "package.json").is_file()
+        and (repo / "package-lock.json").is_file()
+    )
+
+
 PORTFOLIO = PortfolioEngine(
     run_cmd,
     REPO_CACHE_ROOT,
@@ -2218,9 +2227,7 @@ def command_trust_repo(args) -> int:
     dependency_source = dependency_source_for_repo(
         repo, DEPENDENCY_CACHE_ROOT, remote, image,
     )
-    if dependency_source is None and (repo / "node_modules").is_dir():
-        dependency_source = repo / "node_modules"
-    if getattr(args, "prepare_dependencies", False):
+    if should_prepare_runner_dependencies(repo, getattr(args, "prepare_dependencies", False)):
         cache_dir = dependency_cache_path(DEPENDENCY_CACHE_ROOT, remote, image, repo / "package-lock.json")
         prepared, dependency_detail = prepare_node_dependencies(
             repo, cache_dir, remote, image, run_cmd,
@@ -2231,6 +2238,8 @@ def command_trust_repo(args) -> int:
             return 1
         dependency_source = cache_dir / "node_modules"
         print(f"- Runner-native dependencies: prepared at {dependency_source}")
+    elif dependency_source is None and (repo / "node_modules").is_dir():
+        dependency_source = repo / "node_modules"
     preflight = run_cmd(
         sandbox_command(repo, tuple(commands[0]), parsed_profile, dependency_source),
         cwd=repo,
