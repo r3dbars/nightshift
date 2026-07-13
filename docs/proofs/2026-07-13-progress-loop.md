@@ -101,6 +101,10 @@ run evidence separate from model claims and from human/manual proof.
   without the expert dependency flag; the Linux Colima preflight passed after
   the earlier host-native-binding failure was reproduced. Proof:
   `docs/proofs/2026-07-13-auto-native-dependencies.md`.
+- The new provider-process fixture proof passed startup `GREEN`, stopped
+  provider `YELLOW`, and same-port restart `GREEN`. It is package-gated and
+  intentionally does not raise the hardware score because it is not a real
+  LM Studio or Ollama restart.
 
 ## Remaining Proof Gaps
 

@@ -27,3 +27,16 @@ both paths, and `scripts/check-package.sh` remains the full promotion gate.
 This proves live Mac and Windows provider health plus bounded reconnect logic.
 It does not prove automatic LAN discovery, a provider process restart, or a
 Swift-capable isolated runner.
+
+## Disposable process restart
+
+`python3 scripts/prove-provider-process-restart.py` also passed:
+
+```text
+PROVIDER_RESTART_PROOF: GREEN | startup=GREEN offline=YELLOW restart=GREEN same-port=1
+```
+
+That proof starts and terminates a child HTTP provider, checks the offline
+message, and restarts it on the same port. It verifies the restart state
+machine without touching LM Studio or Ollama. The hardware score therefore
+stays below 95 until a real provider process restart is observed.
