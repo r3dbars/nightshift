@@ -12,7 +12,8 @@ bash -n \
   bin/maestro-windows \
   bin/maestro-claude \
   scripts/prove-linux-install.sh \
-  scripts/prove-controller-restart.sh
+  scripts/prove-controller-restart.sh \
+  scripts/prove-concurrent-scheduler.sh
 
 python3 -m py_compile \
   bin/night-shift \

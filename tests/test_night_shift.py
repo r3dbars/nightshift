@@ -2390,6 +2390,59 @@ buildThing() { return 1; }
             self.assertEqual(night_shift.active_autopilot(), {})
         night_shift.AUTOPILOT_STATE_PATH = previous
 
+    def test_nightly_skips_cleanly_when_controller_is_active(self):
+        calls = []
+        originals = (
+            night_shift.load_config, night_shift.snooze_until, night_shift.unreviewed_briefs,
+            night_shift._active_autopilot, night_shift.write_last_nightly, night_shift.command_autopilot,
+        )
+        try:
+            night_shift.load_config = lambda: {"repo": "/tmp/repo"}
+            night_shift.snooze_until = lambda: None
+            night_shift.unreviewed_briefs = lambda: []
+            night_shift._active_autopilot = lambda path: {"pid": 42, "ledger": "/tmp/missing"}
+            night_shift.write_last_nightly = lambda *args: calls.append(args)
+            night_shift.command_autopilot = lambda args: self.fail("active nightly must not launch autopilot")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                rc = night_shift.command_nightly(SimpleNamespace(once=False))
+            self.assertEqual(rc, 0)
+            self.assertEqual(calls[0][:2], ("SKIPPED_ACTIVE", "shift already running pid=42"))
+            self.assertIn("NIGHTSHIFT_NIGHTLY: GREEN | skipped", output.getvalue())
+        finally:
+            (
+                night_shift.load_config, night_shift.snooze_until, night_shift.unreviewed_briefs,
+                night_shift._active_autopilot, night_shift.write_last_nightly, night_shift.command_autopilot,
+            ) = originals
+
+    def test_nightly_treats_lost_lock_race_as_clean_skip(self):
+        writes = []
+        originals = (
+            night_shift.load_config, night_shift.snooze_until, night_shift.unreviewed_briefs,
+            night_shift._active_autopilot, night_shift.check_power,
+            night_shift.write_last_nightly, night_shift.command_autopilot,
+        )
+        try:
+            night_shift.load_config = lambda: {"repo": "/tmp/repo"}
+            night_shift.snooze_until = lambda: None
+            night_shift.unreviewed_briefs = lambda: []
+            night_shift._active_autopilot = lambda path: {}
+            night_shift.check_power = lambda: ("GREEN", "ok")
+            night_shift.write_last_nightly = lambda *args: writes.append(args)
+            def lose_race(args):
+                args.concurrent_active = {"status": "lock-held"}
+                return 1
+            night_shift.command_autopilot = lose_race
+            self.assertEqual(night_shift.command_nightly(SimpleNamespace(once=False)), 0)
+            self.assertEqual(writes[0][0], "SKIPPED_ACTIVE")
+            self.assertIn("scheduler race", writes[0][1])
+        finally:
+            (
+                night_shift.load_config, night_shift.snooze_until, night_shift.unreviewed_briefs,
+                night_shift._active_autopilot, night_shift.check_power,
+                night_shift.write_last_nightly, night_shift.command_autopilot,
+            ) = originals
+
     def test_cleanup_only_selects_old_reviewed_completed_ledgers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -2561,35 +2561,12 @@ def command_autopilot(args) -> int:
     poll_minutes = getattr(args, "poll_minutes", None) or defaults["poll_minutes"]
     stop_after = getattr(args, "stop_after", None)
     deadline = stop_deadline(stop_after)
-    ledger = create_ledger("autopilot")
-    setattr(args, "result_ledger", str(ledger))
-    if getattr(args, "unattended", False):
-        (ledger / "UNATTENDED").write_text("scheduled portfolio run\n", encoding="utf-8")
-    stop_file = ledger / "STOP"
-    (ledger / "mode.json").write_text(
-        json.dumps(
-            {
-                "mode": mode,
-                "scope": scope,
-                "repo": str(primary) if primary else "",
-                "max_repos": max_repos,
-                "active_days": active_days,
-                "task_limit": task_limit,
-                "poll_minutes": poll_minutes,
-                "stop_after": stop_after or "morning",
-                "permission": getattr(args, "permission", "brief"),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     # Only one unattended controller is allowed to schedule work at a time.
     lock_context = exclusive_lock(AUTOPILOT_LOCK_PATH)
     acquired = lock_context.__enter__()
     if not acquired:
+        args.concurrent_active = _active_autopilot(AUTOPILOT_STATE_PATH) or {"status": "lock-held"}
         lock_context.__exit__(None, None, None)
         print("NIGHTSHIFT_AUTOPILOT: YELLOW | another Night Shift controller is already running")
         return 1
@@ -2604,10 +2581,42 @@ def command_autopilot(args) -> int:
         return 1
     if recovery.get("status") == "recovered":
         print(f"Recovered prior crashed shift: {recovery.get('ledger')}")
-    AUTOPILOT_STATE_PATH.write_text(
-        json.dumps({"pid": os.getpid(), "ledger": str(ledger), "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}, indent=2)
-        + "\n", encoding="utf-8")
-    controller = AutopilotCycleState(ledger)
+    try:
+        ledger = create_ledger("autopilot")
+        setattr(args, "result_ledger", str(ledger))
+        if getattr(args, "unattended", False):
+            (ledger / "UNATTENDED").write_text("scheduled portfolio run\n", encoding="utf-8")
+        stop_file = ledger / "STOP"
+        (ledger / "mode.json").write_text(
+            json.dumps(
+                {
+                    "mode": mode,
+                    "scope": scope,
+                    "repo": str(primary) if primary else "",
+                    "max_repos": max_repos,
+                    "active_days": active_days,
+                    "task_limit": task_limit,
+                    "poll_minutes": poll_minutes,
+                    "stop_after": stop_after or "morning",
+                    "permission": getattr(args, "permission", "brief"),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    except Exception:
+        lock_context.__exit__(*sys.exc_info())
+        raise
+    try:
+        AUTOPILOT_STATE_PATH.write_text(
+            json.dumps({"pid": os.getpid(), "ledger": str(ledger), "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}, indent=2)
+            + "\n", encoding="utf-8")
+        controller = AutopilotCycleState(ledger)
+    except Exception:
+        lock_context.__exit__(*sys.exc_info())
+        raise
     prepared_cache: list[tuple[dict, Path]] | None = None
     try:
         while not stop_file.exists():
@@ -3280,6 +3289,13 @@ def command_nightly(args) -> int:
         print("Night Shift stops making new briefs nobody reads. Catch up with:")
         print("  night-shift report --latest")
         return 0
+    active = _active_autopilot(AUTOPILOT_STATE_PATH)
+    if active:
+        ledger = Path(str(active.get("ledger") or ""))
+        detail = f"shift already running pid={active.get('pid')}"
+        write_last_nightly("SKIPPED_ACTIVE", detail, ledger if ledger.exists() else None)
+        print(f"NIGHTSHIFT_NIGHTLY: GREEN | skipped | {detail}")
+        return 0
     mode = config_value(config, "mode", "night-shift")
     power_state, _ = check_power()
     if power_state == "YELLOW" and mode != "quiet":
@@ -3310,9 +3326,18 @@ def command_nightly(args) -> int:
         task_limit=None,
         poll_minutes=None,
         execute_drafts=config_value(config, "execute_drafts", False),
-        once=False,
+        once=getattr(args, "once", False),
     )
     rc = command_autopilot(run_args)
+    concurrent = getattr(run_args, "concurrent_active", None)
+    if concurrent:
+        ledger = Path(str(concurrent.get("ledger") or ""))
+        write_last_nightly(
+            "SKIPPED_ACTIVE", "another shift won the scheduler race",
+            ledger if ledger.exists() else None,
+        )
+        print("NIGHTSHIFT_NIGHTLY: GREEN | skipped | another shift won the scheduler race")
+        return 0
     ledgers = unattended_ledgers()
     newest = ledgers[-1] if ledgers else None
     write_last_nightly("GREEN" if rc == 0 else "YELLOW", f"run exit {rc}", newest)
@@ -3881,6 +3906,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="the unattended entry point the schedule runs",
         description="Run one unattended night using saved setup. Honors snooze, pauses after unreviewed briefs pile up, and drops to quiet mode on battery.",
     )
+    nightly.add_argument("--once", action="store_true", help="run one portfolio cycle and stop (diagnostics)")
     nightly.set_defaults(func=command_nightly)
 
     deliver = sub.add_parser(

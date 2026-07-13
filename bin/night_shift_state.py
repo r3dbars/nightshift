@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import os
+import shutil
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -133,26 +135,57 @@ def record_state(path: Path, fingerprint: str, target: str, **details) -> dict:
 
 @contextmanager
 def exclusive_lock(path: Path) -> Iterator[bool]:
-    """Atomic mkdir lock. Stale locks are reclaimed only when their PID is gone."""
-    try:
-        path.mkdir(parents=True)
-        (path / "pid").write_text(str(os.getpid()), encoding="utf-8")
-    except FileExistsError:
-        try:
-            pid = int((path / "pid").read_text(encoding="utf-8"))
-            os.kill(pid, 0)
-        except (OSError, ValueError):
-            for child in path.iterdir():
-                child.unlink(missing_ok=True)
-            path.rmdir()
-            with exclusive_lock(path) as acquired:
-                yield acquired
+    """Kernel-backed nonblocking lock; the file remains but ownership dies with the process."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_dir():
+        legacy_active = False
+        for attempt in range(4):
+            try:
+                pid = int((path / "pid").read_text(encoding="utf-8"))
+                os.kill(pid, 0)
+                legacy_active = True
+                break
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                legacy_active = True
+                break
+            except (FileNotFoundError, NotADirectoryError, ValueError):
+                if attempt < 3:
+                    time.sleep(0.05)
+                    if not path.exists() or not path.is_dir():
+                        break
+                    continue
+                break
+        if legacy_active:
+            yield False
             return
+        if path.is_dir():
+            quarantine = path.with_name(f"{path.name}.stale-{os.getpid()}-{time.time_ns()}")
+            try:
+                path.rename(quarantine)
+            except (FileNotFoundError, FileExistsError, OSError):
+                yield False
+                return
+            shutil.rmtree(quarantine, ignore_errors=True)
+
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    except IsADirectoryError:
         yield False
         return
     try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{os.getpid()}\n".encode())
+        os.fsync(fd)
         yield True
     finally:
-        for child in path.iterdir():
-            child.unlink(missing_ok=True)
-        path.rmdir()
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
