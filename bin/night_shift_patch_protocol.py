@@ -42,6 +42,10 @@ def extract_unified_diff(output: str) -> str:
         )
         patch = f"diff --git a/{path} b/{path}\n{normalized}"
     patch = patch.replace("```diff\n", "").replace("```\n", "")
+    patch = "\n".join(
+        "+" if line.startswith("+") and line[1:].strip() == "" else line
+        for line in patch.splitlines()
+    )
     return patch + "\n"
 
 
