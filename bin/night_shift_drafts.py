@@ -57,7 +57,9 @@ def verification_correction_prompt(patch: str, failure_output: str) -> str:
     return (
         "VERIFICATION CORRECTION: The patch applied but the approved repository check failed. "
         "Return a complete corrected unified diff against the original pinned source. Change only "
-        "the allowed test file and preserve every semantic proof requirement.\n\n"
+        "the allowed test file and preserve every semantic proof requirement. Match every fake result "
+        "attribute to the exact attribute consumed by the pinned source (for example, rc is not "
+        "returncode). Fix the exact latest failure without weakening assertions.\n\n"
         f"CURRENT PATCH:\n{patch[-8000:]}\n\nFAILURE OUTPUT:\n{failure_output[-5000:]}"
     )
 
@@ -506,24 +508,32 @@ class DraftEngine:
             timeout=min(verify_timeout, profile.max_seconds),
             pid_log=parent_ledger / "processes.tsv",
         )
-        verification_output_path = sandbox_dir / "verification.txt"
         if verified.rc != 0 and strengthening:
-            retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
-            failure_output = (
-                verification_output_path.read_text(encoding="utf-8", errors="replace")[-5000:]
-                if verification_output_path.exists() else (verified.stderr or verified.stdout)[-5000:]
-            )
-            current_patch = patch_path.read_text(encoding="utf-8", errors="replace")[-8000:]
-            correction = verification_correction_prompt(current_patch, failure_output)
-            if retry_timeout > 0:
+            repair_sandbox = sandbox_dir
+            for attempt in range(1, 3):
+                verification_output_path = repair_sandbox / "verification.txt"
+                retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
+                if retry_timeout <= 0:
+                    break
+                failure_output = (
+                    verification_output_path.read_text(encoding="utf-8", errors="replace")[-5000:]
+                    if verification_output_path.exists() else (verified.stderr or verified.stdout)[-5000:]
+                )
+                current_patch = patch_path.read_text(encoding="utf-8", errors="replace")[-8000:]
+                correction = verification_correction_prompt(current_patch, failure_output)
                 repair = self.ask_for_patch(
                     worktree, source_ref, candidate, verification_argv, retry_timeout,
-                    worker_url, worker_model, parent_ledger, f"{safe_task}-verification", correction, patch_lane,
+                    worker_url, worker_model, parent_ledger,
+                    f"{safe_task}-verification-{attempt}", correction, patch_lane,
                     source_override="Use CURRENT PATCH below as the exact pinned source context.",
                 )
-                (proof_dir / f"{safe_task}.verification-worker.txt").write_text(
+                (proof_dir / f"{safe_task}.verification-worker-attempt-{attempt}.txt").write_text(
                     (repair.stdout + "\n" + repair.stderr).strip() + "\n", encoding="utf-8"
                 )
+                if attempt == 1:
+                    (proof_dir / f"{safe_task}.verification-worker.txt").write_text(
+                        (repair.stdout + "\n" + repair.stderr).strip() + "\n", encoding="utf-8"
+                    )
                 repaired = validate_patch(repair.stdout, candidate["files"], profile)
                 repaired_patch = repaired.patch
                 repair_applies = False
@@ -546,19 +556,22 @@ class DraftEngine:
                         repair_applies = self.run_cmd(
                             ["git", "apply", "--check", patch_path], cwd=worktree, timeout=30
                         ).rc == 0
-                if repair.rc == 0 and repaired.valid and repair_applies:
-                    patch_path.write_text(repaired_patch, encoding="utf-8")
-                    retry_sandbox = proof_dir / f"{safe_task}-verification-sandbox"
-                    retry_sandbox.mkdir(parents=True, exist_ok=True)
-                    retried = self.run_cmd(
-                        sandbox_patch_command(worktree, patch_path, retry_sandbox, verification_argv, profile),
-                        cwd=worktree, timeout=min(retry_timeout, profile.max_seconds),
-                        pid_log=parent_ledger / "processes.tsv",
-                    )
-                    sandbox_dir = retry_sandbox
-                    verified = retried
-                    proposed = repaired
-                    model = repair
+                if repair.rc != 0 or not repaired.valid or not repair_applies:
+                    continue
+                patch_path.write_text(repaired_patch, encoding="utf-8")
+                retry_sandbox = proof_dir / f"{safe_task}-verification-sandbox-{attempt}"
+                retry_sandbox.mkdir(parents=True, exist_ok=True)
+                verified = self.run_cmd(
+                    sandbox_patch_command(worktree, patch_path, retry_sandbox, verification_argv, profile),
+                    cwd=worktree, timeout=min(retry_timeout, profile.max_seconds),
+                    pid_log=parent_ledger / "processes.tsv",
+                )
+                sandbox_dir = retry_sandbox
+                repair_sandbox = retry_sandbox
+                proposed = repaired
+                model = repair
+                if verified.rc == 0:
+                    break
         (sandbox_dir / "runner.txt").write_text(
             (verified.stdout + "\n" + verified.stderr).strip() + "\n",
             encoding="utf-8",

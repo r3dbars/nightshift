@@ -3319,6 +3319,7 @@ buildThing() { return 1; }
         self.assertIn("PATCH-SENTINEL", correction)
         self.assertIn("FAILURE-SENTINEL", correction)
         self.assertIn("Change only the allowed test file", correction)
+        self.assertIn("rc is not returncode", correction)
 
     def test_detect_test_commands_includes_named_package_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
