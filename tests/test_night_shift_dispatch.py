@@ -184,6 +184,22 @@ class DispatchOneTests(unittest.TestCase):
 
 
 class CorrectionPromptTests(unittest.TestCase):
+    def test_goal_source_examples_cite_real_pinned_source_lines(self):
+        examples = coverage_citation_examples({
+            "goal-source/src-engine.py-cleanup.txt": (
+                "source_file=src/engine.py\n"
+                "source_line=43 | def cleanup(self):\n"
+                "source_line=44 | return True"
+            ),
+            "invocation-index/src-engine.py-cleanup.txt": "owner=Engine\nscan_complete=true",
+        })
+        self.assertIn("src/engine.py:43 | def cleanup(self):", examples)
+        self.assertNotIn(
+            "goal-source/src-engine.py-cleanup.txt:2 | source_line=43 | def cleanup(self):",
+            examples,
+        )
+        self.assertIn("invocation-index/src-engine.py-cleanup.txt:1 | owner=Engine", examples)
+
     def test_correction_prompt_lists_exact_evidence_paths(self):
         prompt = correction_prompt(
             "Inspect the gap.",

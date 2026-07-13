@@ -24,6 +24,17 @@ def coverage_citation_examples(evidence_sources: dict[str, str] | None) -> list[
     for path, source in (evidence_sources or {}).items():
         if not path.startswith(("coverage-index/", "goal-source/", "invocation-index/")):
             continue
+        if path.startswith("goal-source/"):
+            lines = str(source).splitlines()
+            source_file = next(
+                (line.split("=", 1)[1] for line in lines if line.startswith("source_file=")), ""
+            )
+            if source_file:
+                for line in lines:
+                    match = re.match(r"source_line=(\d+)\s*\|\s*(.+)", line)
+                    if match:
+                        examples.append(f"{source_file}:{match.group(1)} | {match.group(2)}")
+                continue
         for line_number, line in enumerate(str(source).splitlines(), start=1):
             if line.strip():
                 examples.append(f"{path}:{line_number} | {line}")
