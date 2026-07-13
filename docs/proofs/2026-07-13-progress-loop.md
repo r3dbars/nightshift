@@ -93,6 +93,10 @@ run evidence separate from model claims and from human/manual proof.
   evidence, and leaves the source checkout unchanged. A saved-plan model
   replay rejected a bad citation/patch and created no PR; that remains a
   safety result rather than an accepted outcome.
+- The post-PR #162 read-only portfolio run visited BetterFeedback, Transcripted,
+  and Night Shift in ranked order and showed a plain-language reason for each
+  selection. No model tokens were spent because the evidence gate found no
+  model-ready task. Proof: `docs/proofs/2026-07-13-portfolio-priority-brief.md`.
 - The repeatable blank-home recovery proof now passes from a temporary HOME
   outside any Git repo with no GitHub credentials: it returns clear `--repo`,
   Git-repo, and `gh auth login` next steps, exits safely, and saves no config.
