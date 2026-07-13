@@ -25,6 +25,41 @@ from night_shift_evidence import action_type, artifact_priority, first_label_val
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_mac_only_preview_never_promises_lan_worker(self):
+        rows = [
+            ("local-models", "GREEN", "ready"), ("local-chat", "GREEN", "ready"),
+            ("windows-worker", "GREEN", "ready"), ("gh-auth", "GREEN", "ready"),
+        ]
+        config = {
+            "project": {"repo": "/repo"},
+            "preferences": {"privacy_route": "mac-only", "mode": "quiet"},
+        }
+        preview = night_shift.start_preview(config, rows)
+        self.assertIn("local Mac AI", preview)
+        self.assertNotIn("another computer", preview)
+        config["preferences"]["privacy_route"] = "mac-and-lan"
+        self.assertIn("another computer", night_shift.start_preview(config, rows))
+
+    def test_repeat_setup_ignores_timestamp_only_and_no_work_is_not_action_required(self):
+        saved = {"schema_version": 4, "preferences": {"mode": "quiet"}, "updated_at": "before"}
+        proposed = {**saved, "updated_at": "after"}
+        self.assertFalse(night_shift.setup_has_changed(saved, proposed))
+        proposed["preferences"] = {"mode": "night-shift"}
+        self.assertTrue(night_shift.setup_has_changed(saved, proposed))
+        self.assertFalse(night_shift.autopilot_action_required([{"rc": 0, "new_tasks": 0}]))
+        self.assertTrue(night_shift.autopilot_action_required([]))
+        self.assertTrue(night_shift.autopilot_action_required([{"rc": 1}]))
+        self.assertTrue(night_shift.autopilot_action_required([
+            {"rc": 0, "publish": {"status": "REMOTE_CLEANUP_REQUIRED"}}
+        ]))
+
+        args = SimpleNamespace()
+        self.assertEqual(
+            night_shift.resolve_autopilot_wake_goal(args, {"preferences": {"wake_goal": "chores"}}),
+            "chores",
+        )
+        self.assertEqual(args.wake_goal, "chores")
+
     def test_remote_cleanup_required_stays_yellow_in_morning_brief(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)

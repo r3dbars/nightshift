@@ -349,12 +349,12 @@ def row_state(rows: list[tuple[str, str, str]], name: str) -> str:
     return rows_by_name(rows).get(name, ("", ""))[0]
 
 
-def detected_tools(rows: list[tuple[str, str, str]]) -> list[str]:
+def detected_tools(rows: list[tuple[str, str, str]], privacy_route: str = "mac-only") -> list[str]:
     by_name = rows_by_name(rows)
     tools = []
     if by_name.get("local-models", ("", ""))[0] == "GREEN" and by_name.get("local-chat", ("", ""))[0] == "GREEN":
         tools.append("local Mac AI")
-    if by_name.get("windows-worker", ("", ""))[0] == "GREEN":
+    if privacy_route == "mac-and-lan" and by_name.get("windows-worker", ("", ""))[0] == "GREEN":
         tools.append("another computer")
     if by_name.get("gh-auth", ("", ""))[0] == "GREEN":
         tools.append("GitHub CLI for repo context")
@@ -421,7 +421,7 @@ def stop_label(stop: str) -> str:
     }.get(stop, stop)
 
 
-def mode_counts(mode: str, rows: list[tuple[str, str, str]] | None = None) -> str:
+def mode_counts(mode: str, rows: list[tuple[str, str, str]] | None = None, privacy_route: str = "mac-only") -> str:
     defaults = MODE_DEFAULTS.get(mode, MODE_DEFAULTS["night-shift"])
     if rows is not None:
         by_name = rows_by_name(rows)
@@ -429,7 +429,9 @@ def mode_counts(mode: str, rows: list[tuple[str, str, str]] | None = None) -> st
             by_name.get("local-models", ("", ""))[0] == "GREEN"
             and by_name.get("local-chat", ("", ""))[0] == "GREEN"
         ) else 0
-        windows = defaults["windows"] if by_name.get("windows-worker", ("", ""))[0] == "GREEN" else 0
+        windows = defaults["windows"] if (
+            privacy_route == "mac-and-lan" and by_name.get("windows-worker", ("", ""))[0] == "GREEN"
+        ) else 0
         if local and windows:
             return "unique task batches on this Mac and the other computer"
         if local:
@@ -441,9 +443,6 @@ def mode_counts(mode: str, rows: list[tuple[str, str, str]] | None = None) -> st
 
 
 def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
-    tools = detected_tools(rows)
-    if not tools:
-        tools = ["no worker AI found yet; planning brief only"]
     repo = config.get("project", {}).get("repo", config.get("repo", "unknown"))
     prefs = config.get("preferences", config)
     mode = prefs.get("mode", "night-shift")
@@ -453,6 +452,9 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
     stop = prefs.get("stop", "morning")
     wake_goal = prefs.get("wake_goal", "brief")
     privacy_route = prefs.get("privacy_route", "mac-only")
+    tools = detected_tools(rows, privacy_route)
+    if not tools:
+        tools = ["no worker AI found yet; planning brief only"]
     scope = prefs.get("scope", "github-recent")
     lines = [
         "",
@@ -465,7 +467,7 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
         "- Watch recently active GitHub repos" if scope == "github-recent" else "- Work through this repo",
         f"- Use: {', '.join(tools)}",
         f"- Aim for: {wake_goal_label(wake_goal)}",
-        f"- Run in {mode_label(mode)} mode ({mode_counts(mode, rows)})",
+        f"- Run in {mode_label(mode)} mode ({mode_counts(mode, rows, privacy_route)})",
         f"- {permission_label(permission)}",
         f"- Autonomy: {autonomy_copy(permission)}",
         "- Make test-gated patches only in disposable worktrees" if execute_drafts else "- Keep code changes as analysis candidates",
@@ -490,6 +492,20 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]]) -> str:
         f"  night-shift doctor --repo {repo}",
     ]
     return "\n".join(lines)
+
+
+def setup_has_changed(saved: dict, proposed: dict) -> bool:
+    if not saved:
+        return True
+    without_timestamp = lambda value: {key: item for key, item in value.items() if key != "updated_at"}
+    return without_timestamp(saved) != without_timestamp(proposed)
+
+
+def autopilot_action_required(cycle_rows: list[dict]) -> bool:
+    return not cycle_rows or any(
+        row.get("rc") != 0 or (row.get("publish") or {}).get("status") == "REMOTE_CLEANUP_REQUIRED"
+        for row in cycle_rows
+    )
 
 
 def friendly_setup_row(name: str, state: str, message: str) -> str | None:
@@ -2900,6 +2916,8 @@ def command_run(args) -> int:
         {
             "project": {"repo": str(root)},
             "preferences": {
+                "wake_goal": getattr(args, "wake_goal", "brief"),
+                "privacy_route": getattr(args, "privacy_route", "mac-only"),
                 "mode": args.mode,
                 "stop": stop_after or "morning",
                 "permission": permission,
@@ -3414,11 +3432,18 @@ def resolve_autopilot_privacy(args, saved: dict) -> str:
     return route
 
 
+def resolve_autopilot_wake_goal(args, saved: dict) -> str:
+    wake_goal = getattr(args, "wake_goal", None) or config_value(saved, "wake_goal", "brief")
+    args.wake_goal = wake_goal
+    return wake_goal
+
+
 def command_autopilot(args) -> int:
     saved = load_config()
     if not getattr(args, "repo", None):
         args.repo = config_value(saved, "repo")
     resolve_autopilot_privacy(args, saved)
+    resolve_autopilot_wake_goal(args, saved)
     privacy_route = enforce_autopilot_privacy(args)
     if not getattr(args, "allow_draft_prs", False):
         args.allow_draft_prs = bool(config_value(saved, "allow_draft_prs", False))
@@ -3540,10 +3565,12 @@ def command_autopilot(args) -> int:
                     windows_model=getattr(args, "windows_model", None),
                     timeout=max(1, min(getattr(args, "timeout", 900), remaining_seconds)),
                     skip_smoke=getattr(args, "skip_smoke", False),
-                    stop_after=None,
+                    stop_after=getattr(args, "stop_after", None),
                     deadline=deadline,
                     task_limit=per_repo_limit,
                     unattended=False,
+                    wake_goal=getattr(args, "wake_goal", "brief"),
+                    privacy_route=getattr(args, "privacy_route", "mac-only"),
                 )
                 rc = command_run(child_args)
                 child_ledger = Path(child_args.result_ledger)
@@ -3625,7 +3652,8 @@ def command_autopilot(args) -> int:
         lock_context.__exit__(None, None, None)
     print(f"NIGHTSHIFT_AUTOPILOT: {status} | cycles={cycle} | ledger={ledger}")
     print(f"Morning brief: night-shift report --ledger {ledger}")
-    return 0 if status == "GREEN" else 1
+    action_required = autopilot_action_required(cycle_rows)
+    return 0 if status == "GREEN" or not action_required else 1
 
 
 def resolve_start_repo(args, saved: dict) -> tuple[str, str]:
@@ -3681,9 +3709,12 @@ def command_start(args) -> int:
     print("")
     print("Give me a second to check what is ready on this computer...")
     overall, rows = doctor_checks(repo_text, run_smoke=False, allow_fetch=False)
+    requested_privacy = args.privacy or config_value(saved, "privacy_route", "mac-only")
     shown = set()
     for name, state, message in rows:
         if name in ("local-models", "local-chat", "windows-worker", "claude", "gh-auth", "repo", "power"):
+            if name == "windows-worker" and requested_privacy != "mac-and-lan":
+                continue
             friendly = friendly_setup_row(name, state, message)
             if friendly and friendly not in shown:
                 print(f"- {friendly}")
@@ -3855,14 +3886,20 @@ def command_start(args) -> int:
         print("NIGHTSHIFT_START: GREEN | dry run only | no changes saved")
         return 0
 
-    save_config(config)
-    setup_ledger = create_ledger("setup")
-    write_startup_gate(setup_ledger, overall, rows)
-    write_lab_files(setup_ledger, config, rows)
+    setup_changed = setup_has_changed(saved, config)
+    setup_ledger = None
+    if setup_changed:
+        save_config(config)
+        setup_ledger = create_ledger("setup")
+        write_startup_gate(setup_ledger, overall, rows)
+        write_lab_files(setup_ledger, config, rows)
     print(start_preview(config, rows))
     print("")
-    print(f"Saved setup: {CONFIG_PATH}")
-    print(f"Setup lab: {setup_ledger / 'lab'}")
+    if setup_changed:
+        print(f"Saved setup: {CONFIG_PATH}")
+        print(f"Setup lab: {setup_ledger / 'lab'}")
+    else:
+        print(f"Reusing saved setup unchanged: {CONFIG_PATH}")
     if privacy_route == "cloud-ok":
         print("Cloud note: Night Shift will still store credentials outside config and will not send secrets on purpose.")
 
@@ -3906,6 +3943,7 @@ def command_start(args) -> int:
         windows_url=windows_url,
         windows_model=windows_model,
         privacy_route=privacy_route,
+        wake_goal=wake_goal,
         timeout=args.timeout,
         skip_smoke=args.skip_smoke,
         stop_after=stop,
