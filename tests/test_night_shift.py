@@ -23,9 +23,27 @@ LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
 from night_shift_drafts import owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate
+from night_shift_patch_protocol import materialize_test_method_patch
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_controller_materializes_ast_valid_test_method_at_pinned_tail(self):
+        original = (
+            "import unittest\n\nclass Tests(unittest.TestCase):\n"
+            "    def test_existing(self):\n        pass\n\n"
+            "if __name__ == \"__main__\":\n    unittest.main()\n"
+        )
+        worker = (
+            "--- a/tests/test_app.py\n+++ b/tests/test_app.py\n@@ -99 +99 @@\n"
+            "+    def test_cleanup(self):\n+        engine = DraftEngine()\n"
+            "+        self.assertTrue(engine.cleanup())\n"
+        )
+        patch = materialize_test_method_patch(worker, original, "tests/test_app.py")
+        self.assertTrue(patch.startswith("diff --git a/tests/test_app.py b/tests/test_app.py"))
+        self.assertIn("+    def test_cleanup(self):", patch)
+        self.assertIn(' if __name__ == "__main__":', patch)
+        self.assertEqual(materialize_test_method_patch("+import os\n", original, "tests/test_app.py"), "")
+
     def test_inline_label_parsing_preserves_terminal_source_punctuation(self):
         evidence = (
             "2. CLAIM: cleanup behavior\n"

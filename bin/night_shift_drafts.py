@@ -11,7 +11,7 @@ from typing import Callable
 
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
 from night_shift_sandbox import sandbox_command, sandbox_patch_command
-from night_shift_patch_protocol import patch_prompt, validate_patch
+from night_shift_patch_protocol import materialize_test_method_patch, patch_prompt, validate_patch
 from night_shift_python_evidence import owner_symbol_call_count_text
 from night_shift_queue import is_test_path
 from night_shift_state import record_state
@@ -408,11 +408,13 @@ class DraftEngine:
             worker_url, worker_model, parent_ledger, safe_task, patch_lane=patch_lane,
         )
         worker_path = proof_dir / f"{safe_task}.patch-worker.txt"
+        first_model_output = model.stdout
         worker_path.write_text(
             (model.stdout + "\n" + model.stderr).strip() + "\n", encoding="utf-8"
         )
         proposed = validate_patch(model.stdout, candidate["files"], profile)
         apply_reason = ""
+        patch_recovered = False
         if proposed.valid:
             patch_path.write_text(proposed.patch, encoding="utf-8")
             applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
@@ -451,7 +453,22 @@ class DraftEngine:
                     applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
                     if applies.rc != 0:
                         apply_reason = "patch does not apply to the pinned source"
-        if model.rc != 0 or not proposed.valid or apply_reason:
+        if candidate.get("draft_intent") == "test-strengthening" and (not proposed.valid or apply_reason):
+            test_file = candidate["files"][0] if len(candidate["files"]) == 1 else ""
+            try:
+                original_test = (worktree / test_file).read_text(encoding="utf-8") if test_file else ""
+            except (OSError, UnicodeError):
+                original_test = ""
+            recovered = materialize_test_method_patch(first_model_output, original_test, test_file)
+            if recovered:
+                recovered_check = validate_patch(recovered, candidate["files"], profile)
+                patch_path.write_text(recovered, encoding="utf-8")
+                applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
+                if recovered_check.valid and applies.rc == 0:
+                    proposed = recovered_check
+                    apply_reason = ""
+                    patch_recovered = True
+        if (model.rc != 0 and not patch_recovered) or not proposed.valid or apply_reason:
             rejection = "; ".join(proposed.reasons) or apply_reason or "patch worker failed"
             record_state(lifecycle_path, fingerprint, "REJECTED", reason=rejection)
             return finish({
