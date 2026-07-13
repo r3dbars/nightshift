@@ -182,7 +182,7 @@ You choose how much it may prepare:
 | Autonomy | What you get |
 | --- | --- |
 | `brief` (default) | read-only repo scan, ranked work queue, morning brief |
-| `draft-local` | + exact patch plans, issue candidates, and test ideas |
+| `draft-local` | + exact patch plans, issue candidates, test ideas, and isolated tested drafts when enabled |
 | `draft-prs` | + local patch candidates after a reviewed repo profile and sandbox are installed; still no push or merge |
 
 And how hard it runs:

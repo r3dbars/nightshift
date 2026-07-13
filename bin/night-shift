@@ -2763,9 +2763,10 @@ def command_autopilot(args) -> int:
                             stop_file,
                         )
                         controller.finish_draft_attempt(cycle_row, draft)
-                        if (
-                            getattr(args, "allow_draft_prs", False)
-                            and draft.get("status") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
+                        if controller.may_publish(
+                            getattr(args, "permission", "brief"),
+                            getattr(args, "allow_draft_prs", False),
+                            str(draft.get("status") or ""),
                         ):
                             profile, _ = load_repo_profile(checkout)
                             proof_path = Path(str(draft.get("proof") or ""))
