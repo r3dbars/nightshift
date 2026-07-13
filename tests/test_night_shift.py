@@ -1528,6 +1528,46 @@ buildThing() { return 1; }
         )
         self.assertEqual((adjustment, useful, not_useful), (-20, 0, 1))
 
+    def test_morning_ranking_uses_latest_changed_verdict_only(self):
+        events = [
+            {
+                "repo": "/repo", "family": "changed-file-proof",
+                "fingerprint": "candidate-1", "key": "changed-file-proof:tests:patch-plan",
+                "verdict": "useful",
+            },
+            {
+                "repo": "/repo", "family": "changed-file-proof",
+                "fingerprint": "candidate-1", "key": "changed-file-proof:tests:patch-plan",
+                "verdict": "not-useful",
+            },
+        ]
+        engine = night_shift.ReportEngine(
+            load_feedback=lambda: events,
+            run_cmd=lambda *args, **kwargs: None,
+            token_reporter=Path("/tmp/token-report"),
+            narrow_task_files=lambda paths: paths,
+            latest_states=lambda path: {},
+        )
+        self.assertEqual(
+            engine.feedback_adjustment("changed-file-proof:tests:patch-plan", "/repo"),
+            -120,
+        )
+
+    def test_changed_displayed_item_survives_fingerprint_appearance(self):
+        events = [
+            {
+                "repo": "/repo", "family": "tests", "ledger": "/night-1", "rank": 1,
+                "key": "tests:tests:patch-plan", "fingerprint": "", "verdict": "useful",
+            },
+            {
+                "repo": "/repo", "family": "tests", "ledger": "/night-1", "rank": 1,
+                "key": "tests:tests:patch-plan", "fingerprint": "later-known", "verdict": "not-useful",
+            },
+        ]
+        current = night_shift.latest_feedback_events(events)
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0]["verdict"], "not-useful")
+
     def test_complete_deterministic_evidence_outranks_broad_mission(self):
         mission = {
             "kind": "mission", "ladder_priority": 500, "proof_kind": "source",

@@ -23,19 +23,25 @@ def task_family(slug: str) -> str:
     return re.sub(r"-\d+$", "", value) or "task"
 
 
-def feedback_score(events: list[dict], repo: str, family: str) -> tuple[int, int, int]:
-    useful = 0
-    not_useful = 0
+def latest_feedback_events(events: list[dict]) -> list[dict]:
+    """Return one current verdict per exact candidate, preserving last-write order."""
     latest: dict[tuple, dict] = {}
     for index, event in enumerate(events):
-        candidate = event.get("fingerprint") or event.get("key")
-        if not candidate and event.get("ledger") and event.get("rank"):
-            candidate = f"{event['ledger']}:{event['rank']}"
+        if event.get("ledger") and event.get("rank"):
+            candidate = f"displayed:{event['ledger']}:{event['rank']}"
+        else:
+            candidate = event.get("fingerprint") or event.get("key")
         identity = (
             event.get("repo"), event.get("family"), candidate or f"legacy:{index}",
         )
         latest[identity] = event
-    for event in latest.values():
+    return list(latest.values())
+
+
+def feedback_score(events: list[dict], repo: str, family: str) -> tuple[int, int, int]:
+    useful = 0
+    not_useful = 0
+    for event in latest_feedback_events(events):
         if event.get("repo") != repo or event.get("family") != family:
             continue
         if event.get("verdict") == "useful":

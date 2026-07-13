@@ -38,7 +38,7 @@ from night_shift_state import append_attempt, exclusive_lock, latest_attempts, l
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
-from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, should_record_feedback_event, should_record_review_outcome, task_family
+from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
 from night_shift_autopilot import AutopilotCycleState
@@ -1813,6 +1813,14 @@ def command_health(args) -> int:
     print(f"- Durable task fingerprints: {len(attempts)}")
     if metrics:
         print(f"- Latest outcomes: attempted={metrics.get('attempted', 0)} accepted={metrics.get('accepted_candidates', 0)} rejected={metrics.get('rejected', 0)} tokens~={metrics.get('estimated_tokens', 0)}")
+    feedback = load_feedback()
+    current_feedback = latest_feedback_events(feedback)
+    useful = sum(row.get("verdict") == "useful" for row in current_feedback)
+    not_useful = sum(row.get("verdict") == "not-useful" for row in current_feedback)
+    print(
+        f"- Learning: current_preferences={len(current_feedback)} useful={useful} "
+        f"not_useful={not_useful} history_events={len(feedback)}"
+    )
     for name in ("local-chat", "windows-worker", "windows-chat", "repo-profile", "sandbox-provider", "sandbox"):
         state, message = rows_by_name(rows).get(name, ("INFO", "not checked"))
         print(f"- {name}: {state} | {message}")
