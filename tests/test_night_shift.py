@@ -592,6 +592,28 @@ RISK: low
             finally:
                 night_shift.OVERNIGHT_ROOT = original_root
 
+    def test_empty_run_keeps_the_full_artifact_set(self):
+        original_token_report = night_shift.write_token_report
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                ledger = Path(tmp)
+                night_shift.write_token_report = lambda path, results: (
+                    (path / "token-report.txt").write_text("No delegate proof paths captured.\n", encoding="utf-8")
+                    or "No delegate proof paths captured.\n"
+                )
+                night_shift.finalize_empty_run(
+                    ledger, "quiet", 100, "GREEN", [{"category": "pre-model"}], {"status": "ok"}
+                )
+                for name in (
+                    "harvest.md", "work-queue.json", "outcome-metrics.json",
+                    "task-lifecycle.md", "token-report.txt", "morning.md",
+                ):
+                    self.assertTrue((ledger / name).exists(), name)
+                metrics = json.loads((ledger / "outcome-metrics.json").read_text(encoding="utf-8"))
+                self.assertEqual(metrics["pre_model_skips"], 1)
+        finally:
+            night_shift.write_token_report = original_token_report
+
     def test_repeat_dry_run_is_read_only_and_skips_first_run_intro(self):
         original_load = night_shift.load_config
         original_interactive = night_shift.is_interactive
