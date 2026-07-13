@@ -24,7 +24,7 @@ sys.modules[LOADER.name] = night_shift
 LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
-from night_shift_drafts import MAX_VERIFICATION_REPAIRS, owner_symbol_call_count, parse_test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
+from night_shift_drafts import MAX_VERIFICATION_REPAIRS, explicit_test_mission_candidate, owner_symbol_call_count, parse_test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
 from night_shift_patch_protocol import materialize_test_method_patch, materialize_ts_test_case_patch
 from night_shift_js_evidence import simple_exported_function, top_level_symbol_call_count_text as js_symbol_call_count_text
 from night_shift_python_evidence import semantic_test_contract_reasons
@@ -4440,6 +4440,24 @@ buildThing() { return 1; }
             )
             self.assertEqual(rejected["status"], "REJECT")
             self.assertIn("only patches reproduced failures", rejected["reason"])
+
+            explicit = {
+                **candidate,
+                "kind": "mission",
+                "proof_kind": "test",
+                "draft_intent": "",
+                "strengthening_contract": None,
+            }
+            self.assertTrue(explicit_test_mission_candidate(explicit))
+            explicit_result = night_shift.DraftEngine(
+                fake_run, Path(tmp) / "explicit-worktrees", lambda: "explicit"
+            ).run_draft(
+                repo, "owner/repo", explicit, Path(tmp) / "explicit-ledger", 900,
+                "http://local/v1", "coder", profile=profile,
+            )
+            self.assertEqual(explicit_result["status"], "VERIFIED_DRAFT")
+            self.assertEqual(explicit_result["baseline_rc"], 0)
+            self.assertEqual(explicit_result["after_rc"], 0)
 
     def test_patch_worker_gets_one_strict_format_correction(self):
         with tempfile.TemporaryDirectory() as tmp:

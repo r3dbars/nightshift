@@ -199,6 +199,16 @@ def valid_test_strengthening_candidate(candidate: dict, worktree: Path) -> dict[
     return contract if baseline_calls == 0 else None
 
 
+def explicit_test_mission_candidate(candidate: dict) -> bool:
+    """Allow an explicit user test mission to improve a clean repo safely."""
+    return bool(
+        candidate.get("kind") == "mission"
+        and candidate.get("proof_kind") == "test"
+        and candidate.get("semantic_contract")
+        and any(is_test_path(path) for path in candidate.get("files") or [])
+    )
+
+
 def materialize_strengthening_output(
     output: str, original: str, relative: str, strengthening: dict[str, str] | None,
 ) -> str:
@@ -547,7 +557,8 @@ class DraftEngine:
                 }
             )
         strengthening = valid_test_strengthening_candidate(candidate, worktree)
-        if baseline.rc == 0 and not strengthening:
+        explicit_test_mission = explicit_test_mission_candidate(candidate)
+        if baseline.rc == 0 and not strengthening and not explicit_test_mission:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="baseline did not reproduce a failure")
             return finish({
                 "status": "REJECT",
@@ -558,9 +569,21 @@ class DraftEngine:
         if baseline.rc == 0:
             record_state(
                 lifecycle_path, fingerprint, "GAP_CONFIRMED", baseline_rc=baseline.rc,
-                verification=verification, reason="complete zero-invocation gap reproduced",
+                verification=verification,
+                reason=(
+                    "explicit test mission baseline passed"
+                    if explicit_test_mission
+                    else "complete zero-invocation gap reproduced"
+                ),
             )
-            record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="complete zero-invocation proof handed to bounded test worker")
+            record_state(
+                lifecycle_path, fingerprint, "DIAGNOSED",
+                reason=(
+                    "explicit test mission handed to bounded test worker"
+                    if explicit_test_mission
+                    else "complete zero-invocation proof handed to bounded test worker"
+                ),
+            )
         else:
             record_state(lifecycle_path, fingerprint, "REPRODUCED", baseline_rc=baseline.rc, verification=verification)
             record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="reproduced failure handed to bounded patch worker")
@@ -781,6 +804,8 @@ class DraftEngine:
             guards.append("isolated runner did not report changed paths")
         if set(paths) != set(proposed.paths):
             guards.append("isolated runner changed a different file set")
+        if explicit_test_mission and any(not is_test_path(path) for path in paths):
+            guards.append("explicit test mission changed a non-test file")
         if verified.rc != 0 or after_rc != 0:
             guards.append("isolated verification did not pass")
         if strengthening:
