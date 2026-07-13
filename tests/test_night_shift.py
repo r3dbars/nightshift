@@ -2902,6 +2902,51 @@ buildThing() { return 1; }
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MODEL"], "local-coder")
             self.assertEqual(calls[0][1]["MAESTRO_LOCAL_MAX_TOKENS"], "8192")
 
+    def test_patch_that_does_not_apply_gets_one_source_anchoring_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / "test_app.py").write_text("def test_existing():\n    pass\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+            bad = (
+                "diff --git a/test_app.py b/test_app.py\n--- a/test_app.py\n+++ b/test_app.py\n"
+                "@@ -99 +99 @@\n-pass\n+assert True\n"
+            )
+            good = (
+                "diff --git a/test_app.py b/test_app.py\n--- a/test_app.py\n+++ b/test_app.py\n"
+                "@@ -1,2 +1,2 @@\n def test_existing():\n-    pass\n+    assert True\n"
+            )
+            prompts = []
+
+            def fake_run(args, cwd=None, timeout=60, **kwargs):
+                parts = [str(part) for part in args]
+                if parts[0] == "git":
+                    result = subprocess.run(parts, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+                    return night_shift.CmdResult("git", result.returncode, result.stdout, result.stderr)
+                if "maestro-delegate" in parts[0]:
+                    prompts.append(parts[-1])
+                    return night_shift.CmdResult("worker", 0, bad if len(prompts) == 1 else good, "")
+                return night_shift.CmdResult("baseline", 1, "", "failed")
+
+            profile = SimpleNamespace(
+                commands=(("true",),), max_seconds=60, protected_paths=(), allowed_paths=("test_app.py",),
+                max_pids=64, max_cpu=1, max_memory_mb=512, image="sha256:" + "a" * 64,
+            )
+            result = night_shift.DraftEngine(fake_run, root / "worktrees", lambda: "now").run_draft(
+                repo, "owner/repo", {
+                    "key": "repair", "source_ref": "HEAD", "files": ["test_app.py"],
+                    "verification_argv": ["true"], "summary": "repair", "evidence": "test_app.py:1",
+                }, root / "ledger", 60, "http://local/v1", "coder", profile=profile, patch_lane="local",
+            )
+            self.assertEqual(len(prompts), 2)
+            self.assertIn("did not apply to the pinned commit", prompts[1])
+            self.assertNotIn("patch does not apply to the pinned source", result.get("guard_reasons", []))
+
     def test_isolated_draft_falls_back_to_mac_when_windows_is_absent(self):
         original_profile = night_shift.load_repo_profile
         original_sandbox = night_shift.detect_sandbox

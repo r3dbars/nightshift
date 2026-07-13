@@ -407,10 +407,21 @@ class DraftEngine:
             (model.stdout + "\n" + model.stderr).strip() + "\n", encoding="utf-8"
         )
         proposed = validate_patch(model.stdout, candidate["files"], profile)
-        if model.rc == 0 and not proposed.valid and model.stdout.strip():
+        apply_reason = ""
+        if proposed.valid:
+            patch_path.write_text(proposed.patch, encoding="utf-8")
+            applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
+            if applies.rc != 0:
+                apply_reason = "patch does not apply to the pinned source"
+        if model.rc == 0 and (not proposed.valid or apply_reason) and model.stdout.strip():
             retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
             if retry_timeout > 0:
                 correction = patch_format_correction(candidate["files"])
+                if apply_reason:
+                    correction += (
+                        " The previous patch did not apply to the pinned commit. Use only exact unchanged "
+                        "context copied from SOURCE EXCERPT; do not invent a function, class, line number, or import."
+                    )
                 retry = self.ask_for_patch(
                     worktree, source_ref, candidate, verification_argv, retry_timeout,
                     worker_url, worker_model, parent_ledger, f"{safe_task}-retry", correction, patch_lane,
@@ -423,11 +434,18 @@ class DraftEngine:
                 )
                 model = retry
                 proposed = validate_patch(model.stdout, candidate["files"], profile)
-        if model.rc != 0 or not proposed.valid:
-            record_state(lifecycle_path, fingerprint, "REJECTED", reason="; ".join(proposed.reasons) if proposed.reasons else "patch worker failed")
+                apply_reason = ""
+                if proposed.valid:
+                    patch_path.write_text(proposed.patch, encoding="utf-8")
+                    applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
+                    if applies.rc != 0:
+                        apply_reason = "patch does not apply to the pinned source"
+        if model.rc != 0 or not proposed.valid or apply_reason:
+            rejection = "; ".join(proposed.reasons) or apply_reason or "patch worker failed"
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason=rejection)
             return finish({
                 "status": "REJECT",
-                "reason": "; ".join(proposed.reasons) if proposed.reasons else "patch worker failed",
+                "reason": rejection,
                 "baseline_rc": baseline.rc,
                 "patch_worker_rc": model.rc,
                 "proof_level": "reproduced only",
