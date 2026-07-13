@@ -127,6 +127,40 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn("Invoke the target at least 2 times", prompt)
         self.assertIn("distinct fake or fixture preconditions", prompt)
         self.assertIn("assert remove occurs before prune", prompt)
+        signature_prompt = __import__("night_shift_patch_protocol").patch_prompt({
+            "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
+            "strengthening_contract": {
+                "owner": "DraftEngine", "symbol": "cleanup",
+                "source_file": "bin/night_shift_drafts.py",
+            },
+            "semantic_contract": {"minimum_target_invocations": 1},
+        }, "class Other:\n    def cleanup(self, wrong):\n        pass\n\nclass DraftEngine:\n    def cleanup(\n        self, repo: Path, worktree: Path\n    ) -> bool:\n", ("python",))
+        self.assertIn("exact pinned signature: def cleanup(self, repo: Path, worktree: Path) -> bool:", signature_prompt)
+        self.assertIn("Provide every required argument", signature_prompt)
+        nested_signature_prompt = __import__("night_shift_patch_protocol").patch_prompt({
+            "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
+            "strengthening_contract": {"owner": "DraftEngine", "symbol": "cleanup"},
+            "semantic_contract": {"minimum_target_invocations": 1},
+        }, "class Other:\n    def cleanup(self, wrong):\n        pass\n\nclass Outer:\n    class DraftEngine:\n        async def cleanup(\n            self, repo, worktree\n        ) -> bool:\n", ("python",))
+        self.assertIn("exact pinned signature: async def cleanup(self, repo, worktree) -> bool:", nested_signature_prompt)
+        no_owner_prompt = __import__("night_shift_patch_protocol").patch_prompt({
+            "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
+            "strengthening_contract": {"symbol": "cleanup"},
+            "semantic_contract": {"minimum_target_invocations": 1},
+        }, "class Wrong:\n    def cleanup(self, wrong, wrong2):\n        pass\n", ("python",))
+        self.assertNotIn("exact pinned signature:", no_owner_prompt)
+        dedent_prompt = __import__("night_shift_patch_protocol").patch_prompt({
+            "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
+            "strengthening_contract": {"owner": "DraftEngine", "symbol": "cleanup"},
+            "semantic_contract": {"minimum_target_invocations": 1},
+        }, "class Outer:\n    class DraftEngine:\n        pass\n\nclass Wrong:\n    def cleanup(self, wrong, wrong2):\n        pass\n", ("python",))
+        self.assertNotIn("exact pinned signature:", dedent_prompt)
+        top_level_dedent_prompt = __import__("night_shift_patch_protocol").patch_prompt({
+            "draft_intent": "test-strengthening", "files": ["tests/test_app.py"],
+            "strengthening_contract": {"owner": "Owner", "symbol": "cleanup"},
+            "semantic_contract": {"minimum_target_invocations": 1},
+        }, "class Owner:\n    def other(self):\n        pass\n\ndef cleanup(x, y, z):\n    pass\n", ("python",))
+        self.assertNotIn("exact pinned signature:", top_level_dedent_prompt)
         self.assertIn("exact constructor and method signatures", prompt)
         self.assertIn("rc rather than a dict", prompt)
         self.assertIn("SimpleNamespace(rc=0)", prompt)

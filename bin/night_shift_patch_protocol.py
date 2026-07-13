@@ -213,6 +213,42 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
         semantic_guidance.append(
             f"Invoke the target at least {semantic['minimum_target_invocations']} times in the test."
         )
+    symbol = str(contract.get("symbol") or "")
+    if symbol:
+        signature_scope = ""
+        owner = str(contract.get("owner") or "")
+        if owner:
+            owner_class = re.search(
+                rf"(?m)^(?P<indent>[ \t]*)class\s+{re.escape(owner)}\b.*$",
+                source_excerpt,
+            )
+            if owner_class:
+                indent = owner_class.group("indent")
+                owner_start = owner_class.start()
+                tail_start = source_excerpt.find("\n", owner_class.end())
+                tail_start = len(source_excerpt) if tail_start < 0 else tail_start + 1
+                tail = source_excerpt[tail_start:]
+                boundary = len(tail)
+                for line_match in re.finditer(r"(?m)^[^\n]*", tail):
+                    line = line_match.group(0)
+                    if not line.strip():
+                        continue
+                    leading = len(line) - len(line.lstrip(" \t"))
+                    if leading <= len(indent):
+                        boundary = line_match.start()
+                        break
+                signature_scope = source_excerpt[owner_start:tail_start + boundary]
+        signature = re.search(
+            rf"\b(?:async\s+)?def\s+{re.escape(symbol)}\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:",
+            signature_scope,
+            re.DOTALL,
+        )
+        if signature:
+            signature_text = " ".join(signature.group(0).split()).replace("( ", "(").replace(" )", ")")
+            semantic_guidance.append(
+                f"Invoke the target using this exact pinned signature: {signature_text}. "
+                "Provide every required argument; do not omit parameters or guess a shorter call."
+            )
     if semantic.get("required_boolean_outcomes") == [True, False]:
         semantic_guidance.append(
             "Arrange distinct fake or fixture preconditions so one target invocation actually returns True "
