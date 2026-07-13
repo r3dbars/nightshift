@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
 from night_shift_dispatch import (
+    candidate_identity_terms,
+    correction_preserves_identity,
     correction_prompt,
     coverage_citation_examples,
     dispatch_one,
@@ -23,7 +25,7 @@ from night_shift_dispatch import (
 # response; KEEP is a later, deterministic promotion outside dispatch_one.
 GOOD_OUTPUT = (
     "TASK_ID: task-1\n"
-    "CLAIM: the helper always returns zero\n"
+    "CLAIM: `helper` always returns zero\n"
     "EVIDENCE: src/app.py:2 | return 0\n"
     "FILES_TO_TOUCH: src/app.py\n"
     "TESTS_TO_RUN: python -m pytest tests/test_app.py\n"
@@ -33,7 +35,7 @@ GOOD_OUTPUT = (
     "SAFE_FOR_CODEX_TO_ATTEMPT: yes\n"
 )
 
-REJECT_OUTPUT = "ACTION_TYPE: issue\nSAFE_FOR_CODEX_TO_ATTEMPT: no\n"
+REJECT_OUTPUT = "CLAIM: inspect `helper`\nACTION_TYPE: issue\nSAFE_FOR_CODEX_TO_ATTEMPT: no\n"
 
 
 def make_run_cmd(results):
@@ -92,8 +94,8 @@ class DispatchOneTests(unittest.TestCase):
 
     def test_coverage_signature_test_is_rejected_as_test_theater(self):
         theater = GOOD_OUTPUT.replace(
-            "CLAIM: the helper always returns zero",
-            "CLAIM: add an import and signature test for the helper",
+            "CLAIM: `helper` always returns zero",
+            "CLAIM: add an import and signature test for `helper`",
         ).replace(
             "EXPECTED_RESULT: pytest passes",
             "EXPECTED_RESULT: the signature exists and the import succeeds",
@@ -161,6 +163,18 @@ class DispatchOneTests(unittest.TestCase):
         self.assertEqual(outcome["input_tokens"], 80)
         self.assertEqual(outcome["output_tokens"], 70)
 
+    def test_retry_cannot_switch_to_a_different_named_target(self):
+        first_output = REJECT_OUTPUT + "\nCLAIM: test `Engine.run`\n"
+        switched = GOOD_OUTPUT.replace(
+            "CLAIM: `helper` always returns zero", "CLAIM: test `Other.stop`"
+        )
+        first = SimpleNamespace(rc=0, stdout=first_output, stderr="", timed_out=False)
+        second = SimpleNamespace(rc=0, stdout=switched, stderr="", timed_out=False)
+        outcome, run_cmd, _ledger = self._dispatch([first, second])
+        self.assertEqual(len(run_cmd.calls), 2)
+        self.assertEqual(outcome["score"], "REJECT")
+        self.assertIn("different named code target", "; ".join(outcome["quality_reasons"]))
+
     def test_unsafe_approval_output_is_not_retried(self):
         unsafe = (
             "ACTION_TYPE: patch-plan\n"
@@ -217,6 +231,30 @@ class CorrectionPromptTests(unittest.TestCase):
         self.assertIn("one physical source line with ASCII digits only", prompt)
         self.assertIn("Never use a line range, Unicode dash, HTML `<br>`", prompt)
         self.assertIn("If no exact single line proves the claim, set ACTION_TYPE: reject", prompt)
+
+    def test_correction_prompt_includes_prior_answer_and_forbids_task_hopping(self):
+        prompt = correction_prompt(
+            "Inspect the gap.", ["quote mismatch"], previous_output="CLAIM: test `Engine.run`"
+        )
+        self.assertIn("Your rejected answer was:", prompt)
+        self.assertIn("CLAIM: test `Engine.run`", prompt)
+        self.assertIn("Do not switch files, symbols, claims, or task type", prompt)
+        self.assertIn("Repeat the same named code target in backticks", prompt)
+
+    def test_correction_identity_uses_explicit_code_targets(self):
+        self.assertIn("engine.run", candidate_identity_terms("CLAIM: test `Engine.run`"))
+        self.assertTrue(correction_preserves_identity(
+            "CLAIM: test `Engine.run`", "CLAIM: correct evidence for `Engine.run`"
+        ))
+        self.assertFalse(correction_preserves_identity(
+            "CLAIM: test `Engine.run`", "CLAIM: test `Other.stop`"
+        ))
+        self.assertFalse(correction_preserves_identity(
+            "CLAIM: test `Engine.run`", "CLAIM: test Other.stop"
+        ))
+        self.assertFalse(correction_preserves_identity(
+            "CLAIM: test Engine.run", "CLAIM: test Engine.run"
+        ))
 
     def test_correction_prompt_makes_goal_and_invocation_evidence_copy_ready(self):
         prompt = correction_prompt(
