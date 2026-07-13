@@ -389,6 +389,17 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
                 f"Invoke the target using this exact pinned signature: {signature_text}. "
                 "Provide every required argument; do not omit parameters or guess a shorter call."
             )
+        if owner:
+            constructor = re.search(
+                r"(?m)^\s*def\s+__init__\s*\(.*?\)\s*(?:->\s*[^:]+)?\s*:",
+                signature_scope,
+                re.DOTALL,
+            )
+            if constructor:
+                constructor_text = " ".join(constructor.group(0).split()).replace("( ", "(").replace(" )", ")")
+                semantic_guidance.append(
+                    f"Construct {owner} using this exact pinned constructor: {constructor_text}."
+                )
     if semantic.get("required_boolean_outcomes") == [True, False]:
         semantic_guidance.append(
             "Arrange distinct fake or fixture preconditions so one target invocation actually returns True "
