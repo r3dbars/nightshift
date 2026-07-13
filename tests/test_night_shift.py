@@ -98,6 +98,13 @@ class NightShiftQualityTests(unittest.TestCase):
             used_module_import, original, "tests/test_app.py", {"drafts"}
         )
         self.assertIn("+        from types import SimpleNamespace", materialized_used_import)
+        bare_safe_import = worker.replace(
+            "+        engine = DraftEngine()\n",
+            "+        import tempfile\n+        engine = DraftEngine()\n",
+        )
+        self.assertTrue(materialize_test_method_patch(
+            bare_safe_import, original, "tests/test_app.py", {"drafts"}
+        ))
         repeated_anchor = internal + (
             "+    def test_existing(self):\n+        pass\n"
         )
