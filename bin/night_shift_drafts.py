@@ -89,7 +89,11 @@ def verification_correction_prompt(patch: str, failure_output: str) -> str:
     )
 
 
-def parse_test_strengthening_contract(evidence_sources: dict[str, str] | None) -> dict[str, str] | None:
+def parse_test_strengthening_contract(
+    evidence_sources: dict[str, str] | None,
+    *,
+    require_zero: bool = True,
+) -> dict[str, str] | None:
     contracts: list[dict[str, str]] = []
     for path, text in (evidence_sources or {}).items():
         if not path.startswith("invocation-index/"):
@@ -106,7 +110,7 @@ def parse_test_strengthening_contract(evidence_sources: dict[str, str] | None) -
         if (
             fields.get("analysis") in {"python-ast", "typescript-regex", "swift-regex"}
             and fields.get("scan_complete") == "true"
-            and fields.get("call_matches") == "0"
+            and (not require_zero or fields.get("call_matches") == "0")
             and fields.get("symbol")
             and Path(fields.get("source_file", "")).suffix.lower() in {".py", ".ts", ".tsx", ".swift"}
             and re.fullmatch(r"(?:none|[A-Za-z_][A-Za-z0-9_]*)", fields.get("owner", ""))
@@ -267,7 +271,14 @@ class DraftEngine:
                 files = [path for path in item.get("files") or [] if (repo / path).is_file()]
             known_commands = item.get("verification_commands") or default_commands
             verification = next((command for command in known_commands if command in (item.get("tests") or "")), "")
-            contract = parse_test_strengthening_contract(item.get("evidence_sources"))
+            explicit_mission = bool(
+                item.get("kind") == "mission"
+                and item.get("proof_kind") == "test"
+                and item.get("semantic_contract")
+            )
+            contract = parse_test_strengthening_contract(
+                item.get("evidence_sources"), require_zero=not explicit_mission
+            )
             if contract:
                 extensions = (
                     {".py"} if contract.get("analysis") == "python-ast"
@@ -295,7 +306,7 @@ class DraftEngine:
                 files = test_files
                 item = {
                     **item,
-                    "draft_intent": "test-strengthening",
+                    "draft_intent": "explicit-test-mission" if explicit_mission else "test-strengthening",
                     "strengthening_contract": contract,
                     "context_files": [source_file, *test_files],
                 }
@@ -558,6 +569,10 @@ class DraftEngine:
             )
         strengthening = valid_test_strengthening_candidate(candidate, worktree)
         explicit_test_mission = explicit_test_mission_candidate(candidate)
+        test_contract = (
+            strengthening
+            or (candidate.get("strengthening_contract") if explicit_test_mission else None)
+        )
         if baseline.rc == 0 and not strengthening and not explicit_test_mission:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="baseline did not reproduce a failure")
             return finish({
@@ -587,7 +602,7 @@ class DraftEngine:
         else:
             record_state(lifecycle_path, fingerprint, "REPRODUCED", baseline_rc=baseline.rc, verification=verification)
             record_state(lifecycle_path, fingerprint, "DIAGNOSED", reason="reproduced failure handed to bounded patch worker")
-        if strengthening and not candidate.get("semantic_contract"):
+        if test_contract and not candidate.get("semantic_contract"):
             record_state(
                 lifecycle_path, fingerprint, "REJECTED",
                 reason="test-strengthening mission has no explicit semantic contract",
@@ -628,8 +643,8 @@ class DraftEngine:
         except (OSError, UnicodeError):
             original_test = ""
         proposed_output = (
-            materialize_strengthening_output(model.stdout, original_test, test_file, strengthening)
-            if strengthening and strengthening.get("analysis") == "typescript-regex"
+            materialize_strengthening_output(model.stdout, original_test, test_file, test_contract)
+            if test_contract and test_contract.get("analysis") == "typescript-regex"
             else model.stdout
         )
         proposed = validate_patch(proposed_output, candidate["files"], profile)
@@ -644,16 +659,16 @@ class DraftEngine:
             retry_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
             if retry_timeout > 0:
                 correction = patch_format_correction(candidate["files"])
-                if candidate.get("draft_intent") == "test-strengthening":
+                if candidate.get("draft_intent") in {"test-strengthening", "explicit-test-mission"}:
                     correction += (
                         " Insert the one test method immediately before the exact final runner lines shown at "
                         "the end of SOURCE EXCERPT. Keep those final lines unchanged as the hunk anchor, and "
                         "ensure every @@ old/new line count matches the actual hunk body."
                     )
-                    if strengthening and strengthening.get("analysis") == "typescript-regex":
+                    if test_contract and test_contract.get("analysis") == "typescript-regex":
                         correction += (
                             " For TypeScript, the only accepted import is inside the new test block: "
-                            f"`const {{ {strengthening['symbol']} }} = await import('{typescript_import_path(str(strengthening['source_file']), test_file)}')`. "
+                            f"`const {{ {test_contract['symbol']} }} = await import('{typescript_import_path(str(test_contract['source_file']), test_file)}')`. "
                             "Never add a module-scope import and never use require."
                         )
                 if apply_reason:
@@ -673,8 +688,8 @@ class DraftEngine:
                 )
                 model = retry
                 proposed_output = (
-                    materialize_strengthening_output(model.stdout, original_test, test_file, strengthening)
-                    if strengthening and strengthening.get("analysis") == "typescript-regex"
+                    materialize_strengthening_output(model.stdout, original_test, test_file, test_contract)
+                    if test_contract and test_contract.get("analysis") == "typescript-regex"
                     else model.stdout
                 )
                 proposed = validate_patch(proposed_output, candidate["files"], profile)
@@ -684,10 +699,10 @@ class DraftEngine:
                     applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
                     if applies.rc != 0:
                         apply_reason = "patch does not apply to the pinned source"
-        if candidate.get("draft_intent") == "test-strengthening" and (not proposed.valid or apply_reason):
+        if candidate.get("draft_intent") in {"test-strengthening", "explicit-test-mission"} and (not proposed.valid or apply_reason):
             for recovery_output in (first_model_output, model.stdout):
                 recovered = materialize_strengthening_output(
-                    recovery_output, original_test, test_file, strengthening,
+                    recovery_output, original_test, test_file, test_contract,
                 )
                 if not recovered:
                     continue
@@ -718,7 +733,7 @@ class DraftEngine:
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="stop limit reached before isolated verification")
             return finish({"status": "REJECT", "reason": "stop limit reached before isolated verification", "baseline_rc": baseline.rc})
         verified = run_isolated_patch(sandbox_dir, verify_timeout)
-        if verified.rc != 0 and strengthening:
+        if verified.rc != 0 and test_contract:
             repair_sandbox = sandbox_dir
             for attempt in range(1, MAX_VERIFICATION_REPAIRS + 1):
                 verification_output_path = repair_sandbox / "verification.txt"
@@ -731,10 +746,10 @@ class DraftEngine:
                 )
                 current_patch = patch_path.read_text(encoding="utf-8", errors="replace")[-8000:]
                 correction = verification_correction_prompt(current_patch, failure_output)
-                if strengthening and strengthening.get("analysis") == "typescript-regex":
+                if test_contract and test_contract.get("analysis") == "typescript-regex":
                     correction += (
                         "\nFor this TypeScript test, preserve the exact in-test dynamic import and imported binding: "
-                        f"`const {{ {strengthening['symbol']} }} = await import('{typescript_import_path(str(strengthening['source_file']), candidate['files'][0])}')`. "
+                        f"`const {{ {test_contract['symbol']} }} = await import('{typescript_import_path(str(test_contract['source_file']), candidate['files'][0])}')`. "
                         "Never use a module-scope import or require."
                     )
                 repair = self.ask_for_patch(
@@ -750,8 +765,8 @@ class DraftEngine:
                         (repair.stdout + "\n" + repair.stderr).strip() + "\n", encoding="utf-8"
                     )
                 repaired_output = (
-                    materialize_strengthening_output(repair.stdout, original_test, candidate["files"][0], strengthening)
-                    if strengthening and strengthening.get("analysis") == "typescript-regex"
+                    materialize_strengthening_output(repair.stdout, original_test, candidate["files"][0], test_contract)
+                    if test_contract and test_contract.get("analysis") == "typescript-regex"
                     else repair.stdout
                 )
                 repaired = validate_patch(repaired_output, candidate["files"], profile)
@@ -768,7 +783,7 @@ class DraftEngine:
                     except (OSError, UnicodeError):
                         original_test = ""
                     repaired_patch = materialize_strengthening_output(
-                        repair.stdout, original_test, candidate["files"][0], strengthening,
+                        repair.stdout, original_test, candidate["files"][0], test_contract,
                     )
                     repaired = validate_patch(repaired_patch, candidate["files"], profile)
                     if repaired.valid:
@@ -808,9 +823,9 @@ class DraftEngine:
             guards.append("explicit test mission changed a non-test file")
         if verified.rc != 0 or after_rc != 0:
             guards.append("isolated verification did not pass")
-        if strengthening:
-            is_typescript = strengthening.get("analysis") == "typescript-regex"
-            is_swift = strengthening.get("analysis") == "swift-regex"
+        if test_contract:
+            is_typescript = test_contract.get("analysis") == "typescript-regex"
+            is_swift = test_contract.get("analysis") == "swift-regex"
             allowed_extensions = JS_EXTENSIONS if is_typescript else SWIFT_EXTENSIONS if is_swift else {".py"}
             if any(
                 not is_test_path(path) or Path(path).suffix.lower() not in allowed_extensions
@@ -824,18 +839,18 @@ class DraftEngine:
                 replayed = self.run_cmd(["git", "apply", applied_path], cwd=worktree, timeout=30)
                 count = (
                     javascript_symbol_call_count(
-                        [worktree / path for path in candidate["files"]], strengthening["symbol"]
+                        [worktree / path for path in candidate["files"]], test_contract["symbol"]
                     )
                     if is_typescript and replayed.rc == 0 else
                     sum(
                         swift_symbol_call_count_text(
-                            (worktree / path).read_text(encoding="utf-8"), strengthening["symbol"]
+                            (worktree / path).read_text(encoding="utf-8"), test_contract["symbol"]
                         )
                         for path in candidate["files"]
                     ) if is_swift and replayed.rc == 0 else
                     owner_symbol_call_count(
                         [worktree / path for path in candidate["files"]],
-                        strengthening["owner"], strengthening["symbol"],
+                        test_contract["owner"], test_contract["symbol"],
                     ) if replayed.rc == 0 else None
                 )
                 if count is None or count <= 0:
@@ -857,7 +872,7 @@ class DraftEngine:
                     else:
                         guards.extend(semantic_test_contract_reasons(
                             patched_texts, candidate["semantic_contract"],
-                            strengthening["owner"], strengthening["symbol"],
+                            test_contract["owner"], test_contract["symbol"],
                         ))
         status, proof_level = draft_proof_status(baseline.rc, after_rc, guards)
         record_state(
