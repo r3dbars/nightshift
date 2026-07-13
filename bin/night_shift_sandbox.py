@@ -56,12 +56,42 @@ def build_runner_image(run_cmd: Callable) -> tuple[bool, str]:
     return True, image
 
 
+def live_colima_docker(run_cmd: Callable, docker: str) -> str:
+    """Return a verified Colima profile name for this Docker context."""
+    if platform.system() != "Darwin" or not shutil.which("colima"):
+        return ""
+    context = run_cmd([docker, "context", "show"], timeout=20)
+    name = context.stdout.strip() if context.rc == 0 else ""
+    if name == "colima":
+        profile = "default"
+    elif name.startswith("colima-"):
+        profile = name.removeprefix("colima-")
+    else:
+        return ""
+    status = run_cmd([shutil.which("colima"), "status", "--profile", profile, "--json"], timeout=20)
+    try:
+        detail = json.loads(status.stdout) if status.rc == 0 else {}
+    except (TypeError, json.JSONDecodeError):
+        return ""
+    expected_socket = f"unix://{Path.home()}/.colima/{profile}/docker.sock"
+    if (
+        detail.get("runtime") == "docker"
+        and str(detail.get("driver") or "").startswith("macOS ")
+        and detail.get("docker_socket") == expected_socket
+    ):
+        return profile
+    return ""
+
+
 def detect_sandbox(run_cmd: Callable) -> SandboxStatus:
     docker = shutil.which("docker")
     if docker:
         info = run_cmd([docker, "info", "--format", "{{json .SecurityOptions}}"], timeout=20)
         if info.rc == 0 and "rootless" in (info.stdout or "").lower():
             return SandboxStatus(True, "Docker rootless sandbox is ready", "docker")
+        colima_profile = live_colima_docker(run_cmd, docker) if info.rc == 0 else ""
+        if colima_profile:
+            return SandboxStatus(True, f"Docker is isolated in Colima profile '{colima_profile}'", "docker")
     podman = shutil.which("podman")
     if podman:
         info = run_cmd([podman, "info", "--format", "{{.Host.Security.Rootless}}"], timeout=20)
@@ -104,6 +134,15 @@ def fixed_patch_script() -> str:
     )
 
 
+def fixed_verify_script() -> str:
+    """Copy read-only source into disposable tmpfs before running checks."""
+    return (
+        "set -eu; cp -a /source/. /work/; cd /work; rm -rf .git; git init -q; "
+        "git config user.email night-shift@localhost; git config user.name 'Night Shift'; "
+        "git add -A; git commit -qm baseline; exec \"$@\""
+    )
+
+
 def sandbox_patch_command(
     source: Path,
     patch: Path,
@@ -117,7 +156,9 @@ def sandbox_patch_command(
     container tmpfs; the artifact directory receives logs and a candidate diff.
     """
     runtime = sandbox_runtime() or "docker"
-    tmpfs_options = "rw,noexec,nosuid,size=512m,mode=700"
+    # Approved checks may compile and execute test binaries. The workspace is
+    # disposable, no-network tmpfs; the host source remains mounted read-only.
+    tmpfs_options = "rw,exec,nosuid,size=512m,mode=700"
     if Path(runtime).name != "podman":
         tmpfs_options += ",uid=65534,gid=65534"
     return [
@@ -125,6 +166,7 @@ def sandbox_patch_command(
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
         "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"/work:{tmpfs_options}",
+        "--tmpfs", "/tmp:rw,exec,nosuid,size=256m,mode=1777",
         "--volume", f"{source.resolve()}:/source:ro", "--volume", f"{patch.resolve()}:/input/candidate.patch:ro",
         "--volume", f"{artifacts.resolve()}:/artifacts:rw", "--workdir", "/work",
         "--env", "HOME=/tmp", "--env", "GIT_CONFIG_NOSYSTEM=1", profile.image,
@@ -139,13 +181,15 @@ def sandbox_command(repo: Path, command: tuple[str, ...], profile: RepoProfile) 
     its patch to a separate, explicitly mounted artifact directory.
     """
     runtime = sandbox_runtime() or "docker"
-    home = "/tmp/night-shift-home"
+    home = "/tmp"
     return [
         runtime, "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", str(profile.max_pids), "--cpus", str(profile.max_cpu),
-        "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"{home}:rw,noexec,nosuid,size=64m",
-        "--workdir", "/workspace", "--volume", f"{repo.resolve()}:/workspace:ro",
+        "--memory", f"{profile.max_memory_mb}m", "--tmpfs", f"{home}:rw,exec,nosuid,size=256m,mode=1777",
+        "--tmpfs", "/work:rw,exec,nosuid,size=512m,mode=700", "--workdir", "/work",
+        "--volume", f"{repo.resolve()}:/source:ro",
         "--env", f"HOME={home}", "--env", "GIT_CONFIG_NOSYSTEM=1",
-        profile.image, *command,
+        "--env", "PYTHONDONTWRITEBYTECODE=1",
+        profile.image, "sh", "-ceu", fixed_verify_script(), "night-shift-verify", *command,
     ]

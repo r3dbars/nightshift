@@ -24,3 +24,43 @@ Artifacts:
 
 This proves the failure boundary, not successful draft-PR creation. A real
 tested draft PR is still required before this dimension can approach 95.
+
+## Successful Docker Rehearsal
+
+Later the same day, a fresh Colima VM provided a real Docker runtime. Night
+Shift rebuilt the reviewed runner as immutable image
+`sha256:6ca48b362769883b2b56564a9f339ec17ce25ce4b364b2000610269a0f44cccc`
+and repeated the exact-main rehearsal from a production-path disposable
+worktree.
+
+- Source SHA: `b37c4b870f7e567ffb43aee23a784581c6c07dbb`.
+- Focused no-network verification: 9 publisher safety tests passed.
+- Draft PR: <https://github.com/r3dbars/nightshift/pull/24>.
+- GitHub independently reported `isDraft: true`, one commit, and one approved
+  changed file.
+- The rehearsal PR was then closed without merge and its remote branch was
+  deleted.
+- Original checkout remained unchanged apart from the active implementation
+  branch.
+- Publication worktree was removed.
+- A replay of the same patch was rejected before a second PR or branch.
+- No merge, deploy, release, credential, visibility, or billing action ran.
+
+Proof artifacts:
+
+```text
+~/.codex/night-shift/live-publish-proof/proof-5/publish.json
+~/.codex/night-shift/live-publish-proof/proof-5/publish-verification.txt
+~/.codex/night-shift/live-publish-proof/replay-proof/publish.json
+```
+
+This proves real Docker-backed draft publication and replay suppression for one
+harmless repository change. It does not yet prove varied useful PRs or an
+unattended overnight publication.
+
+After review, the runner was rebuilt with GitHub CLI support and an explicitly
+disposable, no-network tmpfs verification workspace as
+`sha256:7c99f2ae41f5921403660be84a85a4e465b63b91fc66a1a74f8adbb2bb496a37`.
+The focused publisher suite passed again inside that hardened image; the full
+157-test package gate passed both inside the no-network Colima VM and
+separately on the host.
