@@ -20,10 +20,11 @@ from night_shift_redaction import redact, sanitize_evidence_sources
 
 def coverage_citation_examples(evidence_sources: dict[str, str] | None) -> list[str]:
     """Return copy-ready citations for every bounded synthetic evidence source."""
-    examples: list[str] = []
+    groups: list[list[str]] = []
     for path, source in (evidence_sources or {}).items():
         if not path.startswith(("coverage-index/", "goal-source/", "invocation-index/")):
             continue
+        group: list[str] = []
         if path.startswith("goal-source/"):
             lines = str(source).splitlines()
             source_file = next(
@@ -33,11 +34,22 @@ def coverage_citation_examples(evidence_sources: dict[str, str] | None) -> list[
                 for line in lines:
                     match = re.match(r"source_line=(\d+)\s*\|\s*(.+)", line)
                     if match:
-                        examples.append(f"{source_file}:{match.group(1)} | {match.group(2)}")
+                        group.append(f"{source_file}:{match.group(1)} | {match.group(2)}")
+                groups.append(group[:4])
                 continue
-        for line_number, line in enumerate(str(source).splitlines(), start=1):
+        indexed = [
+            (line_number, line) for line_number, line in enumerate(str(source).splitlines(), start=1)
+            if line.strip()
+        ]
+        decisive = re.compile(r"(?:^|\s)(?:identifier_matches|call_matches|scan_complete|owner)=")
+        indexed.sort(key=lambda row: (0 if decisive.search(row[1]) else 1, row[0]))
+        for line_number, line in indexed:
             if line.strip():
-                examples.append(f"{path}:{line_number} | {line}")
+                group.append(f"{path}:{line_number} | {line}")
+        groups.append(group[:4])
+    examples: list[str] = []
+    for index in range(4):
+        examples.extend(group[index] for group in groups if index < len(group))
     return examples[:12]
 
 
