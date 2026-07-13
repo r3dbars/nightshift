@@ -5179,5 +5179,22 @@ buildThing() { return 1; }
         self.assertNotEqual(result, "")
         self.assertTrue(result.strip().startswith("diff --git "))
 
+    def test_extract_unified_diff_ignores_worker_proof_footer(self):
+        from night_shift_patch_protocol import extract_unified_diff
+
+        output = (
+            "diff --git a/src/app.py b/src/app.py\n"
+            "--- a/src/app.py\n"
+            "+++ b/src/app.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+            "\nMAESTRO_PROOF=/tmp/worker-proof\n"
+        )
+        result = extract_unified_diff(output)
+
+        self.assertIn("+new", result)
+        self.assertNotIn("MAESTRO_PROOF", result)
+
 if __name__ == "__main__":
     unittest.main()
