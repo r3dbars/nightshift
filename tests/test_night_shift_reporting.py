@@ -188,6 +188,16 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertEqual(rows[1]["repositories"][0]["failed_runs"], 1)
             self.assertNotIn("signals", rows[1]["repositories"][0])
 
+    def test_snapshot_history_is_bounded_and_keeps_latest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "portfolio-snapshots.jsonl"
+            for cycle in range(1, 5):
+                PortfolioReportEngine.append_bounded_snapshot(
+                    path, {"cycle": cycle}, limit=2
+                )
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual(rows, [{"cycle": 3}, {"cycle": 4}])
+
     def test_brief_materializes_exact_child_choice(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

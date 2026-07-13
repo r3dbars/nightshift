@@ -227,6 +227,9 @@ def friendly_hint(prog: str, message: str = "") -> str:
 
 
 def load_config() -> dict:
+    prepared_cache: list[tuple[dict, Path]] | None = None
+    portfolio_cache: list[dict] = []
+    next_portfolio_refresh = 0.0
     try:
         config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
@@ -2657,25 +2660,33 @@ def command_autopilot(args) -> int:
             if deadline_reached(deadline, stop_file):
                 break
             cycle = controller.start_cycle()
-            if scope == "github-recent":
-                portfolio = discover_github_portfolio(primary, active_days=active_days, max_repos=max_repos)
+            now = time.time()
+            if prepared_cache is None or now >= next_portfolio_refresh:
+                if scope == "github-recent":
+                    portfolio = discover_github_portfolio(primary, active_days=active_days, max_repos=max_repos)
+                else:
+                    portfolio = [
+                        {
+                            "slug": repo_slug(primary) or (primary.name if primary else "current"),
+                            "primary": True,
+                            "score": 1000,
+                            "signals": github_repo_signals(repo_slug(primary)),
+                            "path": str(primary) if primary else "",
+                        }
+                    ] if primary else []
+                prepared = []
+                for item in portfolio:
+                    checkout, checkout_status = ensure_portfolio_checkout(item, primary)
+                    item["checkout_status"] = checkout_status
+                    item["checkout"] = str(checkout) if checkout else ""
+                    if checkout:
+                        prepared.append((item, checkout))
+                prepared_cache = prepared
+                portfolio_cache = portfolio
+                next_portfolio_refresh = now + max(60, poll_minutes * 60)
             else:
-                portfolio = [
-                    {
-                        "slug": repo_slug(primary) or (primary.name if primary else "current"),
-                        "primary": True,
-                        "score": 1000,
-                        "signals": github_repo_signals(repo_slug(primary)),
-                        "path": str(primary) if primary else "",
-                    }
-                ] if primary else []
-            prepared = []
-            for item in portfolio:
-                checkout, checkout_status = ensure_portfolio_checkout(item, primary)
-                item["checkout_status"] = checkout_status
-                item["checkout"] = str(checkout) if checkout else ""
-                if checkout:
-                    prepared.append((item, checkout))
+                prepared = prepared_cache
+                portfolio = portfolio_cache
             write_portfolio_snapshot(ledger, portfolio, cycle)
             if not prepared:
                 controller.no_prepared_repositories()

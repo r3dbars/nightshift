@@ -19,14 +19,17 @@ three other repositories had higher live scores.
 
 ## Controller defect fixed
 
-The controller previously cached the prepared portfolio after a productive
-cycle. It could run another cycle against stale repository rankings before a
-no-work cycle cleared that cache. Every cycle now rediscovers live GitHub
-signals and revalidates each checkout before assigning task capacity.
+The controller previously refreshed the prepared portfolio only after a
+no-work cycle. A long productive stretch could therefore keep stale repository
+rankings. Refresh now follows an independent wall-clock deadline: at most once
+per configured polling interval, regardless of whether the previous cycle
+found work. Productive cycles between deadlines reuse safe prepared checkouts,
+avoiding a GitHub API and fetch storm.
 
 Each cycle also appends a compact `portfolio-snapshots.jsonl` row with selected
 repository, score, primary status, checkout readiness, and PR/issue/failure
-counts. Full GitHub payloads are not duplicated into this history.
+counts. Full GitHub payloads are not duplicated into this history, and the
+history retains only the latest 256 cycle snapshots.
 
 ## Verification
 
