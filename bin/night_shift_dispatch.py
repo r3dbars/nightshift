@@ -51,6 +51,7 @@ def correction_prompt(
 ) -> str:
     allowed_paths = list(dict.fromkeys((candidate_files or []) + list((evidence_sources or {}).keys())))
     path_lines = "\n".join(f"- {path}" for path in allowed_paths) or "- None"
+    file_lines = "\n".join(f"- {path}" for path in (candidate_files or [])) or "- None"
     citation_examples = coverage_citation_examples(evidence_sources)
     citation_lines = "\n".join(f"- {citation}" for citation in citation_examples) or "- None"
     command_lines = "\n".join(f"- {command}" for command in (verification_commands or [])) or "- None"
@@ -71,6 +72,14 @@ def correction_prompt(
         + "`src/app.py:123 | return value`. Never use a line range, Unicode dash, HTML `<br>`, Markdown bullet, or backticks around the entry. "
         + "Do not add prose-only evidence bullets. If no exact single line proves the claim, set ACTION_TYPE: reject.\n"
         + "Make CLAIM no broader than the literal cited line. Do not infer intent, root cause, or that a proposed change will fix the full issue.\n"
+        + "FILES_TO_TOUCH may contain only existing repo paths from the list below. Copy at least one path exactly; "
+        + "do not invent a new test file or rename a supplied path. If none is suitable, set ACTION_TYPE: reject.\n"
+        + "For a test or coverage proposal, BEST_NEXT_ACTION and EXPECTED_RESULT must name a concrete input plus an "
+        + "observable return value, exception, response, or state change. A coverage count, identifier mention, import, "
+        + "signature, or symbol existence is not behavioral proof. If no observable contract is supplied, set ACTION_TYPE: reject.\n"
+        + "Allowed existing repo paths for FILES_TO_TOUCH:\n"
+        + file_lines
+        + "\n"
         + "Allowed evidence paths:\n"
         + path_lines
         + "\nCopy-ready deterministic citations (copy only the relevant one or two exactly):\n"
