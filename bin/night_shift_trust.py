@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -40,7 +41,7 @@ def load_effective_profile(
     profile, parsed_detail = parse_repo_profile(record["profile"])
     if profile is None:
         return None, f"saved repo approval is invalid: {parsed_detail}"
-    return profile, "external repo approval loaded"
+    return replace(profile, external_approval=True, approved_remote=remote), "external repo approval loaded"
 
 
 def save_approval(root: Path, remote: str, slug: str, profile: dict) -> Path:

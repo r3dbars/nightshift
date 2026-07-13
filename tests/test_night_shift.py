@@ -2402,6 +2402,63 @@ buildThing() { return 1; }
             night_shift.load_repo_profile = original_profile
             night_shift.detect_sandbox = original_sandbox
 
+    def test_external_approval_revalidates_exact_candidate_revision(self):
+        original_profile = night_shift.load_repo_profile
+        original_advertised = night_shift.remote_advertises_revision
+        original_sandbox = night_shift.detect_sandbox
+        profile = SimpleNamespace(
+            may_execute=True, commands=(("true",),), external_approval=True,
+            approved_remote="git@github.com:owner/repo.git",
+        )
+        try:
+            night_shift.load_repo_profile = lambda _repo: (profile, "wording may change safely")
+            night_shift.remote_advertises_revision = lambda *_args: False
+            night_shift.detect_sandbox = lambda _run: self.fail("sandbox must not start")
+            result = night_shift.run_isolated_draft(
+                Path("/tmp/repo"), "owner/repo", {"files": ["app.py"], "source_ref": "b" * 64},
+                Path("/tmp/ledger"), 60, "http://localhost:1234/v1", "coder", "", "",
+            )
+            self.assertEqual(result["status"], "REJECT")
+            self.assertIn("exact candidate commit", result["reason"])
+            self.assertEqual(result["proof_level"], "not executed")
+        finally:
+            night_shift.load_repo_profile = original_profile
+            night_shift.remote_advertises_revision = original_advertised
+            night_shift.detect_sandbox = original_sandbox
+
+    def test_external_advertised_candidate_proceeds_to_sandbox(self):
+        original_profile = night_shift.load_repo_profile
+        original_advertised = night_shift.remote_advertises_revision
+        original_sandbox = night_shift.detect_sandbox
+        original_engine = night_shift.draft_engine
+        captured = {}
+        profile = SimpleNamespace(
+            may_execute=True, commands=(("true",),), external_approval=True,
+            approved_remote="git@github.com:owner/repo.git",
+        )
+
+        class FakeEngine:
+            def run_draft(self, *args, **kwargs):
+                captured["args"] = args
+                return {"status": "REJECT", "reason": "baseline passed"}
+
+        try:
+            night_shift.load_repo_profile = lambda _repo: (profile, "external")
+            night_shift.remote_advertises_revision = lambda *_args: True
+            night_shift.detect_sandbox = lambda _run: SimpleNamespace(available=True, detail="ready")
+            night_shift.draft_engine = lambda: FakeEngine()
+            result = night_shift.run_isolated_draft(
+                Path("/tmp/repo"), "owner/repo", {"files": ["app.py"], "source_ref": "a" * 40},
+                Path("/tmp/ledger"), 60, "http://localhost:1234/v1", "coder", "", "",
+            )
+            self.assertEqual(result["reason"], "baseline passed")
+            self.assertEqual(captured["args"][2]["verification_argv"], ["true"])
+        finally:
+            night_shift.load_repo_profile = original_profile
+            night_shift.remote_advertises_revision = original_advertised
+            night_shift.detect_sandbox = original_sandbox
+            night_shift.draft_engine = original_engine
+
     def test_patch_correction_allows_any_approved_file(self):
         correction = __import__("night_shift_drafts").patch_format_correction(
             ["src/first.py", "src/actual.py"]
