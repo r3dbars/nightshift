@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from night_shift_portfolio import parse_json_text
-from night_shift_js_evidence import top_level_symbol_call_count_text as js_symbol_call_count_text
+from night_shift_js_evidence import JS_EXTENSIONS, top_level_symbol_call_count_text as js_symbol_call_count_text
 from night_shift_python_evidence import owner_symbol_call_count_text, top_level_symbol_call_count_text
 from night_shift_selection import (
     declared_symbols,
@@ -79,7 +79,7 @@ def symbol_is_test_addressable(path: str, source: str, symbol: str) -> bool:
                     continue
                 matches.append((node.name, child.name))
         return not matches or any(match not in properties for match in matches)
-    if Path(path).suffix.lower() not in {".js", ".jsx", ".ts", ".tsx"}:
+    if Path(path).suffix.lower() not in JS_EXTENSIONS:
         return True
     escaped = re.escape(symbol)
     exported = re.search(
@@ -380,7 +380,7 @@ class QueueEvidenceIndex:
             ) else "mixed-regex"
         elif Path(source_path).suffix.lower() in {".ts", ".tsx"}:
             analysis = "typescript-regex" if coverage_test_paths and all(
-                Path(path).suffix.lower() in {".js", ".jsx", ".ts", ".tsx"}
+                Path(path).suffix.lower() in JS_EXTENSIONS
                 for path in coverage_test_paths
             ) else "mixed-regex"
         else:

@@ -47,14 +47,14 @@ class QueueEvidenceTests(unittest.TestCase):
                 "export function formatPercent(value: number) { return `${value}%`; }\n",
                 encoding="utf-8",
             )
-            (repo / "metrics.test.ts").write_text(
+            (repo / "metrics.test.mjs").write_text(
                 "describe('metrics', () => {});\n", encoding="utf-8"
             )
             scan = {
                 "tracked_files": ["metrics.ts", "metrics.test.ts"],
                 "source_files": ["metrics.ts"],
-                "test_files": ["metrics.test.ts"],
-                "coverage_test_files": ["metrics.test.ts"],
+                "test_files": ["metrics.test.mjs"],
+                "coverage_test_files": ["metrics.test.mjs"],
             }
             gap = QueueEvidenceIndex(repo, scan).coverage_gaps(["metrics.ts"])[0]
             invocation = next(
