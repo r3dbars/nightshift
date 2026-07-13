@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 
 SECRET_PATTERNS = (
@@ -47,3 +48,36 @@ def context_path_is_sensitive(path: str) -> bool:
         or any(part in SENSITIVE_PARTS for part in parts)
         or candidate.suffix.lower() in SENSITIVE_SUFFIXES
     )
+
+
+def sanitize_evidence_sources(sources: Any) -> dict[str, str]:
+    if not isinstance(sources, dict):
+        return {}
+    return {
+        str(path): redact(str(value))
+        for path, value in sources.items()
+        if not context_path_is_sensitive(str(path))
+    }
+
+
+def sanitize_task_for_ledger(task: dict) -> dict:
+    def sanitize_value(value: Any) -> Any:
+        if isinstance(value, str):
+            return redact(value)
+        if isinstance(value, dict):
+            return sanitize_task_for_ledger(value)
+        if isinstance(value, list):
+            return [sanitize_value(item) for item in value]
+        return value
+
+    safe: dict = {}
+    for key, value in task.items():
+        if key == "evidence_sources":
+            safe[key] = sanitize_evidence_sources(value)
+        elif key == "files" and isinstance(value, list):
+            safe[key] = [
+                redact(str(path)) for path in value if not context_path_is_sensitive(str(path))
+            ]
+        else:
+            safe[key] = sanitize_value(value)
+    return safe

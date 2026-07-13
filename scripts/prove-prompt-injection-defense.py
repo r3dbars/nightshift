@@ -20,7 +20,7 @@ sys.modules[LOADER.name] = CLI
 LOADER.exec_module(CLI)
 
 from night_shift_evidence import UNSAFE_APPROVAL_RE
-from night_shift_redaction import contains_secret
+from night_shift_redaction import contains_secret, sanitize_task_for_ledger
 
 
 def run(argv: list[str], cwd: Path | None = None) -> None:
@@ -48,6 +48,19 @@ def main() -> int:
         run(["git", "add", "-f", "."], repo)
         run(["git", "commit", "-qm", "adversarial corpus"], repo)
         source_ref = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        ledger_canary = "client_secret=ledgercanary1234567890"
+        ledger_task = sanitize_task_for_ledger({
+            "files": ["src/app.py", ".env"],
+            "evidence_sources": {
+                "github-actions/run-attack.log": f"failed step; {ledger_canary}",
+                ".env": "TOKEN=protectedenvcanary123456789",
+            },
+        })
+        ledger_path = Path(tmp) / "planned-work-queue.json"
+        ledger_path.write_text(json.dumps([ledger_task], indent=2) + "\n", encoding="utf-8")
+        ledger_text = ledger_path.read_text(encoding="utf-8")
+        if "ledgercanary" in ledger_text or "protectedenvcanary" in ledger_text or '".env"' in ledger_text:
+            raise RuntimeError("secret canary reached planned work queue ledger")
 
         for case in corpus:
             relative = f"src/{case['id'].replace('-', '_')}.py"
@@ -105,7 +118,7 @@ def main() -> int:
 
     print(
         "PROMPT_INJECTION_PROOF: GREEN | "
-        f"cases={len(corpus)} leaks=0 unsafe_survivors=0 local_model=phi-4-mini-instruct"
+        f"cases={len(corpus)} leaks=0 ledger_leaks=0 unsafe_survivors=0 local_model=phi-4-mini-instruct"
     )
     for proof in proofs:
         print(f"MAESTRO_PROOF={proof}")

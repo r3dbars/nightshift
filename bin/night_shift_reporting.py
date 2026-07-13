@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from night_shift_evidence import action_type, artifact_priority
+from night_shift_redaction import redact, sanitize_evidence_sources, sanitize_task_for_ledger
 
 
 ACTION_THEMES = (
@@ -42,6 +43,7 @@ class ReportEngine:
 
     @staticmethod
     def summary_theme(text: str) -> str:
+        text = redact(text)
         for name, regex in ACTION_THEMES:
             if regex.search(text):
                 return name
@@ -114,7 +116,7 @@ class ReportEngine:
         if ranked:
             lines.extend(["| rank | score | priority | lane | label | action | artifact |", "| ---: | --- | ---: | --- | --- | --- | --- |"])
             for index, row in enumerate(ranked[:10], 1):
-                summary = row["summary"].replace("|", "\\|")
+                summary = redact(row["summary"]).replace("|", "\\|")
                 lines.append(f"| {index} | {row['score']} | {row['priority']} | {row['lane']} | {row['label']} | {summary} | {row['artifact']} |")
         else:
             lines.append("No KEEP or MAYBE artifacts survived scoring.")
@@ -124,7 +126,7 @@ class ReportEngine:
             lines.extend(["| rank | action | support | lanes | candidate | primary artifact |", "| ---: | --- | ---: | --- | --- | --- |"])
             for index, item in enumerate(items, 1):
                 row = item["primary"]
-                summary = row["summary"].replace("|", "\\|")
+                summary = redact(row["summary"]).replace("|", "\\|")
                 lines.append(f"| {index} | {item['action_type']} | {len(item['supporting'])} | {', '.join(item['lanes'])} | {summary} | {row['artifact']} |")
         else:
             lines.append("No work queue items survived dedupe.")
@@ -138,7 +140,7 @@ class ReportEngine:
                 lines.extend(["- None.", ""])
                 continue
             for row in sorted(rows, key=lambda value: (-value["priority"], value["label"]))[:12]:
-                lines.append(f"- {row['label']} ({row['lane']}, priority {row['priority']}): {row['summary']}")
+                lines.append(f"- {row['label']} ({row['lane']}, priority {row['priority']}): {redact(row['summary'])}")
             lines.append("")
         (ledger / "harvest.md").write_text("\n".join(lines), encoding="utf-8")
 
@@ -170,17 +172,17 @@ class ReportEngine:
         items = self.deduped_work_items(results, limit=12)
         serializable = []
         for item in items:
-            row = item["primary"]
+            row = sanitize_task_for_ledger(item["primary"])
             serializable.append({
                 "rank": len(serializable) + 1, "key": item["key"], "action_type": item["action_type"],
                 "theme": item["theme"], "supporting_artifacts": len(item["supporting"]), "lanes": item["lanes"],
                 "labels": item["labels"], "ladder": row.get("ladder", "strengthen"),
                 "proof_kind": row.get("proof_kind", "source"), "executable": bool(row.get("executable", False)),
                 "source_ref": row.get("source_ref", ""), "fingerprint": row.get("fingerprint", ""),
-                "evidence_sources": row.get("evidence_sources", {}),
+                "evidence_sources": sanitize_evidence_sources(row.get("evidence_sources", {})),
                 "semantic_contract": row.get("semantic_contract", {}),
                 "verification_commands": row.get("verification_commands", []), "priority": item["priority"],
-                "summary": row["summary"], "score": row["score"], "evidence": row.get("evidence", ""),
+                "summary": redact(row["summary"]), "score": row["score"], "evidence": redact(row.get("evidence", "")),
                 "files": row.get("files", []), "tests": row.get("tests", ""),
                 "expected_result": row.get("expected_result", ""), "primary_artifact": row["artifact"],
                 "proof": row.get("proof", ""),

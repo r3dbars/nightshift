@@ -15,7 +15,7 @@ from night_shift_evidence import (
     score_output,
     summarize_output,
 )
-from night_shift_redaction import redact
+from night_shift_redaction import redact, sanitize_evidence_sources
 
 
 def coverage_citation_examples(evidence_sources: dict[str, str] | None) -> list[str]:
@@ -191,6 +191,7 @@ def dispatch_one(
 
     selected = select_best_attempt(attempts)
     res = selected["res"]
+    safe_output = redact(res.stdout)
     score = selected["score"]
     artifact = ledger / "artifacts" / f"{safe_label}-{lane}.md"
     artifact.write_text(redact(res.stdout).strip() + "\n", encoding="utf-8")
@@ -212,12 +213,12 @@ def dispatch_one(
         "tokens": total_tokens,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "summary": summarize_output(res.stdout),
-        "action_type": action_type(res.stdout),
-        "evidence": first_label_value(res.stdout, ["EVIDENCE"]),
-        "files": concrete_paths(res.stdout, candidate_files),
-        "tests": clean_inline_code(first_label_value(res.stdout, ["TESTS_TO_RUN", "TESTS TO RUN", "VERIFICATION"])),
-        "expected_result": clean_inline_code(first_label_value(res.stdout, ["EXPECTED_RESULT", "EXPECTED RESULT"])),
+        "summary": summarize_output(safe_output),
+        "action_type": action_type(safe_output),
+        "evidence": first_label_value(safe_output, ["EVIDENCE"]),
+        "files": concrete_paths(safe_output, candidate_files),
+        "tests": clean_inline_code(first_label_value(safe_output, ["TESTS_TO_RUN", "TESTS TO RUN", "VERIFICATION"])),
+        "expected_result": clean_inline_code(first_label_value(safe_output, ["EXPECTED_RESULT", "EXPECTED RESULT"])),
         "quality_reasons": output_quality_reasons(
             res.rc,
             res.stdout,
@@ -229,8 +230,8 @@ def dispatch_one(
             source_ref,
         ),
         "source_ref": source_ref,
-        "evidence_sources": dict(evidence_sources or {}),
+        "evidence_sources": sanitize_evidence_sources(evidence_sources),
         "retry_count": len(attempts) - 1,
-        "output": res.stdout,
-        "output_preview": " ".join(res.stdout.strip().split())[:240],
+        "output": safe_output,
+        "output_preview": " ".join(safe_output.strip().split())[:240],
     }

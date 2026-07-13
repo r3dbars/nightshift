@@ -6,7 +6,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from night_shift_redaction import contains_secret, context_path_is_sensitive, redact
+from night_shift_redaction import (
+    contains_secret,
+    context_path_is_sensitive,
+    redact,
+    sanitize_task_for_ledger,
+)
 
 
 class SecretRedactionTests(unittest.TestCase):
@@ -36,6 +41,23 @@ class SecretRedactionTests(unittest.TestCase):
                 self.assertTrue(context_path_is_sensitive(path))
         self.assertFalse(context_path_is_sensitive("src/auth.py"))
         self.assertFalse(context_path_is_sensitive("tests/test_auth.py"))
+
+    def test_ledger_task_sanitizer_drops_sensitive_paths_and_redacts_evidence(self):
+        task = {
+            "files": ["src/app.py", ".env", ".ssh/id_rsa"],
+            "signal": "Authorization: Bearer ledgercanary123456789",
+            "evidence_sources": {
+                "github-actions/run.log": "client_secret=ledgersecret123456789",
+                ".env": "TOKEN=rawenvcanary123456789",
+            },
+        }
+        safe = sanitize_task_for_ledger(task)
+        serialized = str(safe)
+        self.assertEqual(safe["files"], ["src/app.py"])
+        self.assertNotIn(".env", safe["evidence_sources"])
+        self.assertNotIn("ledgercanary", serialized)
+        self.assertNotIn("ledgersecret", serialized)
+        self.assertNotIn("rawenvcanary", serialized)
 
 
 if __name__ == "__main__":

@@ -72,6 +72,24 @@ class ReportingTests(unittest.TestCase):
             self.assertEqual(queue[0]["supporting_artifacts"], 2)
             self.assertEqual(queue[0]["evidence_sources"], rows[0]["evidence_sources"])
 
+    def test_work_queue_and_harvest_redact_raw_evidence_and_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            row = result(summary="Authorization: Bearer summarycanary123456789")
+            row["evidence"] = "src/app.py:1 | client_secret=evidencecanary123456789"
+            row["evidence_sources"] = {
+                "github-actions/run.log": "api_key=ledgercanary123456789",
+                ".env": "TOKEN=envcanary123456789",
+            }
+            engine = self.engine()
+            engine.write_harvest(ledger, [row])
+            engine.write_work_queue(ledger, [row])
+            combined = (ledger / "harvest.md").read_text() + (ledger / "work-queue.json").read_text()
+            for canary in ("summarycanary", "evidencecanary", "ledgercanary", "envcanary"):
+                self.assertNotIn(canary, combined)
+            self.assertNotIn('".env"', combined)
+            self.assertIn("[REDACTED_SECRET]", combined)
+
     def test_morning_lists_keep_and_maybe(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)

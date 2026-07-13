@@ -35,7 +35,7 @@ from night_shift_policy import PROFILE_NAME, PROTECTED_PATHS, command_display, p
 from night_shift_sandbox import build_runner_image, detect_sandbox, sandbox_command
 from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
-from night_shift_redaction import contains_secret, context_path_is_sensitive, redact
+from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_score, should_record_feedback_event, should_record_review_outcome, task_family
@@ -2014,7 +2014,8 @@ def command_plan(args) -> int:
     write_repo_scan(ledger, scan)
     queue = build_repo_work_queue(root, scan, args.mode, "brief")
     (ledger / "board.md").write_text(build_board(args.mode, queue, "brief"), encoding="utf-8")
-    (ledger / "planned-work-queue.json").write_text(json.dumps(queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    safe_queue = [sanitize_task_for_ledger(item) for item in queue]
+    (ledger / "planned-work-queue.json").write_text(json.dumps(safe_queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
     (ledger / "mode.json").write_text(json.dumps({"mode": args.mode, **MODE_DEFAULTS[args.mode]}, indent=2) + "\n", encoding="utf-8")
     (ledger / "startup-gate.md").write_text("# Startup Gate\n\nStatus: NOT_RUN\n\nRun `night-shift doctor --repo <repo>` before a real night.\n", encoding="utf-8")
@@ -2144,7 +2145,8 @@ def command_run(args) -> int:
     task_limit = getattr(args, "task_limit", None)
     if task_limit is not None:
         queue = queue[: max(0, task_limit)]
-    (ledger / "planned-work-queue.json").write_text(json.dumps(queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    safe_queue = [sanitize_task_for_ledger(item) for item in queue]
+    (ledger / "planned-work-queue.json").write_text(json.dumps(safe_queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
     (ledger / "board.md").write_text(build_board(args.mode, queue, permission), encoding="utf-8")
 
@@ -2314,7 +2316,7 @@ def command_run(args) -> int:
                     result["executable"] = pending_item["executable"]
                     result["source_ref"] = pending_item["source_ref"]
                     result["verification_commands"] = pending_item["verification_commands"]
-                    result["evidence_sources"] = pending_item["evidence_sources"]
+                    result["evidence_sources"] = sanitize_evidence_sources(pending_item["evidence_sources"])
                     result["semantic_contract"] = pending_item["semantic_contract"]
                     results.append(result)
                     if result.get("score") == "REJECT":
@@ -2345,7 +2347,7 @@ def command_run(args) -> int:
                             "executable": pending_item["executable"],
                             "source_ref": pending_item["source_ref"],
                             "verification_commands": pending_item["verification_commands"],
-                            "evidence_sources": pending_item["evidence_sources"],
+                            "evidence_sources": sanitize_evidence_sources(pending_item["evidence_sources"]),
                             "semantic_contract": pending_item["semantic_contract"],
                         }
                     )
