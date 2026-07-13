@@ -315,6 +315,7 @@ CONFIDENCE: high
         )
         self.assertIn("Copy a path below character-for-character", prompt)
         self.assertIn("never invent a path, alter punctuation, or write `path:none`", prompt)
+        self.assertIn("Do not infer intent, root cause", prompt)
         self.assertIn("- bin/night_shift_drafts.py", prompt)
         self.assertIn("- tests/test_night_shift.py", prompt)
         self.assertIn("- coverage-index/bin-night_shift_drafts.py-select_candidate.txt", prompt)
@@ -347,6 +348,12 @@ CONFIDENCE: high
         self.assertFalse(
             night_shift.should_retry_local_output("local", 0, "REJECT", "ACTION_TYPE: reject")
         )
+
+    def test_pinned_issue_files_allow_one_windows_correction(self):
+        self.assertTrue(night_shift.has_pinned_task_evidence(["src/app.py"], "a" * 40, {}, True))
+        self.assertTrue(night_shift.has_pinned_task_evidence([], "", {"ci.log": "failed"}))
+        self.assertFalse(night_shift.has_pinned_task_evidence(["src/app.py"], "", {}))
+        self.assertFalse(night_shift.has_pinned_task_evidence(["src/app.py"], "a" * 40, {}, False))
 
     def test_old_observed_fact_evidence_format_is_rejected(self):
         output = """CLAIM: A grounded-looking claim
@@ -1612,6 +1619,46 @@ buildThing() { return 1; }
         self.assertIn("failed-ci-56", slugs)
         self.assertNotIn("draft-pr-candidate", slugs)
         self.assertNotIn("small-safe-fix-candidate", slugs)
+
+    def test_issue_queue_ranks_bounded_symbol_grounded_work_before_tracker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "Sources").mkdir()
+            (repo / "Sources" / "ParakeetEngine.swift").write_text(
+                "final class ParakeetEngine { var liveTranscript = \"\" }\n",
+                encoding="utf-8",
+            )
+            (repo / "Sources" / "StreamingEouAsrManager.swift").write_text(
+                "final class StreamingEouAsrManager {}\n",
+                encoding="utf-8",
+            )
+            tracked = ["Sources/ParakeetEngine.swift", "Sources/StreamingEouAsrManager.swift"]
+            scan = {
+                "recent_files": [], "source_files": tracked, "tracked_files": tracked,
+                "test_files": [], "doc_files": [], "todo_sample": [],
+                "test_commands": ["swift test"], "github_open_prs_raw": "[]",
+                "github_failed_runs_raw": "[]", "github_failed_logs_raw": "[]",
+                "github_open_issues_raw": json.dumps([
+                    {"number": 41, "title": "Release tracker", "body": "- [ ] Sign app\n- [ ] Ship DMG"},
+                    {"number": 40, "title": "Improve onboarding", "body": "Make the explanation clearer."},
+                    {"number": 37, "title": "Build release infrastructure", "body": "Add `release.sh` and Developer ID signing."},
+                    {"number": 38, "title": "Fix live text", "body": "Verify `StreamingEouAsrManager`, `ParakeetEngine`, and `liveTranscript`."},
+                ]),
+            }
+            queue = night_shift.build_repo_work_queue(repo, scan, "night-shift", "brief")
+            issue_tasks = [item for item in queue if item["kind"] == "issue"]
+            self.assertEqual(issue_tasks[0]["slug"], "issue-38-next-action")
+            self.assertGreater(issue_tasks[0]["selection_priority"], issue_tasks[1]["selection_priority"])
+            self.assertEqual(
+                set(issue_tasks[0]["files"]),
+                {"Sources/ParakeetEngine.swift", "Sources/StreamingEouAsrManager.swift"},
+            )
+            release = next(item for item in issue_tasks if item["slug"] == "issue-37-next-action")
+            self.assertEqual(release["files"], [])
+
+            afterburner = night_shift.build_repo_work_queue(repo, scan, "afterburner", "brief")
+            afterburner_issues = [item["slug"] for item in afterburner if item["kind"] == "issue"]
+            self.assertIn("issue-41-next-action", afterburner_issues)
 
     def test_detect_test_commands_supports_common_repo_types(self):
         with tempfile.TemporaryDirectory() as tmp:

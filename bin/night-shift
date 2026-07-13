@@ -1420,6 +1420,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         source_ref: str = "",
         commands: list[str] | None = None,
         executable: bool = False,
+        signal_strength: int = 0,
     ) -> None:
         if slug in {item["slug"] for item in queue}:
             return
@@ -1439,6 +1440,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
                 "evidence_sources": evidence_sources or {},
                 "source_ref": source_ref,
                 "executable": executable,
+                "signal_strength": signal_strength,
             }
         )
 
@@ -1470,6 +1472,31 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
         if b"\x00" in raw[:4096]:
             return ""
         return raw[:max_bytes].decode("utf-8", errors="replace")
+
+    source_text_cache: dict[str, str] = {}
+
+    def issue_candidate_files(issue: dict) -> tuple[list[str], int]:
+        issue_text = f"{issue.get('title', '')}\n{issue.get('body', '')}"
+        direct = [path for path in tracked_files if path and path in issue_text]
+        quoted = re.findall(r"`([^`\n]{4,120})`", issue_text)
+        terms = [
+            term for term in dict.fromkeys(quoted)
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_:.()]*", term)
+            and not term.startswith(("http", "TODO", "FIXME"))
+        ][:20]
+        matched_terms: set[str] = set()
+        matched_files: list[tuple[str, int]] = []
+        for path in source_files[:120]:
+            if path not in source_text_cache:
+                source_text_cache[path] = read_current_text(path)
+            text = source_text_cache[path]
+            file_terms = [term for term in terms if contains_identifier(text, term.rstrip("()"))]
+            if file_terms:
+                matched_files.append((path, len(file_terms)))
+                matched_terms.update(file_terms)
+        matched_files.sort(key=lambda row: -row[1])
+        files = list(dict.fromkeys([*(path for path, _ in matched_files), *direct]))[:12]
+        return files, len(matched_terms)
 
     def read_coverage_text(relative: str, max_bytes: int) -> tuple[str, bool]:
         if not repo:
@@ -1682,10 +1709,18 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             commands=branch_commands,
             executable=True,
         )
-    for issue in issues[:3]:
+    issue_rows = []
+    for issue in issues[:20]:
+        candidate_files, matched_terms = issue_candidate_files(issue)
+        issue_rows.append((issue, candidate_files, matched_terms, len(unchecked_issue_actions(issue))))
+    issue_rows.sort(key=lambda row: (row[3] > 1, -row[2], -len(row[1])))
+    selected_issue_rows = issue_rows[:3]
+    if mode == "afterburner":
+        tracker = next((row for row in issue_rows if row[3] > 1), None)
+        if tracker and tracker not in selected_issue_rows:
+            selected_issue_rows = [*selected_issue_rows[:2], tracker]
+    for issue, issue_files, matched_terms, _ in selected_issue_rows:
         number = issue.get("number") or "unknown"
-        issue_text = f"{issue.get('title', '')}\n{issue.get('body', '')}"
-        issue_files = [path for path in tracked_files if path and path in issue_text][:12]
         add(
             f"issue-{number}-next-action",
             "issue",
@@ -1695,6 +1730,7 @@ def build_repo_work_queue(repo: Path | None, scan: dict, mode: str, permission: 
             ladder="finish",
             preferred_lane="windows",
             signal=json.dumps(issue, sort_keys=True),
+            signal_strength=matched_terms,
         )
     for pr in pull_requests[:5]:
         number = pr.get("number") or "unknown"
@@ -2228,6 +2264,7 @@ def correction_prompt(
         + ". Return the complete requested schema once. Use only supplied evidence; reject the task if evidence is insufficient.\n"
         + "Every EVIDENCE entry must use `path:line | exact source line`. Copy a path below character-for-character; "
         + "never invent a path, alter punctuation, or write `path:none`. Do not add prose-only evidence bullets.\n"
+        + "Make CLAIM no broader than the literal cited line. Do not infer intent, root cause, or that a proposed change will fix the full issue.\n"
         + "Allowed evidence paths:\n"
         + path_lines
         + "\nCopy-ready deterministic citations (copy only the relevant one or two exactly):\n"
@@ -2247,6 +2284,15 @@ def should_retry_local_output(
         and action_type(output) != "reject"
         and not UNSAFE_APPROVAL_RE.search(output)
     )
+
+
+def has_pinned_task_evidence(
+    candidate_files: list[str] | None,
+    source_ref: str,
+    evidence_sources: dict[str, str] | None,
+    pinned_issue: bool = False,
+) -> bool:
+    return bool(evidence_sources) or bool(pinned_issue and candidate_files and source_ref)
 
 
 def select_best_attempt(attempts: list[dict]) -> dict:
@@ -2274,6 +2320,7 @@ def dispatch_one(
     proof_kind: str = "source",
     evidence_sources: dict[str, str] | None = None,
     source_ref: str = "",
+    pinned_issue: bool = False,
 ) -> dict:
     delegate = BIN / "maestro-delegate"
     env = os.environ.copy()
@@ -2328,7 +2375,11 @@ def dispatch_one(
         source_ref,
     )
     if should_retry_local_output(
-        lane, first["res"].rc, first["score"], first["res"].stdout, bool(evidence_sources)
+        lane,
+        first["res"].rc,
+        first["score"],
+        first["res"].stdout,
+        has_pinned_task_evidence(candidate_files, source_ref, evidence_sources, pinned_issue),
     ):
         retry_prompt = correction_prompt(
             prompt, reasons, candidate_files, evidence_sources, verification_commands
@@ -2801,6 +2852,7 @@ def command_run(args) -> int:
                 bool(item.get("executable", False)),
                 item.get("evidence_sources", {}),
                 item.get("source_ref", ""),
+                item.get("kind") == "issue",
             )
         )
         lane_counts[lane] += 1
@@ -2829,6 +2881,7 @@ def command_run(args) -> int:
                 executable,
                 evidence_sources,
                 source_ref,
+                pinned_issue,
             ) = item
             if lane_running[lane] >= lane_limits[lane]:
                 continue
@@ -2851,6 +2904,7 @@ def command_run(args) -> int:
                 proof_kind,
                 evidence_sources,
                 source_ref,
+                pinned_issue,
             )
             pending[future] = {
                 "lane": lane,
