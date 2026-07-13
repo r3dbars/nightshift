@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 from collections.abc import Callable
 
@@ -73,6 +74,94 @@ def task_selection_priority(task: dict) -> int:
     if complete_index and files and commands:
         return priority + 500
     return priority + min(100, max(0, int(task.get("signal_strength") or 0)) * 10)
+
+
+def requests_coverage_work(goal: str) -> bool:
+    action = r"(?:add|audit|create|expand|fix|improve|increase|review|strengthen|write)"
+    target = r"(?:test|tests|testing|coverage|regression)"
+    return bool(re.search(rf"\b(?:{action}\b.{{0,48}}\b{target}|{target}\b.{{0,48}}\b{action})\b", goal, re.IGNORECASE))
+
+
+def unchecked_issue_actions(signal: dict) -> list[str]:
+    body = str(signal.get("body") or "")
+    return [
+        match.group(1).strip()
+        for match in re.finditer(r"^\s*[-*]\s*\[\s\]\s+(.+)$", body, re.IGNORECASE | re.MULTILINE)
+    ]
+
+
+def _task_signal(task: dict) -> dict:
+    signal = task.get("signal", "")
+    if isinstance(signal, dict):
+        return signal
+    try:
+        parsed = json.loads(signal)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def model_task_readiness_reasons(task: dict, mode: str, goal: str = "") -> list[str]:
+    """Reject low-signal work before it consumes local or LAN model tokens."""
+    reasons: list[str] = []
+    slug = str(task.get("slug") or "")
+    files = task.get("files") or []
+    commands = [command for command in task.get("verification_commands") or [] if command != "git status --short"]
+    signal = _task_signal(task)
+
+    if not files:
+        reasons.append("no exact repo file is tied to the signal")
+    if task.get("kind") in {"tests", "issue"} and not commands:
+        reasons.append("no deterministic verification command was detected")
+
+    if slug.startswith("failed-ci-"):
+        evidence = "\n".join(str(value) for value in (task.get("evidence_sources") or {}).values()).strip()
+        if not task.get("source_ref"):
+            reasons.append("failed CI is not pinned to a head SHA")
+        if not evidence or re.search(r"log not found|no logs? found|unable to (?:fetch|read).*log", evidence, re.IGNORECASE):
+            reasons.append("failed CI has no usable failed-step log")
+        elif not re.search(r"\b(error|failed|failure|assert(?:ion)?|exception|panic|fatal)", evidence, re.IGNORECASE):
+            reasons.append("failed-step log has no concrete failure marker")
+        elif files and not any(path in evidence for path in files):
+            reasons.append("failed-step log does not name a candidate repo file")
+    elif slug.startswith("pr-"):
+        checks = signal.get("statusCheckRollup") or []
+        failed_check = any(row.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for row in checks)
+        if signal.get("reviewDecision") != "CHANGES_REQUESTED" and not failed_check:
+            reasons.append("PR has neither requested changes nor failed checks")
+        if not task.get("source_ref"):
+            reasons.append("PR review is not pinned to its head SHA")
+    elif slug.startswith("issue-"):
+        actions = unchecked_issue_actions(signal)
+        if mode != "afterburner" and len(actions) > 1:
+            reasons.append(f"issue is a {len(actions)}-item tracker reserved for afterburner")
+    elif slug == "recent-change-test-gap" or slug.startswith("changed-file-proof-"):
+        evidence = "\n".join(str(value) for value in (task.get("evidence_sources") or {}).values())
+        if "scan_complete=true" not in evidence:
+            reasons.append("coverage index is incomplete")
+        if "identifier_matches=0" not in evidence:
+            reasons.append("coverage index does not prove zero identifier matches")
+        if mode != "afterburner" and not requests_coverage_work(goal):
+            reasons.append("coverage-index-only work is reserved for afterburner or an explicit coverage goal")
+
+    broad_kind = task.get("kind") in {"map", "docs", "proof"} or (
+        task.get("kind") == "triage" and not slug.startswith("pr-")
+    )
+    if mode != "afterburner" and broad_kind:
+        reasons.append("broad mapping or inspection work is reserved for afterburner")
+    return list(dict.fromkeys(reasons))
+
+
+def model_ready_tasks(queue: list[dict], mode: str, goal: str = "") -> tuple[list[dict], list[dict]]:
+    ready: list[dict] = []
+    skipped: list[dict] = []
+    for task in queue:
+        reasons = model_task_readiness_reasons(task, mode, goal)
+        if reasons:
+            skipped.append({"slug": task.get("slug", ""), "category": "pre-model", "reason": "; ".join(reasons)})
+        else:
+            ready.append(task)
+    return ready, skipped
 
 
 def relevant_tests_for_source(
