@@ -104,6 +104,9 @@ def evidence_validation_reasons(
     entries = re.findall(r"(?:^|\s|[-*`])([A-Za-z0-9_./@+-]+):(\d+)\s*\|\s*([^\n]+)", block)
     if not entries:
         return ["evidence did not include `path:line | exact source line`"]
+    task_id = first_label_value(output, ["TASK_ID", "TASK ID"])
+    if task_id.startswith("issue-") and len(entries) != 1:
+        return ["issue evidence must contain exactly one citation"]
     evidence_bullets = [line for line in block.splitlines() if line.lstrip().startswith(("-", "*"))]
     if any(not re.search(r"[A-Za-z0-9_./@+-]+:\d+\b", line) for line in evidence_bullets):
         return ["evidence contains a statement that was not tied to an exact path:line"]
@@ -111,6 +114,12 @@ def evidence_validation_reasons(
     allowed = set(candidate_files or []) | set(supplied_sources)
     claim = first_label_value(output, ["CLAIM"])
     negative_claim = bool(re.search(r"\b(does not|doesn't|missing|no|lacks?|absent|without)\b", claim, re.IGNORECASE))
+    intent_claim = bool(re.search(r"\b(intentional(?:ly)?|deliberate(?:ly)?)\b", claim, re.IGNORECASE))
+    denied_intent_claim = bool(re.search(
+        r"\b(?:not\s+(?:intentional(?:ly)?|deliberate(?:ly)?)|unintentional(?:ly)?)\b",
+        claim,
+        re.IGNORECASE,
+    ))
     if negative_claim and proof_kind != "test":
         return ["negative claim requires deterministic repository proof"]
     claimed_paths = {
@@ -146,6 +155,16 @@ def evidence_validation_reasons(
         quote = raw_quote.strip().strip("`").strip('"').strip()
         if " ".join(quote.split()) != " ".join(source_line.strip().split()):
             return [f"evidence quote does not match source: {relative}:{raw_line}"]
+        source_intent = bool(re.search(
+            r"\b(intentional(?:ly)?|deliberate(?:ly)?)\b", source_line, re.IGNORECASE
+        ))
+        source_denied_intent = bool(re.search(
+            r"\b(?:not\s+(?:intentional(?:ly)?|deliberate(?:ly)?)|unintentional(?:ly)?)\b",
+            source_line,
+            re.IGNORECASE,
+        ))
+        if intent_claim and (not source_intent or denied_intent_claim != source_denied_intent):
+            return [f"cited line does not support claimed intent: {relative}:{raw_line}"]
         source_words = {
             word.rstrip("s") for word in re.findall(r"[a-z0-9]+", source_line.lower()) if len(word) >= 4 and word not in stop
         }

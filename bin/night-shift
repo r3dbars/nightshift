@@ -2104,9 +2104,24 @@ def task_evidence_pack(
     return redact("\n\n".join(sections))[:max_chars]
 
 
+def issue_evidence_contract(task: dict | None) -> str:
+    if (task or {}).get("kind") != "issue":
+        return ""
+    return textwrap.dedent(
+        """
+        ISSUE EVIDENCE CONTRACT:
+        - EVIDENCE must contain exactly one `path:line | exact source line` entry.
+        - CLAIM must be a literal restatement of only that cited line.
+        - Do not put intent, causality, root cause, missing behavior, or fix effectiveness in CLAIM.
+        - Put the issue connection in WHY_NOW and describe PROPOSED_CHANGE or BEST_NEXT_ACTION as a hypothesis to verify.
+        """
+    ).strip()
+
+
 def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict | None = None, permission: str = "brief") -> str:
     context = context_pack[:30000]
     queue_context = task_context_block(task or {"slug": task_slug, "prompt": task_text})
+    issue_contract = issue_evidence_contract(task)
     return textwrap.dedent(
         f"""
         ROLE: Mac local repo analyst.
@@ -2129,6 +2144,7 @@ def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict |
         - A suggestion without an exact path plus evidence is not useful.
         - If the claim says a file is missing a check or behavior, EVIDENCE must cite that same file.
         - A changelog statement that says a feature was added is evidence of current behavior, not a request to add it again.
+        {issue_contract}
 
         OUTPUT:
         1. TASK_ID: {task_slug}
@@ -2150,6 +2166,7 @@ def local_prompt(task_slug: str, task_text: str, context_pack: str, task: dict |
 def windows_prompt(task_slug: str, task_text: str, context_pack: str, task: dict | None = None, permission: str = "brief") -> str:
     context = context_pack[:34000]
     queue_context = task_context_block(task or {"slug": task_slug, "prompt": task_text})
+    issue_contract = issue_evidence_contract(task)
     return textwrap.dedent(
         f"""
         ROLE: Windows long-running draft worker.
@@ -2172,6 +2189,7 @@ def windows_prompt(task_slug: str, task_text: str, context_pack: str, task: dict
         - A review claim without an exact path plus evidence is not useful.
         - If the claim says a file is missing a check or behavior, EVIDENCE must cite that same file.
         - A changelog statement that says a feature was added is evidence of current behavior, not a request to add it again.
+        {issue_contract}
 
         OUTPUT:
         1. TASK_ID: {task_slug}
