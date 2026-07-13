@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +19,7 @@ from night_shift_lifecycle import (
     cleanup_candidates,
     deadline_reached,
     directory_size,
+    recover_stale_autopilot,
     stop_deadline,
     stop_recorded_processes,
 )
@@ -82,6 +84,17 @@ class StopRecordedProcessesTests(unittest.TestCase):
             stopped, missing = stop_recorded_processes(ledger)
             self.assertEqual((stopped, missing), (0, 1))
 
+    def test_recovery_scope_does_not_signal_stale_recorded_pid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            (ledger / "processes.tsv").write_text("1234\t100\told worker\n", encoding="utf-8")
+            with patch("night_shift_lifecycle.os.killpg") as killpg:
+                stopped, missing = stop_recorded_processes(
+                    ledger, not_before=1_000, now=1_000
+                )
+            self.assertEqual((stopped, missing), (0, 1))
+            killpg.assert_not_called()
+
 
 class DirectorySizeAndCleanupTests(unittest.TestCase):
     def test_directory_size_sums_file_bytes(self):
@@ -145,6 +158,79 @@ class ActiveAutopilotTests(unittest.TestCase):
             state = {"pid": os.getpid(), "mode": "night-shift"}
             state_path.write_text(json.dumps(state), encoding="utf-8")
             self.assertEqual(active_autopilot(state_path), state)
+
+
+class CrashRecoveryTests(unittest.TestCase):
+    def test_recovers_stale_ledger_and_marks_morning_yellow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "overnight"
+            ledger = root / "night-shift-old-autopilot"
+            ledger.mkdir(parents=True)
+            (ledger / "morning.md").write_text("Status: GREEN\n\nOld result\n", encoding="utf-8")
+            state = Path(tmp) / "active.json"
+            state.write_text(json.dumps({"pid": 99999999, "ledger": str(ledger)}), encoding="utf-8")
+
+            result = recover_stale_autopilot(state, root)
+
+            self.assertEqual(result["status"], "recovered")
+            self.assertFalse(state.exists())
+            self.assertTrue((ledger / "STOP").exists())
+            self.assertEqual(json.loads((ledger / "crash-recovery.json").read_text())["status"], "RECOVERED_AFTER_CRASH")
+            morning = (ledger / "morning.md").read_text()
+            self.assertIn("Status: YELLOW", morning)
+            self.assertIn("previous controller stopped unexpectedly", morning)
+
+    def test_refuses_stale_state_pointing_outside_ledger_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "overnight"
+            root.mkdir()
+            outside = Path(tmp) / "night-shift-outside"
+            outside.mkdir()
+            state = Path(tmp) / "active.json"
+            state.write_text(json.dumps({"pid": 99999999, "ledger": str(outside)}), encoding="utf-8")
+
+            result = recover_stale_autopilot(state, root)
+
+            self.assertEqual(result["status"], "unsafe")
+            self.assertTrue(state.exists())
+            self.assertFalse((outside / "STOP").exists())
+
+    def test_refuses_symlinked_active_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "target.json"
+            target.write_text("{}\n", encoding="utf-8")
+            state = root / "active.json"
+            state.symlink_to(target)
+            self.assertEqual(recover_stale_autopilot(state, root)["status"], "unsafe")
+
+    def test_live_controller_state_is_not_recovered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "overnight"
+            ledger = root / "night-shift-live-autopilot"
+            ledger.mkdir(parents=True)
+            state = Path(tmp) / "active.json"
+            state.write_text(json.dumps({"pid": os.getpid(), "ledger": str(ledger)}), encoding="utf-8")
+
+            result = recover_stale_autopilot(state, root)
+
+            self.assertEqual(result["status"], "active")
+            self.assertTrue(state.exists())
+            self.assertFalse((ledger / "STOP").exists())
+
+    def test_refuses_symlinked_crashed_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "overnight"
+            root.mkdir()
+            real = root / "night-shift-real-autopilot"
+            real.mkdir()
+            ledger = root / "night-shift-link-autopilot"
+            ledger.symlink_to(real, target_is_directory=True)
+            state = Path(tmp) / "active.json"
+            state.write_text(json.dumps({"pid": 99999999, "ledger": str(ledger)}), encoding="utf-8")
+
+            self.assertEqual(recover_stale_autopilot(state, root)["status"], "unsafe")
+            self.assertFalse((real / "STOP").exists())
 
 
 class CancelPendingWorkersIntegrationTests(unittest.TestCase):

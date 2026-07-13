@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import os
 import signal
 import time
@@ -37,7 +38,9 @@ def deadline_reached(deadline: float | None, stop_file: Path | None = None, now:
     return reached
 
 
-def stop_recorded_processes(ledger: Path, force: bool = False) -> tuple[int, int]:
+def stop_recorded_processes(
+    ledger: Path, force: bool = False, not_before: float | None = None, now: float | None = None
+) -> tuple[int, int]:
     process_file = ledger / "processes.tsv"
     if not process_file.exists():
         return 0, 0
@@ -50,6 +53,16 @@ def stop_recorded_processes(ledger: Path, force: bool = False) -> tuple[int, int
         pid = int(parts[0])
         if pid <= 1:
             continue
+        if not_before is not None:
+            try:
+                recorded_at = int(parts[1])
+            except (IndexError, ValueError):
+                missing += 1
+                continue
+            current = time.time() if now is None else now
+            if recorded_at < not_before - 60 or recorded_at > current + 60:
+                missing += 1
+                continue
         try:
             os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
             stopped += 1
@@ -111,3 +124,87 @@ def active_autopilot(state_path: Path) -> dict:
         return active
     except (OSError, ValueError, TypeError):
         return {}
+
+
+def recover_stale_autopilot(state_path: Path, overnight_root: Path) -> dict:
+    """Close a crashed controller ledger without trusting paths from its state file."""
+    if not state_path.exists():
+        return {"status": "none"}
+    if state_path.is_symlink():
+        return {"status": "unsafe", "reason": "active state is a symlink"}
+    pid = 0
+    try:
+        state = parse_json_text(state_path.read_text(encoding="utf-8"), {})
+        if not isinstance(state, dict):
+            return {"status": "unsafe", "reason": "active state is not an object"}
+        pid = int(state.get("pid", 0))
+        if pid > 1:
+            os.kill(pid, 0)
+            return {"status": "active", "pid": pid}
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        return {"status": "active", "pid": pid}
+    except FileNotFoundError:
+        return {"status": "none"}
+    except (OSError, ValueError, TypeError):
+        state = {}
+
+    root = overnight_root.resolve()
+    ledger = Path(str(state.get("ledger") or "")).expanduser()
+    try:
+        resolved = ledger.resolve()
+    except OSError:
+        return {"status": "unsafe", "reason": "stale ledger path cannot be resolved"}
+    if (
+        not state.get("ledger")
+        or ledger.is_symlink()
+        or not resolved.is_dir()
+        or resolved.parent != root
+        or not resolved.name.startswith("night-shift-")
+    ):
+        return {"status": "unsafe", "reason": "stale ledger is outside the Night Shift ledger root"}
+
+    started_at = None
+    try:
+        started_at = datetime.fromisoformat(str(state.get("started_at"))).timestamp()
+    except (TypeError, ValueError):
+        pass
+    current_time = time.time()
+    recent_session = started_at is not None and 0 <= current_time - started_at <= 12 * 3600
+    stopped, missing = stop_recorded_processes(
+        resolved, not_before=started_at if recent_session else current_time + 1, now=current_time
+    )
+    if stopped:
+        time.sleep(0.25)
+        force_stopped, force_missing = stop_recorded_processes(
+            resolved, force=True, not_before=started_at, now=current_time
+        )
+        stopped += force_stopped
+        missing += force_missing
+    recovered_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    (resolved / "STOP").write_text(f"controller crash recovered at {recovered_at}\n", encoding="utf-8")
+    recovery = {
+        "status": "RECOVERED_AFTER_CRASH",
+        "controller_pid": pid if pid > 1 else None,
+        "recovered_at": recovered_at,
+        "worker_signals_sent": stopped,
+        "workers_already_gone": missing,
+        "worker_cleanup_scope": "recent-controller-session" if recent_session else "skipped-stale-or-undated-session",
+    }
+    (resolved / "crash-recovery.json").write_text(
+        json.dumps(recovery, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    morning = resolved / "morning.md"
+    existing = morning.read_text(encoding="utf-8", errors="replace") if morning.exists() else ""
+    existing = existing.replace("Status: GREEN", "Status: YELLOW", 1)
+    if "Status:" not in existing:
+        existing = "Status: YELLOW\n\n" + existing
+    existing += (
+        "\n## Crash recovery\n\n"
+        "The previous controller stopped unexpectedly. Night Shift stopped its recorded workers "
+        "and preserved this ledger for review. A new shift may now start safely.\n"
+    )
+    morning.write_text(existing, encoding="utf-8")
+    state_path.unlink(missing_ok=True)
+    return {**recovery, "status": "recovered", "ledger": str(resolved)}
