@@ -278,6 +278,8 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "Command argv lists may contain Path objects. Compare the complete list to an exact expected list, such as "
             "['git', 'worktree', 'remove', '--force', worktree], and do not apply string membership tests to each raw argument. "
             "Preserve exact argument types: compare a Path as a Path unless source explicitly converts it. "
+            "For output-parsing tests, include every expected positive fixture in the sample output before asserting a non-empty result; "
+            "to prove deduplication and a maximum limit, include enough matching fixtures to exercise both behaviors and assert the exact ordered result. "
             "Assert exact observed call order, arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
             "EXCERPT, preferably near the test file tail. Keep the patch under 80 changed lines."
         )

@@ -175,6 +175,8 @@ class NightShiftQualityTests(unittest.TestCase):
         self.assertIn("['git', 'worktree', 'remove', '--force', worktree]", prompt)
         self.assertIn("Path objects", prompt)
         self.assertIn("compare a Path as a Path", prompt)
+        self.assertIn("include every expected positive fixture in the sample output", prompt)
+        self.assertIn("exercise both behaviors", prompt)
 
     def test_inline_label_parsing_preserves_terminal_source_punctuation(self):
         evidence = (
