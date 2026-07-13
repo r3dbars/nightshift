@@ -283,6 +283,7 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "existing test import; never return a dict like `{'rc': 0}`. "
             + import_guidance
             + "Any new import must be inside the new test method; the isolated materializer retains only that method, not module or class-scope imports. "
+            + "For parser tests, follow the exact source branches shown in SOURCE EXCERPT: assert empty for malformed or mismatched inputs when the source returns empty, and do not invent normalization behavior that the source does not implement. "
             + "If the source return annotation is bool, assert the returned value directly with assertTrue or assertFalse; "
             "do not read attributes such as rc from that boolean. A fake command runner does not create filesystem "
             "side effects unless the fake explicitly implements them, so prove behavior from its recorded calls. "

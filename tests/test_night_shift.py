@@ -192,6 +192,10 @@ class NightShiftQualityTests(unittest.TestCase):
             "from night_shift_drafts import DraftEngine` inside the new test method", prompt
         )
         self.assertIn("Any new import must be inside the new test method", prompt)
+        self.assertIn(
+            "assert empty for malformed or mismatched inputs when the source returns empty",
+            prompt,
+        )
         self.assertIn("assert the returned value directly", prompt)
         self.assertIn("does not create filesystem side effects", prompt)
         self.assertIn("calls.append(list(cmd))", prompt)
