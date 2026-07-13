@@ -1,4 +1,5 @@
 import json
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -75,6 +76,8 @@ class PublishTests(unittest.TestCase):
                     return result(stdout=COMMIT_SHA + "\n")
                 if args[:3] == ["gh", "pr", "create"]:
                     return result(stdout="https://github.com/owner/repo/pull/7\n")
+                if args[:3] == ["gh", "pr", "list"]:
+                    return result(stdout="[]")
                 if args[:3] == ["gh", "pr", "view"]:
                     return result(stdout="true\n")
                 return result()
@@ -167,6 +170,8 @@ class PublishTests(unittest.TestCase):
                     return result(stdout=COMMIT_SHA + "\n")
                 if args[:3] == ["gh", "pr", "create"]:
                     return result(stdout="https://github.com/owner/repo/pull/8\n")
+                if args[:3] == ["gh", "pr", "list"]:
+                    return result(stdout="[]")
                 if args[:3] == ["gh", "pr", "view"]:
                     return result(stdout="false\n")
                 return result()
@@ -222,6 +227,8 @@ class PublishTests(unittest.TestCase):
                     return result(stdout=COMMIT_SHA + "\n")
                 if args[:3] == ["gh", "pr", "create"]:
                     return result(stdout="https://github.com/owner/repo/pull/9\n")
+                if args[:3] == ["gh", "pr", "list"]:
+                    return result(stdout="[]")
                 if args[:3] == ["gh", "pr", "view"]:
                     return result(stdout="false\n")
                 if args[:3] == ["gh", "pr", "close"]:
@@ -260,6 +267,8 @@ class PublishTests(unittest.TestCase):
                     return result(stdout=COMMIT_SHA + "\n")
                 if len(args) >= 4 and args[:3] == ["git", "push", "origin"] and "--delete" not in args:
                     return result(rc=124, stderr="timeout")
+                if args[:3] == ["gh", "pr", "list"]:
+                    return result(stdout="[]")
                 if args[:3] == ["git", "ls-remote", "--exit-code"]:
                     ls_calls += 1
                     return result(rc=2) if ls_calls == 1 else result(rc=1, stderr="network unavailable")
@@ -300,13 +309,82 @@ class PublishTests(unittest.TestCase):
             pushes = [args for args in calls if args[:2] == ["git", "push"]]
             self.assertEqual(pushes, [])
 
+    def test_remote_pr_history_blocks_duplicate_when_local_ledger_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            patch_path = root / "repair.patch"
+            patch_path.write_text(PATCH, encoding="utf-8")
+            calls = []
+            fingerprint = hashlib.sha256(
+                ("owner/repo" + "b" * 40 + PATCH).encode("utf-8")
+            ).hexdigest()[:12]
+
+            def fake(command, **kwargs):
+                args = [str(item) for item in command]
+                calls.append(args)
+                if args[:3] == ["gh", "api", "user"]:
+                    return result(stdout="owner\n")
+                if args[:3] == ["gh", "repo", "view"]:
+                    return result(stdout=json.dumps({
+                        "nameWithOwner": "owner/repo", "isFork": False,
+                        "defaultBranchRef": {"name": "main"},
+                    }))
+                if args[:3] == ["gh", "pr", "list"]:
+                    self.assertIn("all", args)
+                    return result(stdout=json.dumps([{
+                        "url": "https://github.com/owner/repo/pull/7",
+                        "headRefName": f"night-shift/oldtimestamp-{fingerprint}",
+                    }]))
+                return result()
+
+            published = PublishEngine(
+                fake, root / "worktrees", lambda: "different-every-run",
+                publication_ledger=root / "missing-ledger.jsonl",
+            ).publish(root, "owner/repo", self.proof(patch_path), profile(), root / "proof")
+            self.assertEqual(published["status"], "REJECT")
+            self.assertIn("already has GitHub PR history", published["reason"])
+            self.assertEqual(published["pr_url"], "https://github.com/owner/repo/pull/7")
+            self.assertFalse(any(args[:3] == ["git", "worktree", "add"] for args in calls))
+            self.assertFalse(any(args[:2] == ["git", "push"] for args in calls))
+
+    def test_unreadable_remote_pr_history_fails_closed_before_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            patch_path = root / "repair.patch"
+            patch_path.write_text(PATCH, encoding="utf-8")
+            calls = []
+
+            def fake(command, **kwargs):
+                args = [str(item) for item in command]
+                calls.append(args)
+                if args[:3] == ["gh", "api", "user"]:
+                    return result(stdout="owner\n")
+                if args[:3] == ["gh", "repo", "view"]:
+                    return result(stdout=json.dumps({
+                        "nameWithOwner": "owner/repo", "isFork": False,
+                        "defaultBranchRef": {"name": "main"},
+                    }))
+                if args[:3] == ["gh", "pr", "list"]:
+                    return result(rc=1, stderr="network unavailable")
+                return result()
+
+            published = PublishEngine(fake, root / "worktrees", lambda: "now").publish(
+                root, "owner/repo", self.proof(patch_path), profile(), root / "proof"
+            )
+            self.assertEqual(published["status"], "REJECT")
+            self.assertIn("could not prove", published["reason"])
+            self.assertFalse(any(args[:3] == ["git", "worktree", "add"] for args in calls))
+
     def test_recovers_draft_pr_created_before_cli_timeout(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             patch_path = root / "repair.patch"
             patch_path.write_text(PATCH, encoding="utf-8")
 
+            pr_list_calls = 0
+
             def fake(command, **kwargs):
+                nonlocal pr_list_calls
                 args = [str(item) for item in command]
                 if args[:3] == ["gh", "api", "user"]:
                     return result(stdout="owner\n")
@@ -319,6 +397,9 @@ class PublishTests(unittest.TestCase):
                 if args[:3] == ["gh", "pr", "create"]:
                     return result(rc=124, stderr="timeout")
                 if args[:3] == ["gh", "pr", "list"]:
+                    pr_list_calls += 1
+                    if pr_list_calls == 1:
+                        return result(stdout="[]")
                     return result(stdout=json.dumps([{"url": "https://github.com/owner/repo/pull/10"}]))
                 if args[:3] == ["gh", "pr", "view"]:
                     return result(stdout="true\n")

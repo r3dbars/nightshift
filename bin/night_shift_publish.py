@@ -79,9 +79,11 @@ class PublishEngine:
         checked, _ = self._remote_branch_sha(worktree, branch)
         return "removed" if checked == "absent" else "unknown"
 
-    def _find_open_pr(self, worktree: Path, repo_name: str, branch: str) -> tuple[str, str]:
+    def _find_pr(
+        self, worktree: Path, repo_name: str, branch: str, state: str = "open"
+    ) -> tuple[str, str]:
         found = self.run_cmd(
-            ["gh", "pr", "list", "--repo", repo_name, "--head", branch, "--state", "open", "--json", "url", "--limit", "1"],
+            ["gh", "pr", "list", "--repo", repo_name, "--head", branch, "--state", state, "--json", "url", "--limit", "1"],
             cwd=worktree,
             timeout=60,
         )
@@ -95,6 +97,31 @@ class PublishEngine:
             return "absent", ""
         url = str(rows[0].get("url") or "")
         return ("present", url) if url else ("unknown", "")
+
+    def _find_patch_pr_history(
+        self, worktree: Path, repo_name: str, branch: str, fingerprint: str
+    ) -> tuple[str, str]:
+        found = self.run_cmd(
+            [
+                "gh", "pr", "list", "--repo", repo_name, "--state", "all",
+                "--json", "url,headRefName", "--limit", "100",
+            ],
+            cwd=worktree,
+            timeout=60,
+        )
+        if found.rc != 0:
+            return "unknown", ""
+        try:
+            rows = json.loads(found.stdout)
+        except (TypeError, ValueError):
+            return "unknown", ""
+        old_suffix = f"-{fingerprint}"
+        for row in rows:
+            head = str(row.get("headRefName") or "")
+            if head == branch or (head.startswith("night-shift/") and head.endswith(old_suffix)):
+                url = str(row.get("url") or "")
+                return ("present", url) if url else ("unknown", "")
+        return "absent", ""
 
     def publish(
         self,
@@ -162,7 +189,21 @@ class PublishEngine:
         fingerprint = hashlib.sha256((repo_name + source_ref + patch).encode("utf-8")).hexdigest()[:12]
         if self._already_published(fingerprint):
             return finish({"status": "REJECT", "reason": "this exact verified patch was already published"})
-        branch = f"night-shift/{self.now_stamp().lower()}-{fingerprint}"
+        branch = f"night-shift/{fingerprint}"
+        prior_pr_state, prior_pr_url = self._find_patch_pr_history(
+            repo, repo_name, branch, fingerprint
+        )
+        if prior_pr_state == "present":
+            return finish({
+                "status": "REJECT",
+                "reason": "this exact verified patch already has GitHub PR history",
+                "pr_url": prior_pr_url,
+            })
+        if prior_pr_state != "absent":
+            return finish({
+                "status": "REJECT",
+                "reason": "could not prove this verified patch has no prior GitHub PR",
+            })
         worktree = self.worktree_root / re.sub(r"[^A-Za-z0-9._-]+", "--", repo_name) / branch.replace("/", "-")
         worktree.parent.mkdir(parents=True, exist_ok=True)
         added = self.run_cmd(["git", "worktree", "add", "--detach", worktree, source_ref], cwd=repo, timeout=120)
@@ -238,7 +279,7 @@ class PublishEngine:
             )
             pr_url = created.stdout.strip().splitlines()[-1] if created.rc == 0 and created.stdout.strip() else ""
             if created.rc != 0 or not pr_url:
-                pr_state, recovered_url = self._find_open_pr(worktree, repo_name, branch)
+                pr_state, recovered_url = self._find_pr(worktree, repo_name, branch)
                 if pr_state == "present":
                     pr_url = recovered_url
                 else:
