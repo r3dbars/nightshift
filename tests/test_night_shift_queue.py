@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +9,14 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from night_shift_queue import QueueEvidenceIndex, RepoRevisionAdapter, contains_identifier, is_test_path
+from night_shift_queue import (
+    QueueEvidenceIndex,
+    RepoRevisionAdapter,
+    TASK_LADDER,
+    build_repo_work_queue,
+    contains_identifier,
+    is_test_path,
+)
 
 
 class QueueEvidenceTests(unittest.TestCase):
@@ -110,6 +118,114 @@ class QueueEvidenceTests(unittest.TestCase):
             ["workspace/src/app.py", "src/app.py", "app.py"],
         )
         self.assertIsNone(adapter.list_files("HEAD"))
+
+
+class BuildRepoWorkQueueTests(unittest.TestCase):
+    def _run_cmd(self, argv, cwd=None, timeout=60, env=None, pid_log=None):
+        return SimpleNamespace(rc=1, stdout="", stderr="")
+
+    def _detect_test_commands(self, repo, tracked, source_ref=""):
+        return []
+
+    def test_quiet_mode_limits_queue_to_ten_and_ranks_by_ladder(self):
+        scan = {
+            "recent_files": ["src/app.py"],
+            "source_files": ["src/app.py"],
+            "test_files": ["test_app.py"],
+            "doc_files": ["README.md"],
+            "todo_sample": ["src/app.py:3: TODO fix this"],
+            "test_commands": ["python -m pytest"],
+            "tracked_files": ["src/app.py", "test_app.py", "README.md"],
+        }
+        queue = build_repo_work_queue(
+            None, scan, "quiet", "brief",
+            run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+        )
+        self.assertLessEqual(len(queue), 10)
+        priorities = [item["selection_priority"] for item in queue]
+        self.assertEqual(priorities, sorted(priorities, reverse=True))
+        for item in queue:
+            self.assertIn(item["ladder"], TASK_LADDER)
+            self.assertEqual(item["ladder_priority"], TASK_LADDER[item["ladder"]])
+
+    def test_slugs_are_deduped_and_insertion_order_preserved_within_ties(self):
+        scan = {
+            "recent_files": [],
+            "source_files": [f"src/f{i}.py" for i in range(6)],
+            "test_files": [],
+            "doc_files": [],
+            "todo_sample": [],
+            "test_commands": [],
+            "tracked_files": [f"src/f{i}.py" for i in range(6)],
+        }
+        queue = build_repo_work_queue(
+            None, scan, "night-shift", "brief",
+            run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+        )
+        slugs = [item["slug"] for item in queue]
+        self.assertEqual(len(slugs), len(set(slugs)))
+        source_map_items = [item for item in queue if item["slug"].startswith("source-map-")]
+        self.assertEqual([item["slug"] for item in source_map_items], sorted(item["slug"] for item in source_map_items))
+
+    def test_goal_guidance_inserts_mission_brief_first_by_priority(self):
+        scan = {
+            "recent_files": ["src/app.py"],
+            "source_files": ["src/app.py"],
+            "test_files": [],
+            "doc_files": [],
+            "todo_sample": [],
+            "test_commands": [],
+            "tracked_files": ["src/app.py"],
+        }
+        queue = build_repo_work_queue(
+            None, scan, "quiet", "brief", guidance="goal", goal_text="Fix the login bug",
+            run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+        )
+        self.assertEqual(queue[0]["slug"], "mission-brief")
+        self.assertEqual(queue[0]["ladder"], "repair")
+
+    def test_failed_ci_uses_injected_run_cmd_and_detect_test_commands(self):
+        calls = []
+
+        def run_cmd(argv, cwd=None, timeout=60, env=None, pid_log=None):
+            calls.append(argv)
+            if argv[:3] == ["git", "cat-file", "-e"]:
+                return SimpleNamespace(rc=0, stdout="", stderr="")
+            if argv[:3] == ["git", "ls-tree", "-r"]:
+                return SimpleNamespace(rc=0, stdout="src/app.py\n", stderr="")
+            return SimpleNamespace(rc=0, stdout="", stderr="")
+
+        detect_calls = []
+
+        def detect_test_commands(repo, tracked, source_ref=""):
+            detect_calls.append((repo, tracked, source_ref))
+            return ["custom test command"]
+
+        source_ref = "a" * 40
+        scan = {
+            "recent_files": [],
+            "source_files": [],
+            "test_files": [],
+            "doc_files": [],
+            "todo_sample": [],
+            "test_commands": ["fallback test"],
+            "tracked_files": [],
+            "github_failed_runs_raw": json.dumps([
+                {"databaseId": 42, "headSha": source_ref, "headBranch": "fix-branch", "updatedAt": "2026-01-01T00:00:00Z"}
+            ]),
+            "github_failed_logs_raw": json.dumps([
+                {"run": {"databaseId": 42}, "log": "AssertionError in src/app.py"}
+            ]),
+        }
+        queue = build_repo_work_queue(
+            Path("/repo"), scan, "quiet", "brief",
+            run_cmd=run_cmd, detect_test_commands=detect_test_commands,
+        )
+        failed_ci = next(item for item in queue if item["slug"] == "failed-ci-42")
+        self.assertEqual(failed_ci["verification_commands"], ["custom test command"])
+        self.assertEqual(failed_ci["source_ref"], source_ref)
+        self.assertTrue(detect_calls)
+        self.assertTrue(any(argv[:3] == ["git", "ls-tree", "-r"] for argv in calls))
 
 
 if __name__ == "__main__":
