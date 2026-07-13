@@ -1842,6 +1842,24 @@ def write_morning(
     report_engine().write_morning(ledger, mode, results, target_tokens, overall, scan)
 
 
+def finalize_empty_run(
+    ledger: Path,
+    mode: str,
+    target_tokens: int,
+    overall: str,
+    skipped: list[dict] | None = None,
+    scan: dict | None = None,
+) -> None:
+    """Leave the same durable artifact set even when no worker call happens."""
+    results: list[dict] = []
+    write_harvest(ledger, results)
+    write_work_queue(ledger, results)
+    write_outcome_metrics(ledger, results, skipped or [])
+    write_task_lifecycle_summary(ledger)
+    write_token_report(ledger, results)
+    write_morning(ledger, mode, results, target_tokens, overall, scan)
+
+
 def command_doctor(args) -> int:
     apply_compute_overrides(args)
     overall, rows = doctor_checks(args.repo, run_smoke=args.smoke)
@@ -2139,7 +2157,12 @@ def command_run(args) -> int:
         (ledger / "UNATTENDED").write_text("scheduled nightly run\n", encoding="utf-8")
     root = require_git_repo(args.repo)
     if not root:
-        write_morning(ledger, args.mode, [], defaults["target_tokens"] if args.token_target is None else args.token_target, "RED")
+        finalize_empty_run(
+            ledger,
+            args.mode,
+            defaults["target_tokens"] if args.token_target is None else args.token_target,
+            "RED",
+        )
         print(f"NIGHTSHIFT_RUN: RED | invalid repo | ledger={ledger}")
         return 1
     (ledger / "mode.json").write_text(
@@ -2247,29 +2270,27 @@ def command_run(args) -> int:
     if any(name == "windows-worker" and state == "YELLOW" for name, state, _ in rows):
         max_windows = 0
     if overall == "RED":
-        write_morning(ledger, args.mode, [], target_tokens, overall)
+        finalize_empty_run(ledger, args.mode, target_tokens, overall, skipped, scan)
         print(f"NIGHTSHIFT_RUN: RED | startup gate failed | ledger={ledger}")
         return 1
     if max_local == 0 and max_windows == 0:
-        write_morning(ledger, args.mode, [], target_tokens, overall)
+        finalize_empty_run(ledger, args.mode, target_tokens, overall, skipped, scan)
         print(f"NIGHTSHIFT_RUN: YELLOW | no cheap compute lanes reachable | ledger={ledger}")
         return 0
 
     tasks = []
     if not queue:
         if grounded_queue_count:
-            write_outcome_metrics(ledger, [], skipped)
-            write_morning(ledger, args.mode, [], target_tokens, "GREEN", scan)
+            finalize_empty_run(ledger, args.mode, target_tokens, "GREEN", skipped, scan)
             print(f"NIGHTSHIFT_RUN: YELLOW | no new grounded repo tasks | ledger={ledger}")
             print("Everything at this repo revision was already attempted. Night Shift will wait for new GitHub or code activity.")
             return 0
         if discovered_queue_count:
-            write_outcome_metrics(ledger, [], skipped)
-            write_morning(ledger, args.mode, [], target_tokens, "GREEN", scan)
+            finalize_empty_run(ledger, args.mode, target_tokens, "GREEN", skipped, scan)
             print(f"NIGHTSHIFT_RUN: YELLOW | no model-ready tasks; weak signals skipped before dispatch | ledger={ledger}")
             print("Night Shift found repo activity, but none had enough evidence and verification to spend model tokens safely.")
             return 0
-        write_morning(ledger, args.mode, [], target_tokens, "YELLOW", scan)
+        finalize_empty_run(ledger, args.mode, target_tokens, "YELLOW", skipped, scan)
         print(f"NIGHTSHIFT_RUN: YELLOW | no grounded repo tasks found | ledger={ledger}")
         print("Add recent code, tests, issues, or a concrete goal before widening the run.")
         return 0
