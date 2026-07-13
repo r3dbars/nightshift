@@ -111,6 +111,12 @@ run evidence separate from model claims and from human/manual proof.
   patch, passed isolated sandbox verification, satisfied the invocation
   contract, and removed its temporary worktree. Proof:
   `docs/proofs/2026-07-13-windows-verified-draft.md`.
+- The verified Windows draft then passed Night Shift's fresh publication
+  verification and opened BetterFeedback draft PR #491 from the exact source
+  SHA. GitHub kept it in draft state, but two Vercel status contexts were
+  failing when captured, so it remains unmerged and does not count as a green
+  hosted outcome. Proof:
+  `docs/proofs/2026-07-13-windows-draft-pr.md`.
 - PR #151 now strips the exact bundled-worker `MAESTRO_PROOF` footer before
   validating a returned diff. PR #152 filters non-draftable side-effecting
   TypeScript test gaps before model calls. PR #153 safely materializes one
@@ -134,3 +140,11 @@ run evidence separate from model claims and from human/manual proof.
   does not by itself count as a user-accepted outcome or a published draft PR.
   Those scores remain held until the candidate is reviewed and the broader
   varied-repository evidence is complete.
+- Draft PR #491 proves the GitHub publication path but has failing Vercel
+  statuses, so the draft-PR and GitHub usefulness scores remain held for a
+  passing hosted outcome and human review.
+- A fresh isolated-home observation completed the normal first-run flow with
+  one clear start question, a truthful no-work result, and no source changes.
+  The immediate `--yes` repeat reused setup unchanged and asked no questions.
+  Proof:
+  `docs/proofs/2026-07-13-first-run-ux.md`.
