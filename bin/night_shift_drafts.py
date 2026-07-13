@@ -20,6 +20,7 @@ from night_shift_patch_protocol import (
     validate_patch,
 )
 from night_shift_js_evidence import (
+    JS_EXTENSIONS,
     simple_exported_function,
     top_level_symbol_call_count_text as js_symbol_call_count_text,
 )
@@ -165,7 +166,7 @@ def valid_test_strengthening_candidate(candidate: dict, worktree: Path) -> dict[
             return None
         if (
             str(contract.get("owner") or "none") != "none"
-            or any(Path(path).suffix.lower() not in {".ts", ".tsx", ".js", ".jsx"} for path in files)
+            or any(Path(path).suffix.lower() not in JS_EXTENSIONS for path in files)
             or Path(source_file).suffix.lower() not in {".ts", ".tsx"}
             or not simple_exported_function(source_text, contract["symbol"])
         ):
@@ -234,10 +235,7 @@ class DraftEngine:
             verification = next((command for command in known_commands if command in (item.get("tests") or "")), "")
             contract = test_strengthening_contract(item.get("evidence_sources"))
             if contract:
-                extensions = (
-                    {".py"} if contract.get("analysis") == "python-ast"
-                    else {".ts", ".tsx", ".js", ".jsx"}
-                )
+                extensions = {".py"} if contract.get("analysis") == "python-ast" else JS_EXTENSIONS
                 test_files = [
                     path for path in files
                     if is_test_path(path) and Path(path).suffix.lower() in extensions
@@ -694,7 +692,7 @@ class DraftEngine:
             guards.append("isolated verification did not pass")
         if strengthening:
             is_typescript = strengthening.get("analysis") == "typescript-regex"
-            allowed_extensions = {".ts", ".tsx", ".js", ".jsx"} if is_typescript else {".py"}
+            allowed_extensions = JS_EXTENSIONS if is_typescript else {".py"}
             if any(
                 not is_test_path(path) or Path(path).suffix.lower() not in allowed_extensions
                 for path in paths

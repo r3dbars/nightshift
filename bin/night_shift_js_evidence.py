@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 
-JS_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx"}
+JS_EXTENSIONS = {".cjs", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"}
 
 
 def top_level_symbol_call_count_text(text: str, symbol: str) -> int | None:
