@@ -1553,6 +1553,21 @@ buildThing() { return 1; }
             -120,
         )
 
+    def test_changed_displayed_item_survives_fingerprint_appearance(self):
+        events = [
+            {
+                "repo": "/repo", "family": "tests", "ledger": "/night-1", "rank": 1,
+                "key": "tests:tests:patch-plan", "fingerprint": "", "verdict": "useful",
+            },
+            {
+                "repo": "/repo", "family": "tests", "ledger": "/night-1", "rank": 1,
+                "key": "tests:tests:patch-plan", "fingerprint": "later-known", "verdict": "not-useful",
+            },
+        ]
+        current = night_shift.latest_feedback_events(events)
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0]["verdict"], "not-useful")
+
     def test_complete_deterministic_evidence_outranks_broad_mission(self):
         mission = {
             "kind": "mission", "ladder_priority": 500, "proof_kind": "source",

@@ -27,9 +27,10 @@ def latest_feedback_events(events: list[dict]) -> list[dict]:
     """Return one current verdict per exact candidate, preserving last-write order."""
     latest: dict[tuple, dict] = {}
     for index, event in enumerate(events):
-        candidate = event.get("fingerprint") or event.get("key")
-        if not candidate and event.get("ledger") and event.get("rank"):
-            candidate = f"{event['ledger']}:{event['rank']}"
+        if event.get("ledger") and event.get("rank"):
+            candidate = f"displayed:{event['ledger']}:{event['rank']}"
+        else:
+            candidate = event.get("fingerprint") or event.get("key")
         identity = (
             event.get("repo"), event.get("family"), candidate or f"legacy:{index}",
         )
