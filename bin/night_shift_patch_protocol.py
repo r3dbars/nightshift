@@ -273,6 +273,8 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             + "If the source return annotation is bool, assert the returned value directly with assertTrue or assertFalse; "
             "do not read attributes such as rc from that boolean. A fake command runner does not create filesystem "
             "side effects unless the fake explicitly implements them, so prove behavior from its recorded calls. "
+            "When testing command arguments, record the incoming command itself (for example `calls.append(list(cmd))`) "
+            "before returning the fake result; never inspect the result object for command arguments. "
             "Preserve exact argument types: compare a Path as a Path unless source explicitly converts it. "
             "Assert exact observed call order, arguments, and both requested outcomes. Use an exact unchanged insertion anchor shown in SOURCE "
             "EXCERPT, preferably near the test file tail. Keep the patch under 80 changed lines."
