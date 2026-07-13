@@ -20,7 +20,13 @@ class PortfolioReportEngine:
         return match.group(1) if match else "UNKNOWN"
 
     @staticmethod
-    def write_snapshot(ledger: Path, rows: list[dict]) -> None:
+    def append_bounded_snapshot(path: Path, compact: dict, limit: int = 256) -> None:
+        existing = path.read_text(encoding="utf-8", errors="replace").splitlines() if path.exists() else []
+        rows = [*existing[-max(0, limit - 1):], json.dumps(compact, sort_keys=True)]
+        path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    @staticmethod
+    def write_snapshot(ledger: Path, rows: list[dict], cycle: int | None = None) -> None:
         (ledger / "portfolio.json").write_text(
             json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -37,6 +43,25 @@ class PortfolioReportEngine:
         if not rows:
             lines.append("No eligible repositories found.")
         (ledger / "portfolio.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        if cycle is not None:
+            compact = {
+                "cycle": cycle,
+                "repositories": [
+                    {
+                        "checkout_ready": bool(row.get("checkout")),
+                        "failed_runs": len((row.get("signals") or {}).get("failed_runs") or []),
+                        "issues": len((row.get("signals") or {}).get("issues") or []),
+                        "primary": bool(row.get("primary")),
+                        "prs": len((row.get("signals") or {}).get("prs") or []),
+                        "score": int(row.get("score") or 0),
+                        "slug": row.get("slug", ""),
+                    }
+                    for row in rows
+                ],
+            }
+            PortfolioReportEngine.append_bounded_snapshot(
+                ledger / "portfolio-snapshots.jsonl", compact
+            )
 
     def morning_items(self, latest_by_repo: dict[str, dict]) -> list[dict]:
         items: list[dict] = []
