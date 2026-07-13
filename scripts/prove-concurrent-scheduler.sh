@@ -90,7 +90,7 @@ grep -Fq "Recovered prior crashed shift:" "$second"
 grep -Fq "NIGHTSHIFT_AUTOPILOT:" "$second"
 test -s "$old_ledger/crash-recovery.json"
 test ! -e "$config_dir/active-autopilot.json"
-test ! -e "$config_dir/autopilot.lock"
+test -f "$config_dir/autopilot.lock"
 if grep -Fq '"status": "SKIPPED_ACTIVE"' "$config_dir/last-nightly.json"; then
   echo "next scheduled launch was incorrectly left as skipped" >&2
   exit 1

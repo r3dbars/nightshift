@@ -82,7 +82,7 @@ grep -Fq '"status": "RECOVERED_AFTER_CRASH"' "$ledger/crash-recovery.json"
 grep -Fq "Status: YELLOW" "$ledger/morning.md"
 test -s "$ledger/STOP"
 test ! -e "$config/active-autopilot.json"
-test ! -e "$config/autopilot.lock"
+test -f "$config/autopilot.lock"
 
 for _ in $(seq 1 30); do
   if ! kill -0 "$worker_pid" 2>/dev/null; then

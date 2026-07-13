@@ -28,5 +28,8 @@ home:
 The CLI also handles the narrower race where two schedulers both pass the first
 active-state check: the production autopilot lock chooses one winner, the loser
 creates no ledger, and nightly converts that contention into a truthful clean
-skip. This is one real overlap-and-recovery sequence, not a multi-hour repeated
-scheduler soak.
+skip. The lock is now a kernel-backed nonblocking file lock, so process death
+releases ownership automatically; an eight-process synchronized fanout proves
+one owner and seven clean losers, and a focused test proves migration from the
+old stale directory-lock format. This is one real overlap-and-recovery
+sequence, not a multi-hour repeated scheduler soak.
