@@ -132,8 +132,13 @@ echo "Installed command: $bin_dir/night-shift"
 "$bin_dir/night-shift" --version
 
 if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
-  configure_shell_path
-  if [[ "$configure_path" -eq 1 ]]; then
+  path_configured=0
+  if configure_shell_path; then
+    path_configured="$configure_path"
+  else
+    echo "PATH setup skipped for safety. Your install is still ready." >&2
+  fi
+  if [[ "$path_configured" -eq 1 ]]; then
     echo "Command added to $shell_profile."
     echo "Open a new terminal, or run this once now:"
   else

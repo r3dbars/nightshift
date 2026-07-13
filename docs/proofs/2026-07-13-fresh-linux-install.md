@@ -31,6 +31,7 @@ Observed result:
    retained the eight-hour stop, read-only checkout, and no-push guarantees.
 
 The package gate separately verifies that installing twice does not duplicate
-the PATH line and that `--no-path` leaves the shell profile untouched. This is
-real Ubuntu integration proof, not fresh-machine macOS proof or observed human
-comprehension proof.
+the PATH line, that `--no-path` leaves the shell profile untouched, and that a
+symlinked profile is not followed or modified. A symlinked-profile install
+stays usable by its printed absolute command. This is real Ubuntu integration
+proof, not fresh-machine macOS proof or observed human comprehension proof.

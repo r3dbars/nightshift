@@ -64,6 +64,14 @@ mkdir -p "$no_path_home"
 HOME="$no_path_home" SHELL=/bin/bash ./install.sh --codex-home "$tmp_home/no-path-install" --no-path >/dev/null
 test ! -e "$no_path_home/.bashrc"
 
+symlink_home="$tmp_home/symlink-home"
+mkdir -p "$symlink_home"
+printf 'user-owned\n' > "$tmp_home/user-profile"
+ln -s "$tmp_home/user-profile" "$symlink_home/.bashrc"
+HOME="$symlink_home" SHELL=/bin/bash ./install.sh --codex-home "$tmp_home/symlink-install" >/dev/null 2>&1
+grep -Fxq 'user-owned' "$tmp_home/user-profile"
+"$tmp_home/symlink-install/bin/night-shift" --version | grep -q "Night Shift $version_file"
+
 CODEX_HOME="$tmp_home" python3 bin/night-shift start --repo "$repo_root" --yes --setup-only --skip-smoke >/dev/null
 test -s "$tmp_home/night-shift/config.json"
 find "$tmp_home/maestro/overnight" -path '*/lab/readiness.json' -type f | grep -q .
