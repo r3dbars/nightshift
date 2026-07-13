@@ -133,7 +133,7 @@ class DispatchOneTests(unittest.TestCase):
             "lane", "label", "rc", "timed_out", "seconds", "proof", "proofs",
             "artifact", "score", "priority", "tokens", "input_tokens", "output_tokens",
             "summary", "action_type", "evidence", "files", "tests", "expected_result",
-            "quality_reasons", "source_ref", "retry_count", "output", "output_preview",
+            "quality_reasons", "source_ref", "evidence_sources", "retry_count", "output", "output_preview",
         }
         self.assertEqual(set(outcome.keys()), expected_keys)
         self.assertEqual(outcome["artifact"], str(ledger / "artifacts" / "task-1-local.md"))
@@ -198,6 +198,26 @@ class CorrectionPromptTests(unittest.TestCase):
             prompt,
         )
         self.assertIn("- python3 -m unittest tests.test_night_shift", prompt)
+
+    def test_correction_prompt_makes_goal_and_invocation_evidence_copy_ready(self):
+        prompt = correction_prompt(
+            "Inspect cleanup.",
+            ["evidence quote mismatch"],
+            ["bin/night_shift_drafts.py"],
+            {
+                "goal-source/drafts-cleanup.txt": "source_line=144 | def cleanup(self):",
+                "invocation-index/drafts-cleanup.txt": "symbol=cleanup call_matches=0",
+            },
+            ["python -m unittest"],
+        )
+        self.assertIn(
+            "goal-source/drafts-cleanup.txt:1 | source_line=144 | def cleanup(self):",
+            prompt,
+        )
+        self.assertIn(
+            "invocation-index/drafts-cleanup.txt:1 | symbol=cleanup call_matches=0",
+            prompt,
+        )
 
     def test_coverage_citation_examples_only_indexes_coverage_paths(self):
         examples = coverage_citation_examples({

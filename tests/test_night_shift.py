@@ -22,6 +22,7 @@ sys.modules[LOADER.name] = night_shift
 LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
+from night_shift_drafts import owner_symbol_call_count, test_strengthening_contract, valid_test_strengthening_candidate
 
 
 class NightShiftQualityTests(unittest.TestCase):
@@ -2644,6 +2645,170 @@ buildThing() { return 1; }
             self.assertTrue(Path(result["sandbox_output"]).is_file())
             lifecycle = night_shift.latest_states(ledger / "task-lifecycle.jsonl")
             self.assertEqual(lifecycle["repair"]["state"], "VERIFIED")
+
+    def test_strengthening_contract_requires_one_complete_zero_call_ast_index(self):
+        valid = {
+            "invocation-index/drafts-cleanup.txt": (
+                "symbol=cleanup\nsource_file=src/drafts.py\nowner=DraftEngine\n"
+                "analysis=python-ast\nsymbol=cleanup call_matches=0\nscan_complete=true"
+            )
+        }
+        self.assertEqual(test_strengthening_contract(valid)["owner"], "DraftEngine")
+        for replacement in ("analysis=mixed-regex", "symbol=cleanup call_matches=1", "scan_complete=false"):
+            broken = {key: value.replace(
+                "analysis=python-ast" if replacement.startswith("analysis") else
+                "symbol=cleanup call_matches=0" if replacement.startswith("symbol") else
+                "scan_complete=true", replacement
+            ) for key, value in valid.items()}
+            self.assertIsNone(test_strengthening_contract(broken))
+        duplicated = {**valid, "invocation-index/other.txt": next(iter(valid.values()))}
+        self.assertIsNone(test_strengthening_contract(duplicated))
+
+    def test_owner_symbol_call_count_ignores_unrelated_same_named_methods(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_drafts.py"
+            path.write_text(
+                "from drafts import DraftEngine as DE\n"
+                "class Other:\n    def cleanup(self): pass\n"
+                "Other().cleanup()\nengine = DE()\nengine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 1)
+            path.write_text(
+                "from drafts import DraftEngine\nengine = DraftEngine()\n"
+                "class Other:\n    def cleanup(self): pass\n"
+                "def test_cleanup():\n    engine = Other()\n    engine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+            path.write_text(
+                "from drafts import DraftEngine\nengine = DraftEngine()\n"
+                "if enabled:\n    engine = Other()\nengine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(owner_symbol_call_count([path], "DraftEngine", "cleanup"), 0)
+
+    def test_execution_boundary_revalidates_strengthening_contract_and_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            test_file = root / "tests" / "test_drafts.py"
+            test_file.parent.mkdir()
+            test_file.write_text("from drafts import DraftEngine\n", encoding="utf-8")
+            contract = {
+                "symbol": "cleanup", "source_file": "drafts.py", "owner": "DraftEngine",
+                "analysis": "python-ast", "call_matches": "0", "scan_complete": "true",
+            }
+            candidate = {
+                "draft_intent": "test-strengthening", "strengthening_contract": contract,
+                "files": ["tests/test_drafts.py"], "context_files": ["drafts.py", "tests/test_drafts.py"],
+            }
+            self.assertEqual(valid_test_strengthening_candidate(candidate, root), contract)
+            self.assertIsNone(valid_test_strengthening_candidate({
+                **candidate, "strengthening_contract": {**contract, "scan_complete": "false"}
+            }, root))
+            test_file.write_text(
+                "from drafts import DraftEngine\nengine = DraftEngine()\nengine.cleanup()\n",
+                encoding="utf-8",
+            )
+            self.assertIsNone(valid_test_strengthening_candidate(candidate, root))
+
+    def test_clean_baseline_can_only_promote_proven_test_strengthening(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            ledger = Path(tmp) / "ledger"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            (repo / "src").mkdir()
+            (repo / "tests").mkdir()
+            (repo / "src" / "drafts.py").write_text(
+                "class DraftEngine:\n    def cleanup(self):\n        return True\n", encoding="utf-8"
+            )
+            (repo / "tests" / "test_drafts.py").write_text(
+                "from src.drafts import DraftEngine\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
+            source_ref = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True, capture_output=True
+            ).stdout.strip()
+            profile = SimpleNamespace(
+                commands=(("true",),), max_seconds=60,
+                protected_paths=(".night-shift.json",), allowed_paths=("src", "tests"),
+                max_pids=64, max_cpu=1, max_memory_mb=512, image="sha256:" + "a" * 64,
+            )
+            patch = (
+                "diff --git a/tests/test_drafts.py b/tests/test_drafts.py\n"
+                "--- a/tests/test_drafts.py\n+++ b/tests/test_drafts.py\n@@ -1 +1,5 @@\n"
+                " from src.drafts import DraftEngine\n"
+                "+\n+def test_cleanup():\n+    engine = DraftEngine()\n+    assert engine.cleanup() is True\n"
+            )
+
+            def fake_run(args, cwd=None, timeout=60, env=None, pid_log=None):
+                parts = [str(part) for part in args]
+                if parts[0] == "git":
+                    result = subprocess.run(parts, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+                    return night_shift.CmdResult(" ".join(parts), result.returncode, result.stdout, result.stderr)
+                if "maestro-delegate" in parts[0]:
+                    return night_shift.CmdResult("worker", 0, patch, "")
+                if Path(parts[0]).name in {"docker", "podman"}:
+                    volumes = [parts[index + 1] for index, value in enumerate(parts) if value == "--volume"]
+                    patch_run = any(value.endswith(":/input/candidate.patch:ro") for value in volumes)
+                    if patch_run:
+                        artifact_dir = Path(next(
+                            value for value in volumes if value.endswith(":/artifacts:rw")
+                        ).removesuffix(":/artifacts:rw"))
+                        artifact_dir.mkdir(parents=True, exist_ok=True)
+                        (artifact_dir / "changed-paths.txt").write_text("tests/test_drafts.py\n", encoding="utf-8")
+                        (artifact_dir / "applied.patch").write_text(patch, encoding="utf-8")
+                        (artifact_dir / "verification.rc").write_text("0\n", encoding="utf-8")
+                        return night_shift.CmdResult("docker patch", 0, "", "")
+                    return night_shift.CmdResult("docker baseline", 0, "passed", "")
+                raise AssertionError(parts)
+
+            contract = {
+                "symbol": "cleanup", "source_file": "src/drafts.py", "owner": "DraftEngine",
+                "analysis": "python-ast", "call_matches": "0", "scan_complete": "true",
+            }
+            candidate = {
+                "key": "strengthen", "source_ref": source_ref,
+                "summary": "add cleanup test", "evidence": "invocation gap", "expected_result": "passes",
+                "files": ["tests/test_drafts.py"], "context_files": ["src/drafts.py", "tests/test_drafts.py"],
+                "verification_argv": ["true"], "draft_intent": "test-strengthening",
+                "strengthening_contract": contract,
+            }
+            result = night_shift.DraftEngine(
+                fake_run, Path(tmp) / "worktrees", lambda: "now"
+            ).run_draft(repo, "owner/repo", candidate, ledger, 900, "http://local/v1", "coder", profile=profile)
+            self.assertEqual(result["status"], "VERIFIED_DRAFT")
+            self.assertEqual(result["proof_level"], "passing repository check after a bounded patch")
+
+            patch = (
+                "diff --git a/tests/test_drafts.py b/tests/test_drafts.py\n"
+                "--- a/tests/test_drafts.py\n+++ b/tests/test_drafts.py\n@@ -1 +1,3 @@\n"
+                " from src.drafts import DraftEngine\n+\n+def test_unrelated(): assert True\n"
+            )
+            no_invocation = night_shift.DraftEngine(
+                fake_run, Path(tmp) / "no-call-worktrees", lambda: "no-call"
+            ).run_draft(
+                repo, "owner/repo", candidate, Path(tmp) / "no-call-ledger", 900,
+                "http://local/v1", "coder", profile=profile,
+            )
+            self.assertEqual(no_invocation["status"], "REJECT")
+            self.assertIn(
+                "test strengthening did not add a proven owner-aware invocation",
+                no_invocation["guard_reasons"],
+            )
+
+            rejected = night_shift.DraftEngine(
+                fake_run, Path(tmp) / "other-worktrees", lambda: "later"
+            ).run_draft(
+                repo, "owner/repo", {**candidate, "draft_intent": "repair", "strengthening_contract": None},
+                Path(tmp) / "other-ledger", 900, "http://local/v1", "coder", profile=profile,
+            )
+            self.assertEqual(rejected["status"], "REJECT")
+            self.assertIn("only patches reproduced failures", rejected["reason"])
 
     def test_patch_worker_gets_one_strict_format_correction(self):
         with tempfile.TemporaryDirectory() as tmp:

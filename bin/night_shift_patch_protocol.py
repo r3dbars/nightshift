@@ -102,16 +102,28 @@ def validate_patch(
 
 
 def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...]) -> str:
+    contract = candidate.get("strengthening_contract") or {}
+    if candidate.get("draft_intent") == "test-strengthening":
+        edit_policy = (
+            "You may modify only an existing allowed TEST file. Add a focused behavioral test "
+            "that invokes the exact owner and symbol in the strengthening contract. Do not change "
+            "source, manifests, lockfiles, workflows, configuration, secrets, dependencies, or policy."
+        )
+    else:
+        edit_policy = (
+            "You may modify only an existing allowed file. Do not change tests, manifests, "
+            "lockfiles, workflows, configuration, secrets, dependencies, or policy."
+        )
     return f"""ROLE: isolated patch author. Return ONLY a standard unified git diff.
 TASK: {candidate.get('summary', '')}
 EVIDENCE: {candidate.get('evidence', '')}
 EXPECTED RESULT: {candidate.get('expected_result', '')}
+STRENGTHENING CONTRACT: {contract.get('owner', '')}.{contract.get('symbol', '')}
 ALLOWED FILES: {', '.join(candidate.get('files', []))}
 VERIFICATION ARGV: {' '.join(command)}
 SOURCE EXCERPT:
 {source_excerpt[:24000]}
 
-You may modify only an existing allowed file. Do not change tests, manifests,
-lockfiles, workflows, configuration, secrets, dependencies, or policy. Do not
+{edit_policy} Do not
 include prose, markdown fences, commands, or explanations. If a safe patch is
 not possible, return an empty response."""
