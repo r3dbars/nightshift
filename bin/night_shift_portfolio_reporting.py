@@ -104,6 +104,7 @@ class PortfolioReportEngine:
                 "files": item.get("files") or [],
                 "verification": item.get("tests") or item.get("verification_commands") or "",
                 "proof": item.get("proof") or item.get("primary_artifact", ""),
+                "outcome_status": str((row.get("draft") or {}).get("status") or ""),
                 "selection_reason": row.get("portfolio_reason") or "recent activity",
             })
         return items

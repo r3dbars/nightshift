@@ -357,8 +357,8 @@ class PortfolioReportingTests(unittest.TestCase):
             }]))
             self.engine(root).write_brief(root, [{
                 "repo": "owner/repo", "checkout": str(root), "ledger": str(child),
-                "new_tasks": 1,
-            }], "GREEN")
+                "new_tasks": 1, "draft": {"status": "VERIFIED_DRAFT"},
+            }], "YELLOW")
             item = json.loads((root / "morning-items.json").read_text())[0]
             self.assertEqual(item["child_ledger"], str(child))
             self.assertEqual(item["fingerprint"], "fingerprint")
@@ -367,6 +367,7 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertEqual(item["files"], ["src/app.py", "tests/test_app.py"])
             self.assertEqual(item["verification"], "python3 -m unittest tests.test_app")
             self.assertEqual(item["proof"], "/tmp/proof.json")
+            self.assertEqual(item["outcome_status"], "VERIFIED_DRAFT")
             self.assertIn("Status: YELLOW", (root / "morning.md").read_text())
             morning = (root / "morning.md").read_text()
             self.assertIn("Evidence: src/app.py:12 | return value", morning)
