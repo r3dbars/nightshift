@@ -4496,6 +4496,13 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot.add_argument("--task-limit", type=int, default=None, help="new unique tasks across each portfolio cycle")
     autopilot.add_argument("--poll-minutes", type=int, default=None, help="how often to recheck GitHub after the useful backlog is exhausted")
     autopilot.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default=None)
+    autopilot.add_argument(
+        "--privacy",
+        dest="privacy_route",
+        choices=["mac-only", "mac-and-lan"],
+        default=None,
+        help="keep repo context on this Mac or allow the configured private-LAN worker",
+    )
     autopilot.add_argument("--permission", choices=["brief", "draft-local", "draft-prs"], default=None)
     autopilot.add_argument("--guidance", choices=["scan", "goal", "issues"], default=None)
     autopilot.add_argument("--goal", default="")

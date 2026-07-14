@@ -131,6 +131,7 @@ Advanced users can skip the wizard and choose directly:
 ```bash
 night-shift autopilot --repo /path/to/project \
   --scope github-recent \
+  --privacy mac-only \
   --active-days 14 \
   --max-repos 3 \
   --mode night-shift \
