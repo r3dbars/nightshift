@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
 import re
+import tempfile
 
 
 CLARITY_VALUES = {"clear", "confusing"}
@@ -19,6 +23,30 @@ FAMILY_PREFIXES = (
     "source-map",
     "test-contract-map",
 )
+
+
+def append_feedback_event(path: Path, event: dict) -> None:
+    """Append one local feedback event without exposing prior votes to interruption."""
+    try:
+        existing = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        existing = ""
+    prefix = existing if not existing or existing.endswith("\n") else existing + "\n"
+    content = prefix + json.dumps(event, sort_keys=True) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
 
 
 def task_family(slug: str) -> str:
