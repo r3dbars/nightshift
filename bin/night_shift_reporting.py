@@ -466,10 +466,12 @@ class ReportEngine:
             explanation = "; ".join(reasons[:2]) or "the response did not meet the evidence or safety checks"
             lines.append(f"- {row['label']}: {row['summary']} (dropped because: {explanation})")
         if reject == 0: lines.append("- None.")
-        lines.extend([
-            "", "Needs user review:",
-            "- You do not need to read everything. Start with choice 1; worker output is a draft, not the final truth.",
-        ])
+        review_intro = (
+            "- You do not need to read everything. Start with item 1; worker output is a draft, not the final truth."
+            if work_items
+            else "- Nothing was strong enough to put on your review list this time. The scan below is context only; worker output is a draft, not the final truth."
+        )
+        lines.extend(["", "Needs user review:", review_intro])
         if work_items:
             ledger_arg = shlex.quote(str(ledger))
             lines.append(
