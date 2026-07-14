@@ -49,9 +49,13 @@ class NightShiftQualityTests(unittest.TestCase):
 
     def test_temporary_mac_codex_home_uses_a_colima_shared_worktree_root(self):
         original_root = night_shift.WORKTREE_ROOT
+        original_repo_cache = night_shift.REPO_CACHE_ROOT
+        original_dependency_cache = night_shift.DEPENDENCY_CACHE_ROOT
         original_system = night_shift.platform.system
         try:
             night_shift.WORKTREE_ROOT = Path("/tmp/night-shift-proof/worktrees")
+            night_shift.REPO_CACHE_ROOT = Path("/tmp/night-shift-proof/repos")
+            night_shift.DEPENDENCY_CACHE_ROOT = Path("/tmp/night-shift-proof/dependency-cache")
             night_shift.platform.system = lambda: "Darwin"
             with patch.dict(os.environ, {"USER": "redbars"}):
                 expected = (
@@ -63,8 +67,22 @@ class NightShiftQualityTests(unittest.TestCase):
                     night_shift.shared_worktree_root(),
                     expected,
                 )
+                self.assertEqual(
+                    night_shift.shared_repo_cache_root(),
+                    Path("/Users/redbars/.codex/night-shift/repos")
+                    if Path("/Users/redbars").is_dir()
+                    else Path("/tmp/night-shift-proof/repos"),
+                )
+                self.assertEqual(
+                    night_shift.shared_dependency_cache_root(),
+                    Path("/Users/redbars/.codex/night-shift/dependency-cache")
+                    if Path("/Users/redbars").is_dir()
+                    else Path("/tmp/night-shift-proof/dependency-cache"),
+                )
         finally:
             night_shift.WORKTREE_ROOT = original_root
+            night_shift.REPO_CACHE_ROOT = original_repo_cache
+            night_shift.DEPENDENCY_CACHE_ROOT = original_dependency_cache
             night_shift.platform.system = original_system
 
     def test_semantic_contract_rejects_partial_test_and_accepts_complete_test(self):
