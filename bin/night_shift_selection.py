@@ -164,6 +164,12 @@ def model_task_readiness_reasons(
             reasons.append("coverage index does not prove zero identifier matches")
         if mode != "afterburner" and not requests_coverage_work(goal):
             reasons.append("coverage-index-only work is reserved for afterburner or an explicit coverage goal")
+        if (
+            slug == "recent-change-test-gap"
+            and permission in {"draft-local", "draft-prs"}
+            and not task.get("executable")
+        ):
+            reasons.append("test candidate has no safe automatic patch path")
     elif slug == "mission-brief" and requests_coverage_work(goal):
         if not task.get("evidence_sources"):
             reasons.append("coverage mission has no deterministic gap evidence; use a coverage-index task")

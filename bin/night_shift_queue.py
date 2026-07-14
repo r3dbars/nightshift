@@ -800,7 +800,7 @@ def build_repo_work_queue(
         add(
             "recent-change-test-gap",
             "tests",
-            f"Inspect only `{gap_symbol}` in `{gap_path}`. Cite that exact source line plus the supplied coverage-index evidence. Reject if the index is incomplete or this exact gap is unsupported.",
+            f"Inspect only `{gap_symbol}` in `{gap_path}`. Cite that exact source line plus the supplied coverage-index evidence. Describe a concrete input and observable return, output, state change, or side effect; a symbol-presence, import, signature, or textual-match test is not useful. Reject if the index is incomplete, this exact gap is unsupported, or no observable behavior can be named.",
             "This declared symbol has no textual match in the tracked test corpus.",
             [gap_path] + relevant_tests_for_source(gap_path, tests, read_current_text)[:4],
             ladder="strengthen",
