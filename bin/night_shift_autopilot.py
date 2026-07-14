@@ -66,7 +66,8 @@ class AutopilotCycleState:
 
     def attach_publish(self, row: dict, publish: dict) -> None:
         row["publish"] = publish
-        if publish.get("status") == "REMOTE_CLEANUP_REQUIRED":
+        hosted_state = str((publish.get("hosted_checks") or {}).get("state") or "")
+        if publish.get("status") == "REMOTE_CLEANUP_REQUIRED" or hosted_state in {"failed", "unknown"}:
             self.status = "YELLOW"
 
     def append(self, row: dict) -> None:
