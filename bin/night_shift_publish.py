@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Callable
@@ -129,6 +131,82 @@ class PublishEngine:
                 "pr_url": pr_url,
                 "branch": branch,
             }, sort_keys=True) + "\n")
+
+    def reconcile_drafts(self, repo: Path) -> list[dict]:
+        """Refresh hosted status for recorded draft PRs using read-only GitHub calls."""
+        try:
+            lines = self.publication_ledger.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        rows: list[dict] = []
+        for line in lines:
+            try:
+                row = json.loads(line)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return []
+            if not isinstance(row, dict):
+                return []
+            rows.append(row)
+
+        changed = False
+        for row in rows:
+            if row.get("status") != "DRAFT_PR_OPENED" or not row.get("pr_url"):
+                continue
+            viewed = self.run_cmd(
+                ["gh", "pr", "view", str(row["pr_url"]), "--json", "isDraft,statusCheckRollup"],
+                cwd=repo,
+                timeout=30,
+            )
+            draft_state = "unknown"
+            if viewed.rc != 0:
+                hosted = {
+                    "state": "unknown", "check_count": 0, "checks": [],
+                    "failed": [], "pending": [], "unknown": [],
+                    "reason": "GitHub draft status could not be read",
+                }
+            else:
+                try:
+                    payload = json.loads(viewed.stdout)
+                    if not isinstance(payload, dict) or not isinstance(payload.get("statusCheckRollup"), list):
+                        raise ValueError("statusCheckRollup is not a list")
+                    hosted = summarize_hosted_checks(payload["statusCheckRollup"])
+                    if payload.get("isDraft") is True:
+                        draft_state = "draft"
+                    elif payload.get("isDraft") is False:
+                        draft_state = "not-draft"
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    hosted = {
+                        "state": "unknown", "check_count": 0, "checks": [],
+                        "failed": [], "pending": [], "unknown": [],
+                        "reason": "GitHub draft status returned an invalid response",
+                    }
+            observed_at = self.now_stamp()
+            hosted["observed_at"] = observed_at
+            row["hosted_checks"] = hosted
+            row["draft_state"] = draft_state
+            row["last_reconciled_at"] = observed_at
+            changed = True
+
+        if changed:
+            self.publication_ledger.parent.mkdir(parents=True, exist_ok=True)
+            content = "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n"
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=f".{self.publication_ledger.name}.",
+                dir=self.publication_ledger.parent,
+            )
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(content)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, self.publication_ledger)
+            except Exception:
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+                raise
+        return rows
 
     def _cleanup(self, repo: Path, worktree: Path) -> bool:
         removed = self.run_cmd(["git", "worktree", "remove", "--force", worktree], cwd=repo, timeout=120)

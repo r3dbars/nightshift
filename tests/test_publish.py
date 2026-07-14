@@ -63,6 +63,62 @@ class PublishTests(unittest.TestCase):
         )
         self.assertEqual(summarize_hosted_checks([])['state'], "unknown")
 
+    def test_reconcile_drafts_refreshes_hosted_status_without_github_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "published-drafts.jsonl"
+            ledger.write_text(json.dumps({
+                "status": "DRAFT_PR_OPENED",
+                "repo": "owner/repo",
+                "pr_url": "https://github.com/owner/repo/pull/7",
+                "branch": "night-shift/abc123",
+            }) + "\n", encoding="utf-8")
+            calls = []
+
+            def fake(command, **kwargs):
+                calls.append([str(value) for value in command])
+                return result(stdout=json.dumps({
+                    "isDraft": True,
+                    "statusCheckRollup": [{"name": "Actions", "conclusion": "SUCCESS"}],
+                }))
+
+            rows = PublishEngine(
+                fake,
+                root / "worktrees",
+                lambda: "20260714t230000z",
+                publication_ledger=ledger,
+            ).reconcile_drafts(root)
+            self.assertEqual(rows[0]["draft_state"], "draft")
+            self.assertEqual(rows[0]["hosted_checks"]["state"], "passed")
+            self.assertEqual(rows[0]["last_reconciled_at"], "20260714t230000z")
+            self.assertEqual(calls[0][:4], ["gh", "pr", "view", "https://github.com/owner/repo/pull/7"])
+            self.assertEqual(len(calls), 1)
+            saved = json.loads(ledger.read_text(encoding="utf-8"))
+            self.assertEqual(saved["hosted_checks"]["state"], "passed")
+            self.assertEqual(saved["draft_state"], "draft")
+
+    def test_reconcile_drafts_preserves_unknown_status_when_github_read_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "published-drafts.jsonl"
+            ledger.write_text(json.dumps({
+                "status": "DRAFT_PR_OPENED",
+                "pr_url": "https://github.com/owner/repo/pull/8",
+            }) + "\n", encoding="utf-8")
+
+            def fake(command, **kwargs):
+                return result(rc=1, stderr="network unavailable")
+
+            rows = PublishEngine(
+                fake,
+                root / "worktrees",
+                lambda: "now",
+                publication_ledger=ledger,
+            ).reconcile_drafts(root)
+            self.assertEqual(rows[0]["hosted_checks"]["state"], "unknown")
+            self.assertEqual(rows[0]["hosted_checks"]["reason"], "GitHub draft status could not be read")
+            self.assertEqual(rows[0]["draft_state"], "unknown")
+
     def proof(self, patch_path):
         return {
             "status": "PROVEN_REPAIR",
