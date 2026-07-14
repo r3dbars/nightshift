@@ -151,8 +151,13 @@ class PublishEngine:
 
         changed = False
         for row in rows:
-            if row.get("status") != "DRAFT_PR_OPENED" or not row.get("pr_url"):
+            # Rows written before the status field was added still identify a
+            # publication by URL; normalize them while doing this read-only pass.
+            if not row.get("pr_url") or row.get("status") not in {None, "", "DRAFT_PR_OPENED"}:
                 continue
+            if row.get("status") != "DRAFT_PR_OPENED":
+                row["status"] = "DRAFT_PR_OPENED"
+                changed = True
             viewed = self.run_cmd(
                 ["gh", "pr", "view", str(row["pr_url"]), "--json", "isDraft,statusCheckRollup"],
                 cwd=repo,
