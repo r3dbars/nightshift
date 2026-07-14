@@ -92,7 +92,7 @@ def task_selection_priority(task: dict) -> int:
 def requests_coverage_work(goal: str) -> bool:
     action = r"(?:add|audit|create|expand|find|fix|identify|improve|increase|locate|review|strengthen|write)"
     target = r"(?:test|tests|testing|coverage|regression)"
-    return bool(re.search(rf"\b(?:{action}\b.{{0,48}}\b{target}|{target}\b.{{0,48}}\b{action})\b", goal, re.IGNORECASE))
+    return bool(re.search(rf"\b(?:{action}\b.{{0,128}}\b{target}|{target}\b.{{0,128}}\b{action})\b", goal, re.IGNORECASE))
 
 
 def unchecked_issue_actions(signal: dict) -> list[str]:
