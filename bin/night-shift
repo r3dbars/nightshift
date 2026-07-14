@@ -3949,29 +3949,55 @@ def command_report(args) -> int:
 
 def command_handoff(args) -> int:
     ledger = select_ledger(args, completed_only=True) if getattr(args, "latest", False) else select_ledger(args)
-    if ledger and not (ledger / "work-queue.json").exists() and (ledger / "cycles.json").exists():
+    report_ledger = ledger
+    portfolio_items_path = ledger / "morning-items.json" if ledger else None
+    is_portfolio = bool(portfolio_items_path and portfolio_items_path.exists())
+    if ledger and not is_portfolio and not (ledger / "work-queue.json").exists() and (ledger / "cycles.json").exists():
         cycles = parse_json_text((ledger / "cycles.json").read_text(encoding="utf-8"), [])
         child_ledgers = [Path(row.get("ledger", "")) for row in reversed(cycles) if row.get("ledger")]
         ledger = next((child for child in child_ledgers if (child / "work-queue.json").exists()), ledger)
-    queue_path = ledger / "work-queue.json" if ledger else None
+        report_ledger = ledger
+    queue_path = portfolio_items_path if is_portfolio else ledger / "work-queue.json" if ledger else None
     if not ledger or not queue_path or not queue_path.exists():
         print("NIGHTSHIFT_HANDOFF: RED | no ranked work queue found; choose a completed run")
         return 1
     try:
         items = json.loads(queue_path.read_text(encoding="utf-8"))
-        item = select_handoff_item(items, args.item)
-        mode = json.loads((ledger / "mode.json").read_text(encoding="utf-8"))
+        if is_portfolio:
+            if args.item < 1 or args.item > len(items):
+                raise ValueError(f"item {args.item} does not exist")
+            item = dict(items[args.item - 1])
+            verification = item.get("verification")
+            if verification and not item.get("tests") and not item.get("verification_commands"):
+                if isinstance(verification, list):
+                    item["verification_commands"] = verification
+                else:
+                    item["tests"] = verification
+            item = select_handoff_item([item], 1)
+        else:
+            item = select_handoff_item(items, args.item)
+        source_ledger = ledger
+        if is_portfolio:
+            child_value = str(item.get("child_ledger") or "").strip()
+            if child_value:
+                candidate_ledger = Path(child_value).expanduser().resolve()
+                if candidate_ledger.is_dir():
+                    source_ledger = candidate_ledger
+        mode_path = source_ledger / "mode.json"
+        if not mode_path.exists() and report_ledger and report_ledger != source_ledger:
+            mode_path = report_ledger / "mode.json"
+        mode = json.loads(mode_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         print(f"NIGHTSHIFT_HANDOFF: RED | {str(exc)[:200]}")
         return 1
-    repo = repo_root(str(mode.get("repo") or ""))
+    repo = repo_root(str(mode.get("repo") or item.get("repo_path") or ""))
     if not repo or not repo.is_dir():
         print("NIGHTSHIFT_HANDOFF: RED | the handoff repository is unavailable")
         return 1
 
-    handoff_dir = ledger / "handoff"
+    handoff_dir = report_ledger / "handoff"
     handoff_dir.mkdir(parents=True, exist_ok=True)
-    prompt = redact(build_handoff_prompt(item, repo, ledger.name))
+    prompt = redact(build_handoff_prompt(item, repo, report_ledger.name))
     prompt_path = handoff_dir / f"item-{args.item}-{args.agent}-prompt.md"
     prompt_path.write_text(prompt, encoding="utf-8")
     print(f"NIGHTSHIFT_HANDOFF: GREEN | prepared item={args.item} | agent={args.agent} | prompt={prompt_path}")
@@ -4035,6 +4061,7 @@ def command_handoff(args) -> int:
         "cloud_authorized": True,
         "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "item": args.item,
+        "source_ledger": str(source_ledger),
         "materialized_files": copied,
         **pack_metrics,
         "read_only": True,
@@ -4058,7 +4085,7 @@ def command_handoff(args) -> int:
     outcome = {
         "created_at": metadata["completed_at"],
         "fingerprint": str(item.get("fingerprint") or ""),
-        "ledger": str(ledger),
+        "ledger": str(report_ledger),
         "repo": str(repo),
         "source_ref": source_ref,
         "valid_review": True,

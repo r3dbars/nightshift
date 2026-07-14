@@ -2660,6 +2660,55 @@ buildThing() { return 1; }
                 night_shift.latest_ledger = original_latest
             self.assertTrue((child / "handoff" / "item-1-codex-prompt.md").exists())
 
+    def test_handoff_explicit_portfolio_item_uses_parent_choice_and_child_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            portfolio = root / "portfolio"
+            child = root / "child"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            (repo / "src").mkdir()
+            (repo / "src" / "app.py").write_text("return 42\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
+            source_ref = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True, capture_output=True, check=True
+            ).stdout.strip()
+            portfolio.mkdir()
+            child.mkdir()
+            (child / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
+            (portfolio / "morning-items.json").write_text(json.dumps([
+                {
+                    "rank": 1, "repo": "owner/first", "child_ledger": str(child),
+                    "summary": "First candidate", "score": "MAYBE",
+                    "evidence": "src/app.py:1 | return 42", "files": ["src/app.py"],
+                    "verification": "python3 -m unittest", "source_ref": source_ref,
+                },
+                {
+                    "rank": 2, "repo": "owner/target", "child_ledger": str(child),
+                    "summary": "Target candidate", "score": "MAYBE",
+                    "evidence": "src/app.py:1 | return 42", "files": ["src/app.py"],
+                    "verification": "python3 -m unittest", "source_ref": source_ref,
+                },
+            ]), encoding="utf-8")
+            args = SimpleNamespace(
+                ledger=str(portfolio), latest=False, item=2, agent="codex",
+                run=False, allow_cloud=False, timeout=30,
+            )
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(night_shift.command_handoff(args), 0)
+            self.assertIn("prepared item=2", output.getvalue())
+            prompt_path = portfolio / "handoff" / "item-2-codex-prompt.md"
+            self.assertTrue(prompt_path.exists())
+            prompt = prompt_path.read_text(encoding="utf-8")
+            self.assertIn("Target candidate", prompt)
+            self.assertIn("Repository: repo", prompt)
+            self.assertIn(source_ref, prompt)
+            self.assertFalse((child / "handoff" / "item-2-codex-prompt.md").exists())
+
     def test_handoff_cloud_run_is_explicit_and_read_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

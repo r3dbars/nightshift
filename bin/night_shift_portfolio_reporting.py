@@ -202,6 +202,9 @@ class PortfolioReportEngine:
                 "", "Teach the next shift with the exact number shown above:",
                 f"- Useful: `night-shift feedback --ledger {ledger_arg} --item 1 --useful`",
                 f"- Not useful: `night-shift feedback --ledger {ledger_arg} --item 1 --not-useful --note \"too generic\"`",
+                "",
+                "One-action independent review (read-only; nothing is sent unless you run it):",
+                f"- `night-shift handoff --ledger {ledger_arg} --item 1 --agent codex --run --allow-cloud`",
             ])
         else:
             lines.extend([
