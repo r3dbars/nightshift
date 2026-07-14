@@ -208,6 +208,8 @@ class NightShiftQualityTests(unittest.TestCase):
             },
         }, "source", ("python", "-m", "unittest"))
         self.assertIn("Invoke the target at least 2 times", prompt)
+        self.assertIn("exactly one standard unified git diff block", prompt)
+        self.assertIn("Do not repeat the diff block", prompt)
         self.assertIn("distinct fake or fixture preconditions", prompt)
         self.assertIn("assert remove occurs before prune", prompt)
         signature_prompt = __import__("night_shift_patch_protocol").patch_prompt({

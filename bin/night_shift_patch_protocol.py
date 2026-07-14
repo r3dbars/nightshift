@@ -554,7 +554,7 @@ def patch_prompt(candidate: dict, source_excerpt: str, command: tuple[str, ...])
             "You may modify only an existing allowed file. Do not change tests, manifests, "
             "lockfiles, workflows, configuration, secrets, dependencies, or policy."
         )
-    return f"""ROLE: isolated patch author. Return ONLY a standard unified git diff.
+    return f"""ROLE: isolated patch author. Return exactly one standard unified git diff block.
 TASK: {candidate.get('summary', '')}
 EVIDENCE: {candidate.get('evidence', '')}
 EXPECTED RESULT: {candidate.get('expected_result', '')}
@@ -566,6 +566,6 @@ VERIFICATION ARGV: {' '.join(command)}
 SOURCE EXCERPT:
 {source_excerpt[:24000]}
 
-{edit_policy} Do not
+{edit_policy} Do not repeat the diff block. Do not
 include prose, markdown fences, commands, or explanations. If a safe patch is
 not possible, return an empty response."""

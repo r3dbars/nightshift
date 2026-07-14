@@ -67,7 +67,7 @@ def patch_format_correction(files: list[str]) -> str:
             f"Choose only from these approved paths: {approved}."
         )
     return (
-        "CORRECTION: Return the complete patch again with no markdown fence or prose. "
+        "CORRECTION: Return exactly one complete patch again with no markdown fence or prose. "
         + header
         + " Include the matching `--- a/...`, `+++ b/...`, and `@@` lines."
     )
