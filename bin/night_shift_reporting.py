@@ -192,6 +192,19 @@ class ReportEngine:
                 repo = ""
         repo_feedback = [row for row in feedback_history if str(row.get("repo") or "") == repo]
         repo_current_feedback = latest_feedback_events(repo_feedback)
+        try:
+            planned_items = json.loads(
+                (ledger / "planned-work-queue.json").read_text(encoding="utf-8")
+            )
+            if not isinstance(planned_items, list):
+                planned_items = []
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            planned_items = []
+        feedback_adjustments = [
+            int(row.get("feedback_adjustment") or 0)
+            for row in planned_items
+            if isinstance(row, dict)
+        ]
         metrics = {
             "attempted": len(results), "accepted_candidates": accepted,
             "rejected": sum(1 for row in results if row.get("score") == "REJECT"),
@@ -223,6 +236,16 @@ class ReportEngine:
             ),
             "review_outcome_skips_before_model": sum(
                 row.get("category") == "review-outcome" for row in skipped
+            ),
+            "feedback_adjusted_candidates": sum(
+                adjustment != 0 for adjustment in feedback_adjustments
+            ),
+            "feedback_adjustment_total": sum(feedback_adjustments),
+            "feedback_positive_adjustments": sum(
+                adjustment > 0 for adjustment in feedback_adjustments
+            ),
+            "feedback_negative_adjustments": sum(
+                adjustment < 0 for adjustment in feedback_adjustments
             ),
         }
         (ledger / "outcome-metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")

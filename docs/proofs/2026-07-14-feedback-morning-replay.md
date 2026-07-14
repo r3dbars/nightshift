@@ -12,8 +12,8 @@ The run completed with:
 
 - status: `YELLOW`
 - local calls: 2, including one bounded retry
-- estimated tokens: 5,917
-- pre-model weak-signal skips: 7
+- estimated tokens: 5,336
+- pre-model weak-signal skips: 6
 - accepted candidates: 0
 - rejected candidates: 1
 - source checkout changes: 0
@@ -31,6 +31,9 @@ with unrelated global history:
   "feedback_signal_active": true,
   "repo_feedback_events": 1,
   "repo_current_useful_preferences": 1,
+  "feedback_adjusted_candidates": 3,
+  "feedback_adjustment_total": 75,
+  "feedback_positive_adjustments": 3,
   "feedback_skips_before_model": 0,
   "review_outcome_skips_before_model": 0
 }
@@ -46,12 +49,18 @@ You marked changed-file-proof useful. Note: The isolated test draft was verified
 
 Before the fix, a rejected-only run headed its section `Three useful choices`,
 which implied that a rejected item was useful. The reporter now says `What I
-checked` when no KEEP or MAYBE item survives. The same replay after the fix
+checked` when no KEEP or MAYBE item survives. The latest replay after the fix
 shows the corrected heading and keeps the detailed rejection summary below it.
 
 The worker also proposed a focused behavioral test for the untested
 `PortfolioReportEngine.morning_items` ordering contract. That test was added
-and verifies rank ordering, name tie-breaking, and returned metadata.
+and verifies rank ordering, portfolio-score tie-breaking, and returned metadata.
+
+The latest raw run ledger is:
+
+```text
+/Users/redbars/.codex/night-shift/feedback-effect-replay.dUjzXO/maestro/overnight/night-shift-20260714T131418Z-quiet
+```
 
 ## Verification
 
