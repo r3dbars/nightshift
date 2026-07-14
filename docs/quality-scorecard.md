@@ -22,6 +22,11 @@ model tokens, skipped 8, 4, and 10 weak signals before dispatch, and made the
 no-work brief name the failed-check, pull-request, and issue counts it had
 actually inspected; see
 [`2026-07-14-portfolio-no-work-signal-brief.md`](proofs/2026-07-14-portfolio-no-work-signal-brief.md).
+The post-brief live replay then visited all three owned repos again, ranked
+BetterFeedback first for three failed checks, completed three child batches,
+and spent zero model tokens because every candidate stayed below the evidence
+bar. It preserved the useful-feedback ranking signal and is recorded in
+[`2026-07-14-post-brief-portfolio-replay.md`](proofs/2026-07-14-post-brief-portfolio-replay.md).
 The follow-up fresh explicit `getDeltaLabel` mission then reached a real
 `VERIFIED_DRAFT` in BetterFeedback after the source-path punctuation fix and
 neutral test-strengthening prompt contract; baseline and after checks passed,
