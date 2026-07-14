@@ -45,7 +45,7 @@ from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, fresh_explicit_goal_tasks, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
+from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_pack_file_hashes, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
 from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, HUMAN_OUTCOME_VALUES, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
@@ -4158,6 +4158,11 @@ def command_handoff(args) -> int:
     prompt = redact(build_handoff_prompt(item, repo, report_ledger.name))
     prompt_path = handoff_dir / f"item-{args.item}-{args.agent}-prompt.md"
     prompt_path.write_text(prompt, encoding="utf-8")
+    pack_dir = handoff_dir / f"item-{args.item}-{args.agent}-pack"
+    if pack_dir.exists():
+        shutil.rmtree(pack_dir)
+    pack_dir.mkdir(parents=True, exist_ok=True)
+    pack_manifest_path = handoff_dir / f"item-{args.item}-{args.agent}-pack.json"
     source_ref = str(item.get("source_ref") or "")
     if source_ref:
         if not re.fullmatch(r"[0-9a-f]{40}", source_ref):
@@ -4169,40 +4174,58 @@ def command_handoff(args) -> int:
             print("Fetch the repository's recent history, then rerun the handoff.")
             return 1
 
+    copied = materialize_review_files(repo, pack_dir, item.get("files") or [], source_ref)
+    if not copied:
+        print("NIGHTSHIFT_HANDOFF: RED | no safe committed review files could be materialized")
+        return 1
+    pack_metrics = handoff_pack_metrics(prompt, pack_dir, copied)
+    privacy_reasons = handoff_pack_privacy_reasons(prompt, pack_dir, copied, repo)
+    pack_manifest = {
+        "agent": args.agent,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "item": args.item,
+        "materialized_files": copied,
+        "file_sha256": handoff_pack_file_hashes(pack_dir, copied),
+        **pack_metrics,
+        "privacy": "GREEN" if not privacy_reasons else "RED",
+        "privacy_reasons": privacy_reasons,
+        "sent": False,
+        "source_ref": source_ref or "HEAD",
+    }
+    pack_manifest_path.write_text(json.dumps(pack_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if privacy_reasons:
+        print(
+            "NIGHTSHIFT_HANDOFF: RED | bounded pack failed privacy validation: "
+            + "; ".join(privacy_reasons)[:240]
+        )
+        return 1
+    print(f"NIGHTSHIFT_HANDOFF: GREEN | prepared item={args.item} | agent={args.agent} | prompt={prompt_path}")
+    print(
+        "Handoff pack: "
+        f"files={pack_metrics['materialized_file_count']} "
+        f"bytes={pack_metrics['materialized_bytes']} "
+        f"prompt_bytes={pack_metrics['prompt_bytes']} "
+        f"redactions={pack_metrics['redaction_markers']} privacy=GREEN"
+    )
+    print(f"Review pack: {pack_dir} | manifest={pack_manifest_path}")
+    if not args.run:
+        print("Nothing was sent. Review the saved pack, then add --run for one explicitly approved review.")
+        return 0
+
+    config = load_config()
+    cloud_allowed = bool(config_value(config, "allow_cloud_reasoning", False) or args.allow_cloud)
+    if not cloud_allowed:
+        print("NIGHTSHIFT_HANDOFF: RED | cloud use was not approved; rerun with --allow-cloud for this one review")
+        return 2
+    if not shutil.which(args.agent):
+        print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
+        return 1
     with tempfile.TemporaryDirectory(prefix="night-shift-handoff-") as temporary:
         review_root = Path(temporary)
-        copied = materialize_review_files(repo, review_root, item.get("files") or [], source_ref)
-        if not copied:
-            print("NIGHTSHIFT_HANDOFF: RED | no safe committed review files could be materialized")
-            return 1
-        pack_metrics = handoff_pack_metrics(prompt, review_root, copied)
-        privacy_reasons = handoff_pack_privacy_reasons(prompt, review_root, copied, repo)
-        if privacy_reasons:
-            print(
-                "NIGHTSHIFT_HANDOFF: RED | bounded pack failed privacy validation: "
-                + "; ".join(privacy_reasons)[:240]
-            )
-            return 1
-        print(f"NIGHTSHIFT_HANDOFF: GREEN | prepared item={args.item} | agent={args.agent} | prompt={prompt_path}")
-        print(
-            "Handoff pack: "
-            f"files={pack_metrics['materialized_file_count']} "
-            f"bytes={pack_metrics['materialized_bytes']} "
-            f"prompt_bytes={pack_metrics['prompt_bytes']} "
-            f"redactions={pack_metrics['redaction_markers']} privacy=GREEN"
-        )
-        if not args.run:
-            print("Nothing was sent. Add --run after reviewing the local handoff pack.")
-            return 0
-
-        config = load_config()
-        cloud_allowed = bool(config_value(config, "allow_cloud_reasoning", False) or args.allow_cloud)
-        if not cloud_allowed:
-            print("NIGHTSHIFT_HANDOFF: RED | cloud use was not approved; rerun with --allow-cloud for this one review")
-            return 2
-        if not shutil.which(args.agent):
-            print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
-            return 1
+        for relative in copied:
+            destination = review_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(pack_dir / relative, destination)
         review_started = time.monotonic()
         result = run_cmd(
             review_agent_command(args.agent, prompt, review_root),
@@ -4217,6 +4240,16 @@ def command_handoff(args) -> int:
         validate_handoff_review(review_output, repo, source_ref, copied)
         if result.rc == 0 else ["coding agent command failed"]
     )
+    pack_manifest.update({
+        "cloud_authorized": True,
+        "review_completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "review_output_bytes": len(review_output.encode("utf-8")),
+        "review_seconds": review_seconds,
+        "sent": True,
+        "valid_review": not review_reasons,
+        "validation_reasons": review_reasons,
+    })
+    pack_manifest_path.write_text(json.dumps(pack_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     metadata = {
         "agent": args.agent,
         "cloud_authorized": True,
