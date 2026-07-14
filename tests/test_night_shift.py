@@ -24,7 +24,7 @@ sys.modules[LOADER.name] = night_shift
 LOADER.exec_module(night_shift)
 
 from night_shift_evidence import action_type, artifact_priority, first_label_value, summarize_output
-from night_shift_drafts import MAX_VERIFICATION_REPAIRS, explicit_test_mission_candidate, owner_symbol_call_count, parse_test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt
+from night_shift_drafts import MAX_VERIFICATION_REPAIRS, explicit_test_mission_candidate, owner_symbol_call_count, parse_test_strengthening_contract, valid_test_strengthening_candidate, verification_correction_prompt, verification_failure_reason
 from night_shift_patch_protocol import materialize_test_method_patch, materialize_ts_test_case_patch
 from night_shift_js_evidence import simple_exported_function, top_level_symbol_call_count_text as js_symbol_call_count_text
 from night_shift_python_evidence import semantic_test_contract_reasons
@@ -5020,6 +5020,19 @@ import { helper } from '@/lib/helpers';
         self.assertEqual(night_shift.verification_preflight(zero_failures)[0], "BLOCKED")
         self.assertEqual(night_shift.verification_preflight(missing)[0], "BLOCKED")
         self.assertEqual(night_shift.verification_preflight(mount)[0], "BLOCKED")
+
+    def test_verification_failure_reason_keeps_runner_cause_short_and_redacted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sandbox = Path(tmp)
+            (sandbox / "verification.txt").write_text(
+                "sh: 1: vitest: not found\nsecret=abcd12345678\n", encoding="utf-8"
+            )
+            reason = verification_failure_reason(
+                sandbox, SimpleNamespace(rc=127, stdout="", stderr=""), 127
+            )
+            self.assertIn("rc=127", reason)
+            self.assertIn("vitest: not found", reason)
+            self.assertNotIn("abcd12345678", reason)
 
     def test_trust_repo_preflight_controls_approval_save(self):
         originals = {

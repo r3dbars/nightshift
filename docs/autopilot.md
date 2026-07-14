@@ -115,6 +115,8 @@ lock-file changes, and release actions, and reruns an exact detected test
 command. Failed drafts remain rejected artifacts. A failing-before and
 passing-after change is a `PROVEN_REPAIR`; an otherwise clean bounded patch is
 a `VERIFIED_DRAFT`. Both remain local and uncommitted for morning review.
+If the isolated check cannot run, the morning brief includes the short redacted
+runner cause, such as a missing test executable, so the next setup step is clear.
 
 For failed GitHub Actions runs, source, package scripts, evidence validation,
 and the disposable worktree all use the run's exact `headSha`. A PR-only file

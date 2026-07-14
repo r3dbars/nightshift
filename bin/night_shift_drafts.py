@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
+from night_shift_redaction import redact
 from night_shift_models import output_token_budget
 from night_shift_sandbox import (
     patch_input_directory,
@@ -56,6 +57,21 @@ def remaining_draft_timeout(
     if deadline is None:
         return max(1, timeout)
     return max(0, min(timeout, int(deadline - time.time())))
+
+
+def verification_failure_reason(sandbox_dir: Path, verified, after_rc: int) -> str:
+    """Keep the morning rejection useful without copying raw runner output."""
+    output_path = sandbox_dir / "verification.txt"
+    try:
+        output = output_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        output = ""
+    if not output:
+        output = f"{getattr(verified, 'stdout', '')}\n{getattr(verified, 'stderr', '')}"
+    lines = [redact(line.strip()) for line in output.splitlines() if line.strip()]
+    detail = " ".join(lines[-2:])[:240]
+    rc = after_rc if after_rc != 0 else int(getattr(verified, "rc", -1))
+    return f"isolated verification did not pass (rc={rc})" + (f": {detail}" if detail else "")
 
 
 def patch_format_correction(files: list[str]) -> str:
@@ -826,7 +842,7 @@ class DraftEngine:
         if explicit_test_mission and any(not is_test_path(path) for path in paths):
             guards.append("explicit test mission changed a non-test file")
         if verified.rc != 0 or after_rc != 0:
-            guards.append("isolated verification did not pass")
+            guards.append(verification_failure_reason(sandbox_dir, verified, after_rc))
         if test_contract:
             is_typescript = test_contract.get("analysis") == "typescript-regex"
             is_swift = test_contract.get("analysis") == "swift-regex"
