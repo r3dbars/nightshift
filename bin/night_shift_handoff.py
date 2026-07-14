@@ -1,6 +1,7 @@
 """Build bounded, review-only morning handoffs for a stronger coding agent."""
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import re
 import subprocess
@@ -145,6 +146,18 @@ def handoff_pack_metrics(prompt: str, target: Path, files: list[str]) -> dict[st
         "prompt_bytes": len(prompt.encode("utf-8")),
         "redaction_markers": redaction_markers,
     }
+
+
+def handoff_pack_file_hashes(target: Path, files: list[str]) -> dict[str, str]:
+    """Return hashes for the redacted files in a durable review pack."""
+    hashes: dict[str, str] = {}
+    for relative in files:
+        try:
+            content = (target / relative).read_bytes()
+        except OSError:
+            continue
+        hashes[relative] = hashlib.sha256(content).hexdigest()
+    return hashes
 
 
 def handoff_pack_privacy_reasons(prompt: str, target: Path, files: list[str], repo: Path) -> list[str]:

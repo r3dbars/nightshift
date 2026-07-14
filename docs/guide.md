@@ -212,6 +212,12 @@ Useful files:
 - `token-report.txt`: estimated tokens by lane.
 - `morning.md`: the morning brief.
 
+When you prepare a morning handoff, Night Shift also saves an inspectable,
+redacted pack under `handoff/`, plus a JSON manifest with the exact file list,
+SHA-256 hashes, byte counts, redaction count, privacy result, and whether
+anything was sent. A preview never sends the pack; an approved review uses a
+fresh temporary copy and leaves the saved pack unchanged.
+
 Portfolio autopilot also writes a parent `*-autopilot/` ledger containing:
 
 - `portfolio.json` / `portfolio.md`: ranked repositories and live GitHub signals.

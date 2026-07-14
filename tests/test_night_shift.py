@@ -2765,10 +2765,20 @@ buildThing() { return 1; }
             self.assertIn("Nothing was sent", output.getvalue())
             self.assertIn("Handoff pack: files=1", output.getvalue())
             self.assertIn("privacy=GREEN", output.getvalue())
+            self.assertIn("Review pack:", output.getvalue())
             prompt = (ledger / "handoff" / "item-1-codex-prompt.md").read_text(encoding="utf-8")
             self.assertIn("[REDACTED_SECRET]", prompt)
             self.assertNotIn("supersecretvalue", prompt)
             self.assertFalse((ledger / "handoff" / "item-1-codex-review.md").exists())
+            pack = ledger / "handoff" / "item-1-codex-pack"
+            self.assertEqual(
+                (pack / "src" / "app.py").read_text(encoding="utf-8").count("[REDACTED_SECRET]"),
+                1,
+            )
+            manifest = json.loads((ledger / "handoff" / "item-1-codex-pack.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["privacy"], "GREEN")
+            self.assertFalse(manifest["sent"])
+            self.assertEqual(manifest["materialized_files"], ["src/app.py"])
 
     def test_handoff_latest_resolves_autopilot_child_ledger(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2941,6 +2951,12 @@ buildThing() { return 1; }
             self.assertGreaterEqual(metadata["redaction_markers"], 1)
             self.assertGreaterEqual(metadata["review_seconds"], 0)
             self.assertGreater(metadata["review_output_bytes"], 0)
+            pack_manifest = json.loads(
+                (ledger / "handoff" / "item-1-codex-pack.json").read_text(encoding="utf-8")
+            )
+            self.assertTrue(pack_manifest["sent"])
+            self.assertTrue(pack_manifest["valid_review"])
+            self.assertEqual(pack_manifest["privacy"], "GREEN")
 
     def test_handoff_pack_privacy_gate_rejects_surviving_secret(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2979,6 +2995,14 @@ buildThing() { return 1; }
             self.assertEqual(metrics["redaction_markers"], 2)
             self.assertGreater(metrics["materialized_bytes"], 0)
             self.assertGreater(metrics["prompt_bytes"], 0)
+
+    def test_handoff_pack_hashes_are_for_saved_redacted_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            review = Path(tmp)
+            (review / "app.py").write_text("return 42\n", encoding="utf-8")
+            hashes = night_shift.handoff_pack_file_hashes(review, ["app.py", "missing.py"])
+            self.assertEqual(list(hashes), ["app.py"])
+            self.assertEqual(len(hashes["app.py"]), 64)
 
     def test_handoff_reviews_pinned_revision_when_checkout_has_moved(self):
         with tempfile.TemporaryDirectory() as tmp:
