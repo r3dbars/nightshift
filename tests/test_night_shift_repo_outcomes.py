@@ -105,6 +105,31 @@ class RepoOutcomeTests(unittest.TestCase):
         self.assertEqual(summary["useful_verified_feedback"], 1)
         self.assertEqual(summary["hosted_green_draft_prs"], 1)
 
+    def test_human_outcomes_only_count_verified_feedback(self):
+        summary = outcome_ledger_summary([
+            {
+                "repo": "owner/repo", "kind": "feedback", "feedback_verified": 1,
+                "human_outcome_accepted": 1,
+            },
+            {
+                "repo": "owner/repo", "kind": "feedback", "feedback_verified": 0,
+                "human_outcome_accepted": 1,
+            },
+        ])
+        self.assertEqual(summary["accepted_verified_outcomes"], 1)
+        self.assertEqual(summary["revised_verified_outcomes"], 0)
+        self.assertEqual(summary["rejected_verified_outcomes"], 0)
+
+    def test_accepted_verified_outcome_has_more_ranking_weight_than_a_candidate_vote(self):
+        adjustment, summary = repo_outcome_adjustment([
+            {
+                "repo": "owner/repo", "feedback_verified": 1,
+                "human_outcome_accepted": 1,
+            },
+        ], "owner/repo")
+        self.assertEqual(adjustment, 35)
+        self.assertEqual(summary["accepted_verified_outcomes"], 1)
+
     def test_outcome_ledger_is_bounded_and_keeps_latest(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "repo-outcomes.jsonl"

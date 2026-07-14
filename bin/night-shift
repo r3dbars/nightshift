@@ -45,7 +45,7 @@ from night_shift_state import append_attempt, exclusive_lock, fresh_explicit_goa
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
-from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
+from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, HUMAN_OUTCOME_VALUES, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
 from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, outcome_ledger_summary, repo_outcome_adjustment
@@ -2141,6 +2141,10 @@ def command_health(args) -> int:
         f"tokens/verified~={outcome_summary['tokens_per_verified_draft']} "
         f"useful_verified_votes={outcome_summary['useful_verified_feedback']} "
         f"useful_candidate_votes={outcome_summary['useful_candidate_feedback']} "
+        f"accepted/revised/rejected_verified="
+        f"{outcome_summary['accepted_verified_outcomes']}/"
+        f"{outcome_summary['revised_verified_outcomes']}/"
+        f"{outcome_summary['rejected_verified_outcomes']} "
         f"hosted_green_drafts={outcome_summary['hosted_green_draft_prs']}"
     )
     feedback = load_feedback()
@@ -4211,11 +4215,21 @@ def command_feedback(args) -> int:
         return 2
     clarity = getattr(args, "clarity", "") or ""
     effort = getattr(args, "effort", "") or ""
+    human_outcome = getattr(args, "outcome", "") or ""
     if clarity and clarity not in CLARITY_VALUES:
         print("NIGHTSHIFT_FEEDBACK: RED | --clarity must be clear or confusing")
         return 2
     if effort and effort not in EFFORT_VALUES:
         print("NIGHTSHIFT_FEEDBACK: RED | --effort must be quick, some-work, or too-much")
+        return 2
+    if human_outcome and human_outcome not in HUMAN_OUTCOME_VALUES:
+        print("NIGHTSHIFT_FEEDBACK: RED | --outcome must be accepted, revised, or rejected")
+        return 2
+    if human_outcome in {"accepted", "revised"} and not args.useful:
+        print("NIGHTSHIFT_FEEDBACK: RED | accepted or revised outcomes need --useful")
+        return 2
+    if human_outcome == "rejected" and not args.not_useful:
+        print("NIGHTSHIFT_FEEDBACK: RED | rejected outcomes need --not-useful")
         return 2
     ledger = select_ledger(args, completed_only=True) if getattr(args, "latest", False) else select_ledger(args)
     morning_path = ledger / "morning-items.json" if ledger else None
@@ -4265,6 +4279,8 @@ def command_feedback(args) -> int:
         row["clarity"] = clarity
     if effort:
         row["effort"] = effort
+    if human_outcome:
+        row["human_outcome"] = human_outcome
     try:
         reviewed_at = (ledger / "REVIEWED").read_text(encoding="utf-8").strip()
     except OSError:
@@ -4285,7 +4301,7 @@ def command_feedback(args) -> int:
     if outcome_repo:
         feedback_id = "|".join(
             str(row.get(field) or "")
-            for field in ("ledger", "rank", "fingerprint", "verdict")
+            for field in ("ledger", "rank", "fingerprint", "verdict", "human_outcome")
         )
         append_repo_outcome(REPO_OUTCOMES_PATH, {
             "completed_at": created_at,
@@ -4297,6 +4313,10 @@ def command_feedback(args) -> int:
             "source_ref": row["source_ref"],
             "feedback_outcome_status": row["outcome_status"],
             "feedback_verified": int(row["outcome_status"] in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}),
+            "human_outcome": human_outcome,
+            "human_outcome_accepted": int(human_outcome == "accepted"),
+            "human_outcome_revised": int(human_outcome == "revised"),
+            "human_outcome_rejected": int(human_outcome == "rejected"),
         })
     print(f"NIGHTSHIFT_FEEDBACK: GREEN | item={args.item} | verdict={verdict} | saved={FEEDBACK_PATH}")
     print("Night Shift will use this signal when ranking future work and choosing which repos get time.")
@@ -4582,6 +4602,10 @@ def build_parser() -> argparse.ArgumentParser:
     feedback.add_argument("--item", type=int, required=True, help="ranked work-queue item number")
     feedback.add_argument("--useful", action="store_true", help="prefer similar grounded work")
     feedback.add_argument("--not-useful", action="store_true", help="downrank this repeated suggestion")
+    feedback.add_argument(
+        "--outcome", choices=sorted(HUMAN_OUTCOME_VALUES),
+        help="optional local result: accepted as-is, revised by you, or rejected",
+    )
     feedback.add_argument("--note", default="", help="optional short reason stored locally")
     feedback.add_argument(
         "--clarity", choices=["clear", "confusing"],

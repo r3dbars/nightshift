@@ -266,6 +266,7 @@ class PortfolioReportEngine:
                 "", "Teach the next shift with the exact number shown above:",
                 f"- Useful: `night-shift feedback --ledger {ledger_arg} --item 1 --useful`",
                 f"- Not useful: `night-shift feedback --ledger {ledger_arg} --item 1 --not-useful --note \"too generic\"`",
+                "- Optional result: add `--useful --outcome accepted` if you used it, `--useful --outcome revised` if you changed it, or `--not-useful --outcome rejected` if you discarded it.",
                 "- Optional: add `--clarity clear` or `--clarity confusing`, plus `--effort quick`, `--effort some-work`, or `--effort too-much`.",
                 "",
                 "One-action independent review (read-only; nothing is sent unless you run it):",
