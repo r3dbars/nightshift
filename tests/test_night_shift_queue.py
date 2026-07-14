@@ -300,6 +300,33 @@ class QueueEvidenceTests(unittest.TestCase):
             self.assertIn("source_line=9 | def save(self):", source)
             self.assertNotIn("source_line=1 | def save():", source)
 
+    def test_python_source_evidence_stops_at_target_function(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            source_file = repo / "queue.py"
+            source_file.write_text(
+                "def target(value):\n"
+                "    return value + 1\n"
+                "\n"
+                "\n"
+                "def unrelated():\n"
+                "    return False\n",
+                encoding="utf-8",
+            )
+            index = QueueEvidenceIndex(repo, {
+                "tracked_files": ["queue.py"],
+                "source_files": ["queue.py"],
+                "test_files": [],
+                "coverage_test_files": [],
+            })
+
+            evidence = index.symbol_source_evidence("queue.py", "target")
+            source = next(value for key, value in evidence.items() if key.startswith("goal-source/"))
+
+            self.assertIn("source_line=1 | def target(value):", source)
+            self.assertIn("source_line=2 | return value + 1", source)
+            self.assertNotIn("unrelated", source)
+
     def test_binary_source_is_not_treated_as_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
