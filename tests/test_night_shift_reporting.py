@@ -156,6 +156,33 @@ class ReportingTests(unittest.TestCase):
             )
             self.assertIn("Review timing signals: 1 vote(s), average 4 seconds", brief)
 
+    def test_morning_carries_last_votes_forward_without_leaking_notes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            feedback = [
+                {
+                    "repo": "/repo", "family": "tests", "fingerprint": "one",
+                    "verdict": "useful", "note": "great test; Authorization: Bearer secret-value-123456",
+                    "created_at": "2026-07-14T01:00:00+00:00",
+                },
+                {
+                    "repo": "/repo", "family": "docs", "fingerprint": "two",
+                    "verdict": "not-useful", "note": "too generic",
+                    "created_at": "2026-07-14T02:00:00+00:00",
+                },
+            ]
+            self.engine(feedback=feedback).write_morning(
+                ledger, "quiet", [result()], 100, "GREEN", {"status": "ok", "repo": "/repo"}
+            )
+            brief = (ledger / "morning.md").read_text()
+            self.assertIn("What I learned from your last votes:", brief)
+            self.assertIn("You marked tests useful", brief)
+            self.assertIn("I will look for more work like this.", brief)
+            self.assertIn("You marked docs not-useful", brief)
+            self.assertIn("I will cool this kind of work down.", brief)
+            self.assertIn("[REDACTED_SECRET]", brief)
+            self.assertNotIn("secret-value-123456", brief)
+
     def test_morning_falls_back_to_factual_scan(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)

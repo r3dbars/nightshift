@@ -87,6 +87,15 @@ class ReportEngine:
             round(sum(delays) / len(delays), 3) if delays else None,
         )
 
+    def feedback_continuity(self, repo: str = "", limit: int = 3) -> list[dict]:
+        """Return the latest current votes that should shape the next brief."""
+        history = self.load_feedback()
+        if repo:
+            history = [row for row in history if row.get("repo") == repo]
+        current = latest_feedback_events(history)
+        current.sort(key=lambda row: str(row.get("created_at") or row.get("at") or ""))
+        return current[-limit:]
+
     @staticmethod
     def ranked_results(results: list[dict], include_reject: bool = False) -> list[dict]:
         rows = [row for row in results if include_reject or row["score"] != "REJECT"]
@@ -313,6 +322,21 @@ class ReportEngine:
             lines.append(
                 f"- Review timing signals: {feedback_timing_count} vote(s), average {feedback_delay_average:g} seconds from brief view to vote"
             )
+        continuity = self.feedback_continuity(str((scan or {}).get("repo") or ""))
+        if continuity:
+            lines.extend(["", "What I learned from your last votes:"])
+            for event in continuity:
+                verdict = str(event.get("verdict") or "unknown")
+                family = redact(str(event.get("family") or "this kind of work"))
+                if verdict == "useful":
+                    action = "I will look for more work like this."
+                elif verdict == "not-useful":
+                    action = "I will cool this kind of work down."
+                else:
+                    action = "I will keep this signal tentative."
+                note = " ".join(redact(str(event.get("note") or "")).split())[:140]
+                detail = f" Note: {note}" if note else ""
+                lines.append(f"- You marked {family} {verdict}.{detail} {action}")
         lines.extend(["", "Token totals by lane:"])
         totals = self.token_totals_by_lane(results)
         for lane in sorted(totals):
