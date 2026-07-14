@@ -631,16 +631,35 @@ def portfolio_outcome_adjustment(slug: str) -> tuple[int, dict]:
 def apply_compute_overrides(args) -> None:
     saved = load_config()
     privacy_route = getattr(args, "privacy_route", None)
-    local_url = getattr(args, "local_url", None) or os.environ.get("MAESTRO_LOCAL_BASE_URL") or config_value(saved, "local_url")
-    local_model = getattr(args, "local_model", None) or os.environ.get("MAESTRO_LOCAL_MODEL") or config_value(saved, "local_model")
+    disable_local = bool(getattr(args, "no_local", False))
+    disable_windows = bool(getattr(args, "no_windows", False))
+    local_url = "" if disable_local else (
+        getattr(args, "local_url", None)
+        or os.environ.get("MAESTRO_LOCAL_BASE_URL")
+        or config_value(saved, "local_url")
+    )
+    local_model = "" if disable_local else (
+        getattr(args, "local_model", None)
+        or os.environ.get("MAESTRO_LOCAL_MODEL")
+        or config_value(saved, "local_model")
+    )
     windows_url = (
-        None
-        if privacy_route and privacy_route != "mac-and-lan"
+        ""
+        if disable_windows or (privacy_route and privacy_route != "mac-and-lan")
         else getattr(args, "windows_url", None) or os.environ.get("WINDOWS_WORKER_BASE_URL") or config_value(saved, "windows_url")
     )
-    windows_model = getattr(args, "windows_model", None) or os.environ.get("WINDOWS_WORKER_MODEL") or config_value(saved, "windows_model")
-    if privacy_route and privacy_route != "mac-and-lan":
+    windows_model = "" if disable_windows else (
+        getattr(args, "windows_model", None)
+        or os.environ.get("WINDOWS_WORKER_MODEL")
+        or config_value(saved, "windows_model")
+    )
+    if disable_local:
+        os.environ.pop("MAESTRO_LOCAL_BASE_URL", None)
+        os.environ.pop("MAESTRO_LOCAL_MODEL", None)
+    if disable_windows or (privacy_route and privacy_route != "mac-and-lan"):
         os.environ.pop("WINDOWS_WORKER_BASE_URL", None)
+        if disable_windows:
+            os.environ.pop("WINDOWS_WORKER_MODEL", None)
     if local_url:
         os.environ["MAESTRO_LOCAL_BASE_URL"] = local_url.rstrip("/")
     if local_model:
@@ -1069,7 +1088,13 @@ def doctor_advice(rows: list[tuple[str, str, str]]) -> list[str]:
     return advice
 
 
-def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[str, list[tuple[str, str, str]]]:
+def doctor_checks(
+    repo: str | None,
+    run_smoke=False,
+    allow_fetch=True,
+    skip_local=False,
+    skip_windows=False,
+) -> tuple[str, list[tuple[str, str, str]]]:
     rows: list[tuple[str, str, str]] = []
 
     rows.append(("os-python", *supports_os()))
@@ -1107,51 +1132,59 @@ def doctor_checks(repo: str | None, run_smoke=False, allow_fetch=True) -> tuple[
         gh_auth = run_cmd(["gh", "auth", "status"], timeout=30)
         rows.append(("gh-auth", "GREEN" if gh_auth.rc == 0 else "INFO", (gh_auth.stderr or gh_auth.stdout).strip() or "GitHub auth optional"))
 
-    local_base = os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL)
-    local_model = os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL)
-    local_label = local_server_label(local_base)
-    local_status, local_msg = check_model_endpoint(local_label, f"{local_base.rstrip('/')}/models", expected_model=local_model)
-    if local_status != "GREEN" and "MAESTRO_LOCAL_BASE_URL" not in os.environ:
-        fallback = autodetect_local_server()
-        if fallback:
-            local_base, detected_model = fallback
-            local_label = local_server_label(local_base)
-            if "MAESTRO_LOCAL_MODEL" not in os.environ and detected_model:
-                local_model = detected_model
-            os.environ["MAESTRO_LOCAL_BASE_URL"] = local_base
-            os.environ["MAESTRO_LOCAL_MODEL"] = local_model
-            local_status, local_msg = check_model_endpoint(local_label, f"{local_base.rstrip('/')}/models", expected_model=local_model)
-            local_msg = f"auto-detected {local_label}; {local_msg}"
-    rows.append(("local-models", local_status, local_msg))
-    if local_status == "GREEN":
-        chat_state, chat_message = chat_probe(local_label, local_base, local_model)
-        if chat_state != "GREEN" and "1234" in local_base:
-            for loaded_model in loaded_lm_studio_models():
-                fallback_state, fallback_message = chat_probe(local_label, local_base, loaded_model)
-                if fallback_state == "GREEN":
-                    local_model = loaded_model
-                    os.environ["MAESTRO_LOCAL_MODEL"] = loaded_model
-                    chat_state = fallback_state
-                    chat_message = f"auto-selected loaded model; {fallback_message}"
-                    break
-        rows.append(("local-chat", chat_state, chat_message))
-
-    base = os.environ.get("WINDOWS_WORKER_BASE_URL", "").strip()
-    key = os.environ.get("WINDOWS_WORKER_API_KEY", "ollama")
-    windows_model = os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL)
-    if base:
-        rows.append(("windows-url", *safe_remote_url(base)))
-        win_status, win_msg = check_model_endpoint(
-            "Windows worker",
-            f"{base.rstrip('/')}/models",
-            expected_model=windows_model,
-            headers={"Authorization": f"Bearer {key}"},
-        )
-        rows.append(("windows-worker", win_status, win_msg))
-        if win_status == "GREEN":
-            rows.append(("windows-chat", *chat_probe("Windows worker", base, windows_model, headers={"Authorization": f"Bearer {key}"})))
+    if skip_local:
+        rows.append(("local-models", "SKIPPED", "disabled by --no-local"))
+        rows.append(("local-chat", "SKIPPED", "disabled by --no-local"))
     else:
-        rows.append(("windows-worker", "INFO", "not configured; this is fine for Mac-only setup"))
+        local_base = os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL)
+        local_model = os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL)
+        local_label = local_server_label(local_base)
+        local_status, local_msg = check_model_endpoint(local_label, f"{local_base.rstrip('/')}/models", expected_model=local_model)
+        if local_status != "GREEN" and "MAESTRO_LOCAL_BASE_URL" not in os.environ:
+            fallback = autodetect_local_server()
+            if fallback:
+                local_base, detected_model = fallback
+                local_label = local_server_label(local_base)
+                if "MAESTRO_LOCAL_MODEL" not in os.environ and detected_model:
+                    local_model = detected_model
+                os.environ["MAESTRO_LOCAL_BASE_URL"] = local_base
+                os.environ["MAESTRO_LOCAL_MODEL"] = local_model
+                local_status, local_msg = check_model_endpoint(local_label, f"{local_base.rstrip('/')}/models", expected_model=local_model)
+                local_msg = f"auto-detected {local_label}; {local_msg}"
+        rows.append(("local-models", local_status, local_msg))
+        if local_status == "GREEN":
+            chat_state, chat_message = chat_probe(local_label, local_base, local_model)
+            if chat_state != "GREEN" and "1234" in local_base:
+                for loaded_model in loaded_lm_studio_models():
+                    fallback_state, fallback_message = chat_probe(local_label, local_base, loaded_model)
+                    if fallback_state == "GREEN":
+                        local_model = loaded_model
+                        os.environ["MAESTRO_LOCAL_MODEL"] = loaded_model
+                        chat_state = fallback_state
+                        chat_message = f"auto-selected loaded model; {fallback_message}"
+                        break
+            rows.append(("local-chat", chat_state, chat_message))
+
+    if skip_windows:
+        rows.append(("windows-worker", "SKIPPED", "disabled by --no-windows"))
+        rows.append(("windows-chat", "SKIPPED", "disabled by --no-windows"))
+    else:
+        base = os.environ.get("WINDOWS_WORKER_BASE_URL", "").strip()
+        key = os.environ.get("WINDOWS_WORKER_API_KEY", "ollama")
+        windows_model = os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL)
+        if base:
+            rows.append(("windows-url", *safe_remote_url(base)))
+            win_status, win_msg = check_model_endpoint(
+                "Windows worker",
+                f"{base.rstrip('/')}/models",
+                expected_model=windows_model,
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            rows.append(("windows-worker", win_status, win_msg))
+            if win_status == "GREEN":
+                rows.append(("windows-chat", *chat_probe("Windows worker", base, windows_model, headers={"Authorization": f"Bearer {key}"})))
+        else:
+            rows.append(("windows-worker", "INFO", "not configured; this is fine for Mac-only setup"))
 
     root = repo_root(repo)
     if repo:
@@ -2390,6 +2423,13 @@ def validate_run_args(args) -> bool:
         if value is not None and value < 0:
             print(f"NIGHTSHIFT_ERROR: --{name.replace('_', '-')} must be 0 or greater", file=sys.stderr)
             return False
+    for lane in ("local", "windows"):
+        if getattr(args, f"no_{lane}", False) and getattr(args, f"max_{lane}", None) not in (None, 0):
+            print(
+                f"NIGHTSHIFT_ERROR: --no-{lane} cannot be combined with --max-{lane} greater than 0",
+                file=sys.stderr,
+            )
+            return False
     for name in ("parallel_local", "parallel_windows", "timeout"):
         value = getattr(args, name)
         if value is not None and value < 1:
@@ -2447,12 +2487,18 @@ def command_run(args) -> int:
     apply_compute_overrides(args)
     if not validate_run_args(args):
         return 2
+    no_local = bool(getattr(args, "no_local", False))
+    no_windows = bool(getattr(args, "no_windows", False))
     defaults = MODE_DEFAULTS[args.mode].copy()
     max_local = defaults["local"] if args.max_local is None else args.max_local
     max_windows = defaults["windows"] if args.max_windows is None else args.max_windows
     max_local, max_windows = apply_privacy_lane_limits(
         max_local, max_windows, privacy_route
     )
+    if no_local:
+        max_local = 0
+    if no_windows:
+        max_windows = 0
     parallel_local = defaults["parallel_local"] if args.parallel_local is None else args.parallel_local
     parallel_windows = defaults["parallel_windows"] if args.parallel_windows is None else args.parallel_windows
     target_tokens = defaults["target_tokens"] if args.token_target is None else args.token_target
@@ -2500,7 +2546,13 @@ def command_run(args) -> int:
         encoding="utf-8",
     )
 
-    overall, rows = doctor_checks(args.repo, run_smoke=not args.skip_smoke, allow_fetch=False)
+    overall, rows = doctor_checks(
+        args.repo,
+        run_smoke=not args.skip_smoke,
+        allow_fetch=False,
+        skip_local=no_local,
+        skip_windows=no_windows,
+    )
     write_startup_gate(ledger, overall, rows)
     write_lab_files(
         ledger,
@@ -2516,10 +2568,10 @@ def command_run(args) -> int:
                 "goal_text": goal_text,
             },
             "legacy": {
-                "local_url": getattr(args, "local_url", None) or os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL),
-                "local_model": getattr(args, "local_model", None) or os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL),
-                "windows_url": getattr(args, "windows_url", None) or os.environ.get("WINDOWS_WORKER_BASE_URL", ""),
-                "windows_model": getattr(args, "windows_model", None) or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL),
+                "local_url": "" if no_local else getattr(args, "local_url", None) or os.environ.get("MAESTRO_LOCAL_BASE_URL", DEFAULT_LOCAL_URL),
+                "local_model": "" if no_local else getattr(args, "local_model", None) or os.environ.get("MAESTRO_LOCAL_MODEL", DEFAULT_LOCAL_MODEL),
+                "windows_url": "" if no_windows else getattr(args, "windows_url", None) or os.environ.get("WINDOWS_WORKER_BASE_URL", ""),
+                "windows_model": "" if no_windows else getattr(args, "windows_model", None) or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL),
             },
         },
         rows,
@@ -3019,6 +3071,14 @@ def resolve_autopilot_wake_goal(args, saved: dict) -> str:
 
 def command_autopilot(args) -> int:
     saved = load_config()
+    args.no_local = bool(getattr(args, "no_local", False))
+    args.no_windows = bool(getattr(args, "no_windows", False))
+    if args.no_local:
+        args.local_url = ""
+        args.local_model = ""
+    if args.no_windows:
+        args.windows_url = ""
+        args.windows_model = ""
     if getattr(args, "execute_drafts", None) is None:
         args.execute_drafts = bool(config_value(saved, "execute_drafts", False))
     args.mode = getattr(args, "mode", None) or config_value(saved, "mode", "night-shift")
@@ -3034,7 +3094,11 @@ def command_autopilot(args) -> int:
     if not getattr(args, "allow_draft_prs", False):
         args.allow_draft_prs = bool(config_value(saved, "allow_draft_prs", False))
     for name in ("local_url", "local_model", "windows_url", "windows_model"):
+        if name.startswith("local_") and args.no_local:
+            continue
         if name == "windows_url" and privacy_route and privacy_route != "mac-and-lan":
+            continue
+        if name.startswith("windows_") and args.no_windows:
             continue
         if not getattr(args, name, None):
             setattr(args, name, config_value(saved, name))
@@ -3196,8 +3260,8 @@ def command_autopilot(args) -> int:
                     permission=args.permission,
                     guidance=args.guidance,
                     goal=getattr(args, "goal", ""),
-                    max_local=None,
-                    max_windows=None,
+                    max_local=0 if args.no_local else None,
+                    max_windows=0 if args.no_windows else None,
                     parallel_local=None,
                     parallel_windows=None,
                     token_target=None,
@@ -3205,6 +3269,8 @@ def command_autopilot(args) -> int:
                     local_model=getattr(args, "local_model", None),
                     windows_url=getattr(args, "windows_url", None),
                     windows_model=getattr(args, "windows_model", None),
+                    no_local=args.no_local,
+                    no_windows=args.no_windows,
                     timeout=max(1, min(getattr(args, "timeout", 900), remaining_seconds)),
                     skip_smoke=getattr(args, "skip_smoke", False),
                     stop_after=getattr(args, "stop_after", None),
@@ -3253,10 +3319,10 @@ def command_autopilot(args) -> int:
                             candidate,
                             ledger,
                             draft_timeout,
-                            getattr(args, "local_url", "") or os.environ.get("MAESTRO_LOCAL_BASE_URL", ""),
-                            getattr(args, "local_model", "") or os.environ.get("MAESTRO_LOCAL_MODEL", ""),
-                            getattr(args, "windows_url", "") or os.environ.get("WINDOWS_WORKER_BASE_URL", ""),
-                            getattr(args, "windows_model", "") or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL),
+                            "" if args.no_local else getattr(args, "local_url", "") or os.environ.get("MAESTRO_LOCAL_BASE_URL", ""),
+                            "" if args.no_local else getattr(args, "local_model", "") or os.environ.get("MAESTRO_LOCAL_MODEL", ""),
+                            "" if args.no_windows else getattr(args, "windows_url", "") or os.environ.get("WINDOWS_WORKER_BASE_URL", ""),
+                            "" if args.no_windows else getattr(args, "windows_model", "") or os.environ.get("WINDOWS_WORKER_MODEL", DEFAULT_WINDOWS_MODEL),
                             deadline,
                             stop_file,
                         )
@@ -4665,6 +4731,16 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--mode", choices=sorted(MODE_DEFAULTS), default="night-shift", help="quiet, normal, or afterburner run")
     run.add_argument("--max-local", type=int, default=None, help="local model tasks to run; use 0 to skip")
     run.add_argument("--max-windows", type=int, default=None, help="Windows worker tasks to run; use 0 to skip")
+    run.add_argument(
+        "--no-local",
+        action="store_true",
+        help="disable Mac local AI for this run; ignores saved and environment settings",
+    )
+    run.add_argument(
+        "--no-windows",
+        action="store_true",
+        help="disable the Windows/LAN worker for this run; ignores saved and environment settings",
+    )
     run.add_argument("--parallel-local", type=int, default=None, help="local workers at once")
     run.add_argument("--parallel-windows", type=int, default=None, help="Windows workers at once")
     run.add_argument("--token-target", type=int, default=None, help="estimated local+Windows token target")
@@ -4720,6 +4796,16 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot.add_argument("--local-model", required=False)
     autopilot.add_argument("--windows-url", required=False)
     autopilot.add_argument("--windows-model", required=False)
+    autopilot.add_argument(
+        "--no-local",
+        action="store_true",
+        help="disable Mac local AI for this shift; ignores saved and environment settings",
+    )
+    autopilot.add_argument(
+        "--no-windows",
+        action="store_true",
+        help="disable the Windows/LAN worker for this shift; ignores saved and environment settings",
+    )
     autopilot.add_argument("--skip-smoke", action="store_true")
     autopilot.add_argument(
         "--execute-drafts",

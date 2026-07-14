@@ -573,9 +573,34 @@ RISK: low
         args = parser.parse_args(["autopilot", "--repo", str(ROOT), "--once"])
         self.assertIsNone(args.execute_drafts)
         self.assertFalse(args.allow_draft_prs)
+        self.assertFalse(args.no_local)
+        self.assertFalse(args.no_windows)
         self.assertIsNone(args.permission)
         self.assertIsNone(args.scope)
         self.assertIsNone(args.stop_after)
+
+    def test_lane_disable_flags_are_explicit_and_reject_contradictory_caps(self):
+        parser = night_shift.build_parser()
+        autopilot = parser.parse_args(["autopilot", "--no-local", "--no-windows"])
+        self.assertTrue(autopilot.no_local)
+        self.assertTrue(autopilot.no_windows)
+        run = parser.parse_args(["run", "--repo", str(ROOT), "--no-local", "--no-windows"])
+        self.assertTrue(run.no_local)
+        self.assertTrue(run.no_windows)
+        self.assertFalse(
+            night_shift.validate_run_args(
+                SimpleNamespace(
+                    max_local=1,
+                    max_windows=None,
+                    no_local=True,
+                    no_windows=False,
+                    parallel_local=None,
+                    parallel_windows=None,
+                    timeout=60,
+                    token_target=None,
+                )
+            )
+        )
 
     def test_interactive_prompts_fail_closed_when_input_ends(self):
         with patch("builtins.input", side_effect=EOFError):
@@ -654,6 +679,67 @@ RISK: low
                     os.environ.pop("WINDOWS_WORKER_BASE_URL", None)
                 else:
                     os.environ["WINDOWS_WORKER_BASE_URL"] = previous
+
+    def test_explicit_lane_disables_ignore_saved_and_environment_settings(self):
+        original_path = night_shift.CONFIG_PATH
+        env_keys = (
+            "MAESTRO_LOCAL_BASE_URL", "MAESTRO_LOCAL_MODEL",
+            "WINDOWS_WORKER_BASE_URL", "WINDOWS_WORKER_MODEL",
+        )
+        previous = {key: os.environ.get(key) for key in env_keys}
+        with tempfile.TemporaryDirectory() as tmp:
+            night_shift.CONFIG_PATH = Path(tmp) / "config.json"
+            night_shift.CONFIG_PATH.write_text(json.dumps({
+                "preferences": {"privacy_route": "mac-and-lan"},
+                "legacy": {
+                    "local_url": "http://saved-mac/v1",
+                    "local_model": "saved-mac-model",
+                    "windows_url": "http://saved-windows/v1",
+                    "windows_model": "saved-windows-model",
+                },
+            }), encoding="utf-8")
+            for key, value in {
+                "MAESTRO_LOCAL_BASE_URL": "http://env-mac/v1",
+                "MAESTRO_LOCAL_MODEL": "env-mac-model",
+                "WINDOWS_WORKER_BASE_URL": "http://env-windows/v1",
+                "WINDOWS_WORKER_MODEL": "env-windows-model",
+            }.items():
+                os.environ[key] = value
+            try:
+                night_shift.apply_compute_overrides(SimpleNamespace(
+                    privacy_route="mac-and-lan",
+                    local_url=None,
+                    local_model=None,
+                    windows_url=None,
+                    windows_model=None,
+                    no_local=True,
+                    no_windows=True,
+                ))
+                for key in env_keys:
+                    self.assertNotIn(key, os.environ)
+            finally:
+                night_shift.CONFIG_PATH = original_path
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+    def test_doctor_skips_disabled_compute_lanes_without_probing_them(self):
+        with patch.object(night_shift, "check_model_endpoint", side_effect=AssertionError("disabled lane probed")), \
+             patch.object(night_shift, "chat_probe", side_effect=AssertionError("disabled lane chatted")):
+            overall, rows = night_shift.doctor_checks(
+                None,
+                run_smoke=False,
+                allow_fetch=False,
+                skip_local=True,
+                skip_windows=True,
+            )
+        self.assertIn(overall, {"GREEN", "YELLOW"})
+        self.assertIn(("local-models", "SKIPPED", "disabled by --no-local"), rows)
+        self.assertIn(("local-chat", "SKIPPED", "disabled by --no-local"), rows)
+        self.assertIn(("windows-worker", "SKIPPED", "disabled by --no-windows"), rows)
+        self.assertIn(("windows-chat", "SKIPPED", "disabled by --no-windows"), rows)
 
     def test_mac_only_privacy_closes_windows_scheduler_lane(self):
         self.assertEqual(
