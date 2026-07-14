@@ -1105,6 +1105,10 @@ ACTION_TYPE: patch-plan
         self.assertIn("coverage-index/app.py-run.txt:1 | symbol=run", context)
         self.assertIn("coverage-index/app.py-run.txt:2 | identifier_matches=0", context)
         self.assertNotIn("github-actions/run-1.log:1 | failure", context)
+        self.assertIn(
+            "Copy one complete citation from the copy-ready list exactly",
+            context,
+        )
 
     def test_worker_prompts_forbid_ranged_or_html_evidence(self):
         task = {"slug": "exact", "files": ["src/app.py"]}

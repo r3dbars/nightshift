@@ -368,6 +368,26 @@ class CorrectionPromptTests(unittest.TestCase):
         self.assertIn("app.py:8 | def run(self):", examples)
         self.assertIn("invocation-index/app.py-run.txt:7 | symbol=run call_matches=0", examples)
 
+    def test_goal_source_examples_include_the_end_of_a_long_behavior_body(self):
+        examples = coverage_citation_examples({
+            "goal-source/response.swift-statusSummary.txt": (
+                "source_file=Sources/Response.swift\n"
+                "source_line=10 | func statusSummary() -> String {\n"
+                "source_line=11 | let first = \"one\"\n"
+                "source_line=12 | let second = \"two\"\n"
+                "source_line=13 | let third = \"three\"\n"
+                "source_line=14 | let fourth = \"four\"\n"
+                "source_line=15 | let fifth = \"five\"\n"
+                "source_line=16 | return first + second + third + fourth + fifth\n"
+            ),
+        })
+
+        self.assertIn("Sources/Response.swift:10 | func statusSummary() -> String {", examples)
+        self.assertIn(
+            "Sources/Response.swift:16 | return first + second + third + fourth + fifth",
+            examples,
+        )
+
 
 class RetryPolicyHelperTests(unittest.TestCase):
     def test_local_retry_only_repairs_rejected_output(self):

@@ -577,6 +577,38 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
             self.assertIn("not asserted", mission["prompt"])
             self.assertIn("Do not mention test files or coverage status in CLAIM", mission["prompt"])
             self.assertIn("Do not claim production code is broken", mission["prompt"])
+            self.assertIn("return expression, output construction, or exact behavior branch", mission["prompt"])
+
+    def test_goal_source_evidence_includes_longer_behavior_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            source = repo / "response.swift"
+            source.write_text(
+                "func statusSummary() -> String {\n"
+                "    let first = \"one\"\n"
+                "    let second = \"two\"\n"
+                "    let third = \"three\"\n"
+                "    let fourth = \"four\"\n"
+                "    let fifth = \"five\"\n"
+                "    let sixth = \"six\"\n"
+                "    return first + second + third + fourth + fifth + sixth\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            index = QueueEvidenceIndex(repo, {
+                "tracked_files": ["response.swift"],
+                "source_files": ["response.swift"],
+                "test_files": [],
+                "coverage_test_files": [],
+            })
+
+            evidence = index.symbol_source_evidence("response.swift", "statusSummary")
+
+            source_text = next(value for key, value in evidence.items() if key.startswith("goal-source/"))
+            self.assertIn(
+                "source_line=8 | return first + second + third + fourth + fifth + sixth",
+                source_text,
+            )
 
     def test_goal_guidance_grounding_finds_plain_symbol_and_keeps_mission_ready(self):
         with tempfile.TemporaryDirectory() as tmp:

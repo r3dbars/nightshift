@@ -1677,6 +1677,7 @@ def task_context_block(task: dict) -> str:
         {citation_lines}
         {semantic_lines}
         {evidence_rule}
+        - Copy one complete citation from the copy-ready list exactly. Do not recalculate or renumber its source line from the file excerpt.
         """
     ).strip()
 
