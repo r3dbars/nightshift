@@ -2033,8 +2033,10 @@ def write_harvest(ledger: Path, results: list[dict]) -> None:
     report_engine().write_harvest(ledger, results)
 
 
-def write_outcome_metrics(ledger: Path, results: list[dict], skipped: list[dict]) -> None:
-    report_engine().write_outcome_metrics(ledger, results, skipped)
+def write_outcome_metrics(
+    ledger: Path, results: list[dict], skipped: list[dict], repo: str = ""
+) -> None:
+    report_engine().write_outcome_metrics(ledger, results, skipped, repo)
 
 
 def write_task_lifecycle_summary(ledger: Path) -> None:

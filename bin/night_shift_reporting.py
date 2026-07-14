@@ -177,11 +177,21 @@ class ReportEngine:
             lines.append("")
         (ledger / "harvest.md").write_text("\n".join(lines), encoding="utf-8")
 
-    def write_outcome_metrics(self, ledger: Path, results: list[dict], skipped: list[dict]) -> None:
+    def write_outcome_metrics(
+        self, ledger: Path, results: list[dict], skipped: list[dict], repo: str = ""
+    ) -> None:
         tokens = sum(int(row.get("tokens") or 0) for row in results)
         accepted = sum(1 for row in results if row.get("score") in {"KEEP", "MAYBE"})
         feedback_history = self.load_feedback()
         current_feedback = latest_feedback_events(feedback_history)
+        if not repo:
+            try:
+                mode = json.loads((ledger / "mode.json").read_text(encoding="utf-8"))
+                repo = str(mode.get("repo") or "")
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                repo = ""
+        repo_feedback = [row for row in feedback_history if str(row.get("repo") or "") == repo]
+        repo_current_feedback = latest_feedback_events(repo_feedback)
         metrics = {
             "attempted": len(results), "accepted_candidates": accepted,
             "rejected": sum(1 for row in results if row.get("score") == "REJECT"),
@@ -198,6 +208,21 @@ class ReportEngine:
             ),
             "current_not_useful_preferences": sum(
                 row.get("verdict") == "not-useful" for row in current_feedback
+            ),
+            "feedback_signal_active": bool(repo_current_feedback),
+            "repo_feedback_events": len(repo_feedback),
+            "repo_current_feedback_preferences": len(repo_current_feedback),
+            "repo_current_useful_preferences": sum(
+                row.get("verdict") == "useful" for row in repo_current_feedback
+            ),
+            "repo_current_not_useful_preferences": sum(
+                row.get("verdict") == "not-useful" for row in repo_current_feedback
+            ),
+            "feedback_skips_before_model": sum(
+                row.get("category") == "feedback" for row in skipped
+            ),
+            "review_outcome_skips_before_model": sum(
+                row.get("category") == "review-outcome" for row in skipped
             ),
         }
         (ledger / "outcome-metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -298,10 +323,11 @@ class ReportEngine:
             first_action = "Fix the startup gate or run with reachable local/Windows lanes."
         try: task_skips = json.loads((ledger / "task-skips.json").read_text(encoding="utf-8"))
         except (OSError, ValueError): task_skips = []
+        choice_heading = "Three useful choices:" if work_items else "What I checked:"
         lines = [
             "# Morning Brief", "", f"Status: {status}", "",
             "Good morning - here is the short version:", "",
-            "Start here:", f"- {first_action}", "", "Three useful choices:",
+            "Start here:", f"- {first_action}", "", choice_heading,
         ]
         if work_items:
             for index, item in enumerate(work_items, 1):

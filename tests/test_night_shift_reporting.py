@@ -76,6 +76,27 @@ class ReportingTests(unittest.TestCase):
             self.assertEqual(metrics["current_useful_preferences"], 0)
             self.assertEqual(metrics["current_not_useful_preferences"], 1)
 
+    def test_outcome_metrics_explain_repo_feedback_effect(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            (ledger / "mode.json").write_text(json.dumps({"repo": "/repo"}))
+            feedback = [{
+                "repo": "/repo", "family": "tests", "fingerprint": "same",
+                "verdict": "useful",
+            }]
+            skipped = [
+                {"category": "feedback", "reason": "low-value family"},
+                {"category": "review-outcome", "reason": "rejected exact candidate"},
+            ]
+            self.engine(feedback=feedback).write_outcome_metrics(ledger, [], skipped)
+            metrics = json.loads((ledger / "outcome-metrics.json").read_text())
+            self.assertTrue(metrics["feedback_signal_active"])
+            self.assertEqual(metrics["repo_feedback_events"], 1)
+            self.assertEqual(metrics["repo_current_feedback_preferences"], 1)
+            self.assertEqual(metrics["repo_current_useful_preferences"], 1)
+            self.assertEqual(metrics["feedback_skips_before_model"], 1)
+            self.assertEqual(metrics["review_outcome_skips_before_model"], 1)
+
     def test_harvest_and_work_queue_rank_and_dedupe(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)
@@ -196,6 +217,8 @@ class ReportingTests(unittest.TestCase):
             self.assertIn("Recent code/test surface: README.md, bin/night-shift", brief)
             self.assertIn("Detected verification command", brief)
             self.assertIn("dropped because: cited line does not match the pinned source", brief)
+            self.assertIn("What I checked:", brief)
+            self.assertNotIn("Three useful choices:", brief)
 
     def test_empty_grounded_run_does_not_blame_compute_setup(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -225,6 +248,32 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertIn("owner/repo", (root / "portfolio.md").read_text())
             self.assertEqual(json.loads((root / "morning-items.json").read_text()), [])
             self.assertIn("Status: GREEN", (root / "morning.md").read_text())
+
+    def test_morning_items_returns_rank_then_name_sorted_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = {}
+            for repo, rank, score in (
+                ("owner/second", "2", 20),
+                ("owner/first", "1", 10),
+                ("owner/tie", "2", 30),
+            ):
+                child = root / repo.replace("/", "-")
+                child.mkdir()
+                (child / "work-queue.json").write_text(json.dumps([{
+                    "key": f"tests:{repo}", "labels": ["tests"], "score": "MAYBE",
+                    "summary": f"Check {repo}", "evidence": "src/app.py:1",
+                    "files": ["src/app.py"], "tests": "python3 -m unittest",
+                }]))
+                rows[repo] = {
+                    "portfolio_rank": rank, "portfolio_score": score,
+                    "ledger": str(child), "portfolio_reason": "recent activity",
+                }
+            items = self.engine(root).morning_items(rows)
+            self.assertEqual([item["repo"] for item in items], [
+                "owner/first", "owner/tie", "owner/second",
+            ])
+            self.assertEqual(items[1]["summary"], "Check owner/tie")
 
     def test_snapshot_preserves_each_cycle_compactly(self):
         with tempfile.TemporaryDirectory() as tmp:
