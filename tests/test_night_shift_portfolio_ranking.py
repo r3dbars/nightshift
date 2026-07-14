@@ -23,6 +23,15 @@ class PortfolioRankingDeterminismTests(unittest.TestCase):
 
         self.assertEqual(engine.repo_slug(None), "")
 
+    def test_authenticated_owner_returns_empty_without_github_cli(self):
+        engine = PortfolioEngine(
+            lambda *_args, **_kwargs: _result("unexpected"),
+            Path("/tmp/cache"), Path("/tmp/history"), lambda: "now"
+        )
+
+        with patch("night_shift_portfolio.shutil.which", return_value=None):
+            self.assertEqual(engine.authenticated_owner(), "")
+
     def test_repeated_discovery_keeps_the_same_ranked_portfolio(self):
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         repos = [
