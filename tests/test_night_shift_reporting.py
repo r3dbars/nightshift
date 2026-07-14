@@ -394,6 +394,30 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertEqual([item["repo"] for item in items], ["owner/z-high", "owner/a-low"])
             self.assertEqual(items[0]["selection_reason"], "recent failing checks")
 
+    def test_brief_explains_checked_signals_when_no_task_survives(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = root / "child"
+            child.mkdir()
+            (child / "morning.md").write_text("Status: YELLOW\n", encoding="utf-8")
+            self.engine(root).write_brief(root, [{
+                "repo": "owner/repo",
+                "checkout": str(root),
+                "ledger": str(child),
+                "new_tasks": 0,
+                "portfolio_rank": 1,
+                "portfolio_score": 500,
+                "portfolio_reason": "recent failing checks",
+                "portfolio_signals": {"failed_runs": 3, "prs": 2, "issues": 1},
+            }], "YELLOW")
+            morning = (root / "morning.md").read_text(encoding="utf-8")
+            self.assertIn(
+                "I found 3 recent failing check(s), but the repo evidence was not specific enough",
+                morning,
+            )
+            self.assertIn("GitHub signals checked: 3 failed checks, 2 pull requests, 1 issue.", morning)
+            self.assertNotIn("Your morning choices:", morning)
+
     def test_portfolio_selection_reason_explains_feedback_learning(self):
         self.assertEqual(
             PortfolioEngine.selection_reason({

@@ -108,6 +108,42 @@ class PortfolioReportEngine:
             })
         return items
 
+    @staticmethod
+    def signal_summary(row: dict) -> str:
+        """Describe the bounded GitHub signals checked for a portfolio row."""
+        signals = row.get("portfolio_signals") or {}
+        parts = []
+        for singular, plural, key in (
+            ("failed check", "failed checks", "failed_runs"),
+            ("pull request", "pull requests", "prs"),
+            ("issue", "issues", "issues"),
+        ):
+            try:
+                count = int(signals.get(key) or 0)
+            except (TypeError, ValueError):
+                count = 0
+            if count:
+                parts.append(f"{count} {singular if count == 1 else plural}")
+        return ", ".join(parts)
+
+    @classmethod
+    def no_work_summary(cls, row: dict) -> str:
+        """Explain an honest no-work result without turning signals into a claim."""
+        signals = row.get("portfolio_signals") or {}
+        try:
+            failed = int(signals.get("failed_runs") or 0)
+        except (TypeError, ValueError):
+            failed = 0
+        if failed:
+            return (
+                f"I found {failed} recent failing check(s), but the repo evidence was not "
+                "specific enough to make a safe task."
+            )
+        summary = cls.signal_summary(row)
+        if summary:
+            return f"I checked {summary}, but none became a safe, specific task tonight."
+        return "I checked this repo, but nothing was strong enough to work on safely tonight."
+
     def write_brief(self, ledger: Path, cycle_rows: list[dict], status: str) -> None:
         latest_by_repo: dict[str, dict] = {}
         for row in cycle_rows:
@@ -143,7 +179,7 @@ class PortfolioReportEngine:
         )
         for repo_name, row in ordered_rows:
             child = Path(row.get("ledger", ""))
-            summary = "I checked this repo, but nothing was strong enough to work on safely tonight."
+            summary = self.no_work_summary(row)
             draft = row.get("draft") or {}
             morning = child / "morning.md"
             if draft.get("status") == "PROVEN_REPAIR":
@@ -159,6 +195,9 @@ class PortfolioReportEngine:
                     summary = f"{row['new_tasks']} unproven candidate(s); no deterministic outcome."
             reason = row.get("portfolio_reason") or "recent activity"
             lines.extend([f"- {repo_name}: {summary}", f"  Why this repo: {reason}", f"  Proof: {child}"])
+            signal_summary = self.signal_summary(row)
+            if signal_summary:
+                lines.append(f"  GitHub signals checked: {signal_summary}.")
             if draft:
                 draft_status = str(draft.get("status") or "unknown")
                 draft_reason = str(draft.get("reason") or "")
