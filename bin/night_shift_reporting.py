@@ -289,7 +289,11 @@ class ReportEngine:
             first_action = "Fix the startup gate or run with reachable local/Windows lanes."
         try: task_skips = json.loads((ledger / "task-skips.json").read_text(encoding="utf-8"))
         except (OSError, ValueError): task_skips = []
-        lines = ["# Morning Brief", "", f"Status: {status}", "", "Start here:", f"- {first_action}", "", "Three useful choices:"]
+        lines = [
+            "# Morning Brief", "", f"Status: {status}", "",
+            "Good morning - here is the short version:", "",
+            "Start here:", f"- {first_action}", "", "Three useful choices:",
+        ]
         if work_items:
             for index, item in enumerate(work_items, 1):
                 row = item["primary"]
@@ -330,7 +334,10 @@ class ReportEngine:
             explanation = "; ".join(reasons[:2]) or "the response did not meet the evidence or safety checks"
             lines.append(f"- {row['label']}: {row['summary']} (dropped because: {explanation})")
         if reject == 0: lines.append("- None.")
-        lines.extend(["", "Needs user review:", "- Start with the first KEEP/MAYBE item; worker output is a draft, not the final truth."])
+        lines.extend([
+            "", "Needs user review:",
+            "- You do not need to read everything. Start with choice 1; worker output is a draft, not the final truth.",
+        ])
         if work_items:
             ledger_arg = shlex.quote(str(ledger))
             lines.append(

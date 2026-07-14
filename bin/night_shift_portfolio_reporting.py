@@ -128,6 +128,7 @@ class PortfolioReportEngine:
         )
         lines = [
             "# Night Shift Portfolio Brief", "", f"Status: {display_status}", "",
+            "Good morning - here is the short version:", "",
             "What Night Shift worked on:",
         ]
         if not latest_by_repo:
