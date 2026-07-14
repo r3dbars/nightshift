@@ -1748,6 +1748,21 @@ CONFIDENCE: high
             self.assertIn("scan_complete=true", evidence)
             self.assertEqual(night_shift.model_task_readiness_reasons(task, "afterburner"), [])
 
+    def test_draft_local_skips_non_executable_coverage_gap_before_model(self):
+        task = {
+            "slug": "recent-change-test-gap", "kind": "tests", "files": ["Package.swift"],
+            "verification_commands": ["bash run-tests.sh"], "executable": False,
+            "evidence_sources": {
+                "coverage-index/Package.swift-coreTestTarget.txt":
+                "source_file=Package.swift\nidentifier_matches=0\nscan_complete=true",
+            },
+        }
+        ready, skipped = night_shift.model_ready_tasks(
+            [task], "night-shift", "find one missing behavioral test", "draft-local"
+        )
+        self.assertEqual(ready, [])
+        self.assertIn("no safe automatic patch path", skipped[0]["reason"])
+
     def test_incomplete_coverage_index_is_rejected_before_model(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
