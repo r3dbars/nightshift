@@ -114,6 +114,48 @@ class PortfolioRankingDeterminismTests(unittest.TestCase):
             ["owner/high", "owner/current"],
         )
 
+    def test_selection_reason_matches_the_github_signal_that_won_the_slot(self):
+        self.assertEqual(
+            PortfolioEngine.selection_reason({
+                "signals": {
+                    "prs": [{
+                        "reviewDecision": "CHANGES_REQUESTED",
+                        "statusCheckRollup": [],
+                        "isDraft": False,
+                    }],
+                },
+            }),
+            "pull requests need review or fixes",
+        )
+        self.assertEqual(
+            PortfolioEngine.selection_reason({
+                "signals": {
+                    "prs": [{"reviewDecision": None, "statusCheckRollup": [], "isDraft": False}],
+                },
+            }),
+            "ready-to-merge pull requests",
+        )
+        self.assertEqual(
+            PortfolioEngine.selection_reason({
+                "signals": {
+                    "prs": [{"reviewDecision": None, "statusCheckRollup": [], "isDraft": True}],
+                },
+            }),
+            "open draft pull requests",
+        )
+
+    def test_selection_reason_prefers_actionable_prs_over_ready_or_draft_prs(self):
+        reason = PortfolioEngine.selection_reason({
+            "signals": {
+                "prs": [
+                    {"reviewDecision": None, "statusCheckRollup": [], "isDraft": True},
+                    {"reviewDecision": None, "statusCheckRollup": [], "isDraft": False},
+                    {"reviewDecision": None, "statusCheckRollup": [{"state": "FAILURE"}], "isDraft": True},
+                ],
+            },
+        })
+        self.assertEqual(reason, "pull requests need review or fixes")
+
 
 def _result(stdout: str):
     return type("CommandResult", (), {"stdout": stdout, "stderr": "", "rc": 0})()

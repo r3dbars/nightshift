@@ -114,17 +114,37 @@ class PortfolioReportEngine:
         """Describe the bounded GitHub signals checked for a portfolio row."""
         signals = row.get("portfolio_signals") or {}
         parts = []
-        for singular, plural, key in (
-            ("failed check", "failed checks", "failed_runs"),
-            ("pull request", "pull requests", "prs"),
-            ("issue", "issues", "issues"),
-        ):
-            try:
-                count = int(signals.get(key) or 0)
-            except (TypeError, ValueError):
-                count = 0
-            if count:
-                parts.append(f"{count} {singular if count == 1 else plural}")
+        try:
+            failed = int(signals.get("failed_runs") or 0)
+        except (TypeError, ValueError):
+            failed = 0
+        if failed:
+            parts.append(f"{failed} failed check{'s' if failed != 1 else ''}")
+        try:
+            prs = int(signals.get("prs") or 0)
+        except (TypeError, ValueError):
+            prs = 0
+        if prs:
+            details = []
+            for key, label in (
+                ("actionable_prs", "needing review or fixes"),
+                ("ready_prs", "ready to merge"),
+                ("draft_prs", "draft"),
+            ):
+                try:
+                    count = int(signals.get(key) or 0)
+                except (TypeError, ValueError):
+                    count = 0
+                if count:
+                    details.append(f"{count} {label}")
+            suffix = f" ({', '.join(details)})" if details else ""
+            parts.append(f"{prs} pull request{'s' if prs != 1 else ''}{suffix}")
+        try:
+            issues = int(signals.get("issues") or 0)
+        except (TypeError, ValueError):
+            issues = 0
+        if issues:
+            parts.append(f"{issues} issue{'s' if issues != 1 else ''}")
         return ", ".join(parts)
 
     @classmethod
