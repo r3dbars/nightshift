@@ -26,7 +26,7 @@ def task_family(slug: str) -> str:
     for prefix in FAMILY_PREFIXES:
         if value == prefix or value.startswith(prefix + "-"):
             return prefix
-    return re.sub(r"-\d+$", "", value) or "task"
+    return re.sub(r"(?:-\d+)+$", "", value) or "task"
 
 
 def latest_feedback_events(events: list[dict]) -> list[dict]:

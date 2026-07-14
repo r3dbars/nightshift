@@ -244,3 +244,19 @@ def handoff_review_verdict(output: str) -> str:
 def handoff_review_ready(output: str) -> bool:
     match = READY_LINE.search(output)
     return bool(match and match.group(1).lower() == "yes")
+
+
+def handoff_outcome_persistence_reason(
+    fingerprint: str, source_ref: str, verdict: str
+) -> str:
+    """Explain why a valid review cannot update the learning ledger."""
+    missing = []
+    if not fingerprint:
+        missing.append("candidate fingerprint")
+    if not source_ref:
+        missing.append("source revision")
+    if not verdict:
+        missing.append("review verdict")
+    if not missing:
+        return ""
+    return "missing " + " and ".join(missing)
