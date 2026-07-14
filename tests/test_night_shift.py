@@ -635,6 +635,17 @@ RISK: low
             (2, 2),
         )
 
+    def test_direct_run_explicit_windows_url_infers_lan_privacy(self):
+        args = SimpleNamespace(privacy_route=None, windows_url="http://windows.test/v1")
+        self.assertEqual(night_shift.resolve_run_privacy(args), "mac-and-lan")
+        self.assertEqual(args.privacy_route, "mac-and-lan")
+
+    def test_direct_run_without_windows_url_defaults_to_mac_only(self):
+        args = SimpleNamespace(privacy_route=None, windows_url=None)
+        with patch.dict(os.environ, {"WINDOWS_WORKER_BASE_URL": ""}, clear=False):
+            self.assertEqual(night_shift.resolve_run_privacy(args), "mac-only")
+        self.assertEqual(args.privacy_route, "mac-only")
+
     def test_advanced_setup_is_explicit(self):
         parser = night_shift.build_parser()
         simple = parser.parse_args(["start", "--repo", str(ROOT), "--yes", "--dry-run"])
