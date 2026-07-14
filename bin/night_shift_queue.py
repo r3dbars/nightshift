@@ -675,6 +675,13 @@ def build_repo_work_queue(
         identity_terms = list(dict.fromkeys(
             segment for reference in dotted_references for segment in reference.split(".")
         ))
+        explicit_goal_sources = [
+            path for path in source_files
+            if re.search(
+                rf"(?<![A-Za-z0-9_.@/-]){re.escape(path)}(?![A-Za-z0-9_.@/-])",
+                goal_text,
+            )
+        ]
         goal_matches: list[tuple[int, str]] = []
         for path in [value for value in source_files if not is_test_path(value)][:120]:
             text = read_current_text(path)
@@ -687,7 +694,10 @@ def build_repo_work_queue(
             if score:
                 goal_matches.append((score, path))
         goal_matches.sort(key=lambda row: (-row[0], row[1]))
-        mission_sources = [path for _score, path in goal_matches[:4]]
+        ranked_sources = [path for _score, path in goal_matches]
+        mission_sources = list(dict.fromkeys(
+            [*explicit_goal_sources, *ranked_sources]
+        ))[:4]
         dotted_symbols = [
             match.rsplit(".", 1)[-1]
             for match in dotted_references
