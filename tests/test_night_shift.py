@@ -1135,6 +1135,24 @@ ACTION_TYPE: patch-plan
                 "negative claim did not cite claimed path: ./", reasons
             )
 
+    def test_quoted_example_paths_are_not_treated_as_claimed_repo_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "status.py").write_text(
+                "def import_path():\n    return './module'\n", encoding="utf-8"
+            )
+            output = """CLAIM: `import_path` does not start with \"./\" when the source file is \"bin/utils/format.ts\"
+EVIDENCE: status.py:2 | return './module'
+FILES_TO_TOUCH: status.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: import_path() returns a string prefixed with \"./\"
+ACTION_TYPE: patch-plan
+"""
+            reasons = night_shift.evidence_validation_reasons(
+                output, repo, ["status.py"], proof_kind="test"
+            )
+            self.assertFalse(any(reason.startswith("negative claim did not cite claimed path:") for reason in reasons))
+
     def test_extensionless_negative_claim_path_still_requires_a_citation(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
