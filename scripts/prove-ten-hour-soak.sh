@@ -24,8 +24,9 @@ duration="${NIGHT_SHIFT_SOAK_SECONDS:-36000}"
 kill_after="${NIGHT_SHIFT_SOAK_KILL_AFTER_SECONDS:-3}"
 test "$duration" -gt 0
 test "$kill_after" -gt 0
+proof_path="${NIGHT_SHIFT_SOAK_PROOF_PATH:-}"
 
-python3 - "$repo_root" "$home" "$repo" "$duration" "$kill_after" <<'PY'
+python3 - "$repo_root" "$home" "$repo" "$duration" "$kill_after" "$proof_path" <<'PY'
 import json
 import os
 import signal
@@ -35,7 +36,7 @@ import sys
 import time
 from pathlib import Path
 
-root, home, repo, duration, kill_after = sys.argv[1:]
+root, home, repo, duration, kill_after, proof_path = sys.argv[1:]
 duration = int(duration)
 kill_after = int(kill_after)
 interval = int(os.environ.get("NIGHT_SHIFT_SOAK_INTERVAL_SECONDS", "60"))
@@ -133,5 +134,11 @@ proof = {
     "minimum_free_bytes": minimum_free,
     "maximum_ledger_count": maximum_ledgers,
 }
+if proof_path:
+    destination = Path(proof_path).expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.tmp-{os.getpid()}")
+    temporary.write_text(json.dumps(proof, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temporary, destination)
 print("TEN_HOUR_SOAK_PROOF: GREEN | " + json.dumps(proof, sort_keys=True))
 PY
