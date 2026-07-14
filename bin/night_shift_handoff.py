@@ -222,7 +222,7 @@ def validate_handoff_review(
     if citations and allowed_files is not None:
         allowed = set(allowed_files)
         allowed_citations = [(path, line) for path, line in citations if path in allowed]
-        if not allowed_citations:
+        if len(allowed_citations) != len(citations):
             reasons.append("review citation must be inside the materialized file allowlist")
     if allowed_citations and repo and not all(
         citation_exists(repo, path, int(line), source_ref) for path, line in allowed_citations

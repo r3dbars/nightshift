@@ -3409,9 +3409,9 @@ buildThing() { return 1; }
             self.assertIn("review citation must be inside the materialized file allowlist", reasons)
 
             mixed = "CONFIRMED\nallowed.py:1 | allowed\nSee docs/example.py:99 for context.\nREADY_FOR_IMPLEMENTATION: yes"
-            self.assertEqual(
+            self.assertIn(
+                "review citation must be inside the materialized file allowlist",
                 night_shift.validate_handoff_review(mixed, repo, allowed_files=["allowed.py"]),
-                [],
             )
 
     def test_inline_code_is_cleaned_for_morning_output(self):
