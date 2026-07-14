@@ -45,7 +45,7 @@ from night_shift_state import append_attempt, exclusive_lock, fresh_explicit_goa
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
-from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
+from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
 from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, repo_outcome_adjustment
@@ -4164,6 +4164,14 @@ def command_feedback(args) -> int:
     if args.item < 1:
         print("NIGHTSHIFT_FEEDBACK: RED | --item must be 1 or greater")
         return 2
+    clarity = getattr(args, "clarity", "") or ""
+    effort = getattr(args, "effort", "") or ""
+    if clarity and clarity not in CLARITY_VALUES:
+        print("NIGHTSHIFT_FEEDBACK: RED | --clarity must be clear or confusing")
+        return 2
+    if effort and effort not in EFFORT_VALUES:
+        print("NIGHTSHIFT_FEEDBACK: RED | --effort must be quick, some-work, or too-much")
+        return 2
     ledger = select_ledger(args, completed_only=True) if getattr(args, "latest", False) else select_ledger(args)
     morning_path = ledger / "morning-items.json" if ledger else None
     queue_path = (
@@ -4207,6 +4215,10 @@ def command_feedback(args) -> int:
         "verdict": verdict,
         "note": args.note or "",
     }
+    if clarity:
+        row["clarity"] = clarity
+    if effort:
+        row["effort"] = effort
     try:
         reviewed_at = (ledger / "REVIEWED").read_text(encoding="utf-8").strip()
     except OSError:
@@ -4516,6 +4528,14 @@ def build_parser() -> argparse.ArgumentParser:
     feedback.add_argument("--useful", action="store_true", help="prefer similar grounded work")
     feedback.add_argument("--not-useful", action="store_true", help="downrank this repeated suggestion")
     feedback.add_argument("--note", default="", help="optional short reason stored locally")
+    feedback.add_argument(
+        "--clarity", choices=["clear", "confusing"],
+        help="optional: say whether the morning choice was easy to understand",
+    )
+    feedback.add_argument(
+        "--effort", choices=["quick", "some-work", "too-much"],
+        help="optional: say how much review effort the choice took",
+    )
     feedback.set_defaults(func=command_feedback)
 
     schedule = sub.add_parser(

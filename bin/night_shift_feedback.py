@@ -5,6 +5,10 @@ from datetime import datetime, timezone
 import re
 
 
+CLARITY_VALUES = {"clear", "confusing"}
+EFFORT_VALUES = {"quick", "some-work", "too-much"}
+
+
 FAMILY_PREFIXES = (
     "changed-file-proof",
     "docs-command-check",
@@ -37,6 +41,20 @@ def latest_feedback_events(events: list[dict]) -> list[dict]:
         )
         latest[identity] = event
     return list(latest.values())
+
+
+def feedback_quality_snapshot(events: list[dict], repo: str = "") -> dict[str, int]:
+    """Summarize optional local clarity and review-effort signals."""
+    current = latest_feedback_events(
+        [event for event in events if not repo or event.get("repo") == repo]
+    )
+    return {
+        "clear": sum(event.get("clarity") == "clear" for event in current),
+        "confusing": sum(event.get("clarity") == "confusing" for event in current),
+        "quick": sum(event.get("effort") == "quick" for event in current),
+        "some-work": sum(event.get("effort") == "some-work" for event in current),
+        "too-much": sum(event.get("effort") == "too-much" for event in current),
+    }
 
 
 def feedback_delay_seconds(reviewed_at: str, feedback_at: str) -> float | None:
@@ -74,10 +92,14 @@ def feedback_score(events: list[dict], repo: str, family: str) -> tuple[int, int
 
 def should_record_feedback_event(existing: list[dict], event: dict) -> bool:
     identity = (
-        event.get("ledger"), event.get("rank"), event.get("fingerprint"), event.get("verdict")
+        event.get("ledger"), event.get("rank"), event.get("fingerprint"), event.get("verdict"),
+        event.get("clarity"), event.get("effort"),
     )
     return not any(
-        (row.get("ledger"), row.get("rank"), row.get("fingerprint"), row.get("verdict"))
+        (
+            row.get("ledger"), row.get("rank"), row.get("fingerprint"), row.get("verdict"),
+            row.get("clarity"), row.get("effort"),
+        )
         == identity
         for row in existing
     )

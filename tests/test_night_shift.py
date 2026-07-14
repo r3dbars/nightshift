@@ -2277,6 +2277,37 @@ buildThing() { return 1; }
         )
         self.assertEqual((adjustment, useful, not_useful), (-20, 0, 1))
 
+    def test_feedback_quality_snapshot_uses_latest_candidate_and_repo_scope(self):
+        events = [
+            {
+                "repo": "/repo", "family": "tests", "fingerprint": "same",
+                "ledger": "/ledger", "rank": 1, "verdict": "useful",
+                "clarity": "clear", "effort": "quick",
+            },
+            {
+                "repo": "/repo", "family": "tests", "fingerprint": "same",
+                "ledger": "/ledger", "rank": 1, "verdict": "useful",
+                "clarity": "confusing", "effort": "some-work",
+            },
+            {
+                "repo": "/other", "family": "tests", "fingerprint": "other",
+                "ledger": "/other-ledger", "rank": 1, "verdict": "useful",
+                "clarity": "clear", "effort": "quick",
+            },
+        ]
+        self.assertEqual(
+            night_shift.feedback_quality_snapshot(events, "/repo"),
+            {"clear": 0, "confusing": 1, "quick": 0, "some-work": 1, "too-much": 0},
+        )
+
+    def test_feedback_quality_enrichment_is_not_a_duplicate_vote(self):
+        base = {
+            "ledger": "/ledger", "rank": 1, "fingerprint": "same", "verdict": "useful",
+        }
+        enriched = {**base, "clarity": "clear", "effort": "quick"}
+        self.assertTrue(night_shift.should_record_feedback_event([base], enriched))
+        self.assertFalse(night_shift.should_record_feedback_event([enriched], enriched))
+
     def test_morning_ranking_uses_latest_changed_verdict_only(self):
         events = [
             {
@@ -2565,6 +2596,7 @@ buildThing() { return 1; }
                 args = SimpleNamespace(
                     ledger=str(ledger), latest=False, item=1,
                     useful=False, not_useful=True, note="too generic",
+                    clarity="clear", effort="quick",
                 )
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(night_shift.command_feedback(args), 0)
@@ -2572,6 +2604,8 @@ buildThing() { return 1; }
                 self.assertEqual(event["family"], "changed-file-proof")
                 self.assertEqual(event["fingerprint"], "abc123")
                 self.assertEqual(event["verdict"], "not-useful")
+                self.assertEqual(event["clarity"], "clear")
+                self.assertEqual(event["effort"], "quick")
                 self.assertGreaterEqual(event["feedback_delay_seconds"], 4)
             finally:
                 night_shift.FEEDBACK_PATH = original
@@ -2611,6 +2645,13 @@ buildThing() { return 1; }
 
     def test_feedback_rejects_zero_rank(self):
         args = SimpleNamespace(useful=True, not_useful=False, item=0)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(night_shift.command_feedback(args), 2)
+
+    def test_feedback_rejects_unknown_quality_signal(self):
+        args = SimpleNamespace(
+            useful=True, not_useful=False, item=1, clarity="maybe", effort="quick",
+        )
         with redirect_stdout(io.StringIO()):
             self.assertEqual(night_shift.command_feedback(args), 2)
 
