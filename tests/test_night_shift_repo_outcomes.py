@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
@@ -138,6 +139,18 @@ class RepoOutcomeTests(unittest.TestCase):
             rows = load_repo_outcomes(path)
             self.assertEqual([row["index"] for row in rows], [2, 3])
             self.assertEqual(len(path.read_text().splitlines()), 2)
+
+    def test_outcome_ledger_preserves_existing_rows_when_atomic_replace_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "repo-outcomes.jsonl"
+            append_repo_outcome(path, {"repo": "owner/repo", "index": 0})
+            before = path.read_text(encoding="utf-8")
+            with patch("night_shift_repo_outcomes.os.replace", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    append_repo_outcome(path, {"repo": "owner/repo", "index": 1})
+            self.assertEqual(path.read_text(encoding="utf-8"), before)
+            self.assertEqual([row["index"] for row in load_repo_outcomes(path)], [0])
+            self.assertEqual(list(path.parent.glob(f".{path.name}.*")), [])
 
 
 if __name__ == "__main__":
