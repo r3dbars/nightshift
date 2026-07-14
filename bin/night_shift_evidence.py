@@ -145,8 +145,9 @@ def evidence_validation_reasons(
         )
     }
     claim_without_backticks = re.sub(r"`[^`]*`", "", claim)
+    claim_without_literals = re.sub(r"\"[^\"\n]*\"|'[^'\n]*'", "", claim_without_backticks)
     unquoted_paths = set(re.findall(
-        r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.@+-]+", claim_without_backticks
+        r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.@+-]+", claim_without_literals
     ))
     unquoted_paths.difference_update({"./", "../"})
     claimed_paths = backticked_paths | unquoted_paths
