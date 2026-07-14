@@ -2406,6 +2406,26 @@ def command_clean(args) -> int:
     return 0
 
 
+def command_reconcile_drafts(args) -> int:
+    """Refresh local hosted-check evidence for already opened draft PRs."""
+    repo = require_git_repo(args.repo)
+    if not repo:
+        return 1
+    rows = publish_engine().reconcile_drafts(repo)
+    drafts = [row for row in rows if row.get("status") == "DRAFT_PR_OPENED" and row.get("pr_url")]
+    if not drafts:
+        print("NIGHTSHIFT_DRAFT_STATUS: GREEN | no recorded draft PRs to reconcile")
+        return 0
+    print(f"NIGHTSHIFT_DRAFT_STATUS: GREEN | reconciled={len(drafts)} | local ledger only")
+    for row in drafts:
+        hosted = row.get("hosted_checks") or {}
+        print(
+            f"- {row['pr_url']} | draft={row.get('draft_state', 'unknown')} "
+            f"checks={hosted.get('state', 'unknown')} count={hosted.get('check_count', 0)}"
+        )
+    return 0
+
+
 def require_git_repo(repo: str) -> Path | None:
     root = repo_root(repo)
     if not root or not root.exists():
@@ -4732,6 +4752,15 @@ def build_parser() -> argparse.ArgumentParser:
     clean.add_argument("--days", type=int, default=21, help="only consider reviewed ledgers older than this many days")
     clean.add_argument("--apply", action="store_true", help="remove the previewed ledgers; otherwise this is a dry run")
     clean.set_defaults(func=command_clean)
+
+    reconcile_drafts = sub.add_parser(
+        "reconcile-drafts",
+        help="refresh hosted status for draft PRs Night Shift already opened",
+        description="Read GitHub draft and check status, then atomically update the local publication ledger. Never edits GitHub.",
+        epilog="Example: night-shift reconcile-drafts --repo /path/to/project",
+    )
+    reconcile_drafts.add_argument("--repo", required=False, help="local repository used for the read-only gh call")
+    reconcile_drafts.set_defaults(func=command_reconcile_drafts)
 
     sandbox = sub.add_parser(
         "sandbox",
