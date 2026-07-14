@@ -29,7 +29,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from night_shift_portfolio import PortfolioEngine, parse_json_text
-from night_shift_drafts import DraftEngine, draft_proof_status, remaining_draft_timeout
+from night_shift_drafts import DraftEngine, VERIFIED_DRAFT_STATUSES, draft_proof_status, remaining_draft_timeout
 from night_shift_publish import PublishEngine
 from night_shift_policy import PROFILE_NAME, PROTECTED_PATHS, command_display, parse_repo_profile, validate_command
 from night_shift_sandbox import (
@@ -2040,6 +2040,10 @@ def write_outcome_metrics(
     report_engine().write_outcome_metrics(ledger, results, skipped, repo)
 
 
+def record_verified_outcome(ledger: Path, status: str, tokens: int | None = None) -> dict:
+    return report_engine().record_verified_outcome(ledger, status, tokens)
+
+
 def write_task_lifecycle_summary(ledger: Path) -> None:
     report_engine().write_task_lifecycle_summary(ledger)
 
@@ -2122,7 +2126,13 @@ def command_health(args) -> int:
     print(f"- Reclaimable reviewed ledgers: {len(reclaimable)} ({round(reclaimable_bytes / 1024**2, 1)} MB; use `night-shift clean --apply`)")
     print(f"- Durable task fingerprints: {len(attempts)}")
     if metrics:
-        print(f"- Latest outcomes: attempted={metrics.get('attempted', 0)} accepted={metrics.get('accepted_candidates', 0)} rejected={metrics.get('rejected', 0)} tokens~={metrics.get('estimated_tokens', 0)}")
+        print(
+            f"- Latest outcomes: attempted={metrics.get('attempted', 0)} "
+            f"candidates={metrics.get('accepted_candidates', 0)} "
+            f"verified={metrics.get('verified_drafts', 0)} "
+            f"rejected={metrics.get('rejected', 0)} tokens~={metrics.get('estimated_tokens', 0)} "
+            f"tokens/verified~={metrics.get('tokens_per_verified_draft', 0)}"
+        )
     feedback = load_feedback()
     current_feedback = latest_feedback_events(feedback)
     useful = sum(row.get("verdict") == "useful" for row in current_feedback)
@@ -3212,13 +3222,26 @@ def command_autopilot(args) -> int:
                     (child_ledger / "outcome-metrics.json").read_text(encoding="utf-8"), {}
                 ) if (child_ledger / "outcome-metrics.json").exists() else {}
                 draft_status = str((cycle_row.get("draft") or {}).get("status") or "")
+                if draft_status in VERIFIED_DRAFT_STATUSES:
+                    child_metrics = record_verified_outcome(child_ledger, draft_status)
+                cycle_row["outcomes"] = {
+                    "candidate_count": int(child_metrics.get("accepted_candidates") or 0),
+                    "candidate_only_candidates": int(child_metrics.get("candidate_only_candidates") or 0),
+                    "estimated_tokens": int(child_metrics.get("estimated_tokens") or 0),
+                    "tokens_per_verified_draft": float(child_metrics.get("tokens_per_verified_draft") or 0),
+                    "verified_drafts": int(child_metrics.get("verified_drafts") or 0),
+                    "verified_outcome_tokens": int(child_metrics.get("verified_outcome_tokens") or 0),
+                }
                 append_repo_outcome(REPO_OUTCOMES_PATH, {
                     "accepted_candidates": int(child_metrics.get("accepted_candidates") or 0),
+                    "candidate_only_candidates": int(child_metrics.get("candidate_only_candidates") or 0),
                     "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     "estimated_tokens": int(child_metrics.get("estimated_tokens") or 0),
                     "repo": cycle_row["repo"],
                     "source_ref": str((planned[0].get("source_ref") if planned else "") or ""),
-                    "verified_drafts": 1 if draft_status in {"VERIFIED_DRAFT", "PROVEN_REPAIR"} else 0,
+                    "tokens_per_verified_draft": float(child_metrics.get("tokens_per_verified_draft") or 0),
+                    "verified_drafts": int(child_metrics.get("verified_drafts") or 0),
+                    "verified_outcome_tokens": int(child_metrics.get("verified_outcome_tokens") or 0),
                 })
                 controller.append(cycle_row)
             portfolio_brief(ledger, controller.rows, controller.status)

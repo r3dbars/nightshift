@@ -53,6 +53,9 @@ class ReportingTests(unittest.TestCase):
             engine.write_task_lifecycle_summary(ledger)
             metrics = json.loads((ledger / "outcome-metrics.json").read_text())
             self.assertEqual(metrics["accepted_candidates"], 1)
+            self.assertEqual(metrics["candidate_only_candidates"], 1)
+            self.assertEqual(metrics["verified_drafts"], 0)
+            self.assertEqual(metrics["tokens_per_verified_draft"], 0)
             self.assertEqual(metrics["human_feedback_events"], 1)
             self.assertEqual(metrics["current_feedback_preferences"], 1)
             self.assertEqual(metrics["current_useful_preferences"], 1)
@@ -104,6 +107,21 @@ class ReportingTests(unittest.TestCase):
             self.assertEqual(metrics["feedback_adjustment_total"], 5)
             self.assertEqual(metrics["feedback_positive_adjustments"], 1)
             self.assertEqual(metrics["feedback_negative_adjustments"], 1)
+
+    def test_verified_outcome_is_recorded_once_and_separately_from_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            engine = self.engine()
+            engine.write_outcome_metrics(ledger, [result(), result("tests-002", score="MAYBE")], [])
+            first = engine.record_verified_outcome(ledger, "VERIFIED_DRAFT")
+            second = engine.record_verified_outcome(ledger, "PROVEN_REPAIR")
+            self.assertEqual(first["verified_drafts"], 1)
+            self.assertEqual(first["verified_outcome_status"], "VERIFIED_DRAFT")
+            self.assertEqual(first["verified_outcome_tokens"], 200)
+            self.assertEqual(first["tokens_per_verified_draft"], 200)
+            self.assertEqual(first["verified_outcome_rate"], 0.5)
+            self.assertEqual(first["candidate_only_candidates"], 1)
+            self.assertEqual(second, first)
 
     def test_harvest_and_work_queue_rank_and_dedupe(self):
         with tempfile.TemporaryDirectory() as tmp:

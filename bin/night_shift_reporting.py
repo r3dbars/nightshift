@@ -216,6 +216,11 @@ class ReportEngine:
             "cooldown_or_repeat_skips": sum(1 for row in skipped if row.get("category") in {"cooldown", "repeat"}),
             "estimated_tokens": tokens,
             "accepted_per_1000_tokens": round(accepted * 1000 / tokens, 4) if tokens else 0,
+            "candidate_only_candidates": accepted,
+            "verified_drafts": 0,
+            "verified_outcome_tokens": 0,
+            "tokens_per_verified_draft": 0,
+            "verified_outcome_rate": 0,
             "patches_promoted": 0,
             "human_feedback_events": len(feedback_history),
             "current_feedback_preferences": len(current_feedback),
@@ -252,6 +257,36 @@ class ReportEngine:
             ),
         }
         (ledger / "outcome-metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def record_verified_outcome(
+        self, ledger: Path, status: str, tokens: int | None = None
+    ) -> dict:
+        """Add one durable, idempotent proof-backed outcome to a run ledger."""
+        if status not in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}:
+            return {}
+        path = ledger / "outcome-metrics.json"
+        try:
+            metrics = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            metrics = {}
+        if not isinstance(metrics, dict):
+            metrics = {}
+        if metrics.get("verified_outcome_recorded"):
+            return metrics
+        total_tokens = int(tokens if tokens is not None else metrics.get("estimated_tokens") or 0)
+        accepted = int(metrics.get("accepted_candidates") or 0)
+        verified = int(metrics.get("verified_drafts") or 0) + 1
+        metrics.update({
+            "verified_drafts": verified,
+            "verified_outcome_recorded": True,
+            "verified_outcome_status": status,
+            "verified_outcome_tokens": total_tokens,
+            "tokens_per_verified_draft": round(total_tokens / verified, 4) if verified else 0,
+            "verified_outcome_rate": round(verified / accepted, 4) if accepted else 0,
+            "candidate_only_candidates": max(0, accepted - verified),
+        })
+        path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return metrics
 
     def write_task_lifecycle_summary(self, ledger: Path) -> None:
         counts: dict[str, int] = {}

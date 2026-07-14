@@ -25,6 +25,8 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
     recent = [row for row in rows if row.get("repo") == repo][-limit:]
     points = 0
     productive = 0
+    candidate_only_runs = 0
+    candidate_only_candidates = 0
     wasted = 0
     useful_feedback = 0
     not_useful_feedback = 0
@@ -38,8 +40,8 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
             points += 25
             productive += 1
         elif candidates:
-            points += 10
-            productive += 1
+            candidate_only_runs += 1
+            candidate_only_candidates += int(row.get("candidate_only_candidates") or candidates)
         elif tokens >= 1000:
             points -= 10
             wasted += 1
@@ -48,6 +50,9 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
     return max(-40, min(50, points)), {
         "recent_runs": len(recent),
         "productive_runs": productive,
+        "verified_runs": productive,
+        "candidate_only_runs": candidate_only_runs,
+        "candidate_only_candidates": candidate_only_candidates,
         "wasted_token_runs": wasted,
         "useful_feedback": useful_feedback,
         "not_useful_feedback": not_useful_feedback,

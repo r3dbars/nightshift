@@ -34,6 +34,22 @@ class RepoOutcomeTests(unittest.TestCase):
         self.assertEqual(adjustment, 0)
         self.assertEqual(summary["wasted_token_runs"], 0)
 
+    def test_candidate_only_runs_do_not_look_like_verified_productivity(self):
+        adjustment, summary = repo_outcome_adjustment(
+            [{
+                "repo": "owner/repo",
+                "accepted_candidates": 3,
+                "candidate_only_candidates": 3,
+                "estimated_tokens": 5000,
+            }],
+            "owner/repo",
+        )
+        self.assertEqual(adjustment, 0)
+        self.assertEqual(summary["productive_runs"], 0)
+        self.assertEqual(summary["verified_runs"], 0)
+        self.assertEqual(summary["candidate_only_runs"], 1)
+        self.assertEqual(summary["candidate_only_candidates"], 3)
+
     def test_feedback_changes_portfolio_ranking(self):
         useful, useful_summary = repo_outcome_adjustment(
             [{"repo": "owner/useful", "feedback_useful": 1}], "owner/useful"

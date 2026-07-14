@@ -35,6 +35,7 @@ from night_shift_queue import is_test_path
 from night_shift_state import record_state
 
 MAX_VERIFICATION_REPAIRS = 2
+VERIFIED_DRAFT_STATUSES = frozenset({"PROVEN_REPAIR", "VERIFIED_DRAFT"})
 
 
 def draft_proof_status(baseline_rc: int, after_rc: int, guards: list[str]) -> tuple[str, str]:
