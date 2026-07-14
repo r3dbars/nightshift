@@ -3040,8 +3040,13 @@ buildThing() { return 1; }
                 ledger=str(ledger), latest=False, item=1, agent="codex",
                 run=True, allow_cloud=False, timeout=30,
             )
-            with redirect_stdout(io.StringIO()):
-                self.assertEqual(night_shift.command_handoff(args), 2)
+            original_load_config = night_shift.load_config
+            night_shift.load_config = lambda: {"allow_cloud_reasoning": True}
+            try:
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(night_shift.command_handoff(args), 2)
+            finally:
+                night_shift.load_config = original_load_config
 
             captured = []
             review_files = []
