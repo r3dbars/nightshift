@@ -89,6 +89,7 @@ def correction_prompt(
         + "`src/app.py:123 | return value`. Never use a line range, Unicode dash, HTML `<br>`, Markdown bullet, or backticks around the entry. "
         + "Do not add prose-only evidence bullets. If no exact single line proves the claim, set ACTION_TYPE: reject.\n"
         + "Make CLAIM no broader than the literal cited line. Do not infer intent, root cause, or that a proposed change will fix the full issue.\n"
+        + "If CLAIM uses missing, no, lacks, absent, or without and names a repository source path, EVIDENCE must also cite that same source path:line; a synthetic coverage or invocation citation alone is not enough.\n"
         + "FILES_TO_TOUCH may contain only existing repo paths from the list below. Copy at least one path exactly; "
         + "do not invent a new test file or rename a supplied path. If none is suitable, set ACTION_TYPE: reject.\n"
         + "For a test or coverage proposal, BEST_NEXT_ACTION and EXPECTED_RESULT must name a concrete input plus an "

@@ -1184,6 +1184,10 @@ ACTION_TYPE: patch-plan
         self.assertIn("Copy a path below character-for-character", prompt)
         self.assertIn("never invent a path, alter punctuation, or write `path:none`", prompt)
         self.assertIn("Do not infer intent, root cause", prompt)
+        self.assertIn(
+            "If CLAIM uses missing, no, lacks, absent, or without and names a repository source path",
+            prompt,
+        )
         self.assertIn("- bin/night_shift_drafts.py", prompt)
         self.assertIn("- tests/test_night_shift.py", prompt)
         self.assertIn("- coverage-index/bin-night_shift_drafts.py-select_candidate.txt", prompt)
@@ -1207,6 +1211,10 @@ ACTION_TYPE: patch-plan
         self.assertNotIn("github-actions/run-1.log:1 | failure", context)
         self.assertIn(
             "Copy one complete citation from the copy-ready list exactly",
+            context,
+        )
+        self.assertIn(
+            "If CLAIM uses missing, no, lacks, absent, or without and names a repository source path",
             context,
         )
 
