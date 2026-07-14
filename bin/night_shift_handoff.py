@@ -25,6 +25,21 @@ RESIDUAL_CREDENTIAL_RE = re.compile(
 )
 
 
+def review_agent_command(agent: str, prompt: str, review_root: Path) -> list[str]:
+    """Build a review-only command for the selected coding subscription."""
+    if agent == "codex":
+        return [
+            "codex", "exec", "--ephemeral", "--sandbox", "read-only",
+            "--skip-git-repo-check", "--color", "never", "-C", str(review_root), prompt,
+        ]
+    if agent == "claude":
+        return [
+            "claude", "-p", "--permission-mode", "plan", "--tools", "Read",
+            "--no-session-persistence", "--safe-mode", "--add-dir", str(review_root), prompt,
+        ]
+    raise ValueError(f"unsupported coding agent: {agent}")
+
+
 def candidate_text(value) -> str:
     return str(value or "").replace(CANDIDATE_BOUNDARY, "[RESERVED_BOUNDARY_REMOVED]")
 

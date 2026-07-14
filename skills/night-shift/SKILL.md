@@ -187,7 +187,9 @@ night-shift handoff --latest --item 1
 This writes a redacted local review pack and sends nothing. Run it with
 `--run` only when cloud reasoning was approved during setup, or after the user
 explicitly asks for the one-time `--allow-cloud` path. The coding agent must
-run read-only and return a validated verdict before implementation begins.
+run read-only and return a validated verdict before implementation begins. Use
+`--agent claude` when the user wants their Claude subscription to do the
+independent read; the default Codex path remains unchanged.
 
 End with one choice: verify and implement the best item, rerun with a narrower
 mission, or stop. Do not turn the brief into homework.
