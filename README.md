@@ -83,6 +83,8 @@ night-shift handoff --latest --item 1   # prepare the best item for independent 
 
 The handoff stays local by default. Sending it to Codex requires cloud consent
 from setup or a one-time `--allow-cloud`, and the review runs read-only.
+Preview output shows the exact committed-file count, byte count, redaction count,
+and privacy result before anything can be sent.
 
 At any point, get the small operational readout instead of hunting through
 ledgers:

@@ -4055,20 +4055,6 @@ def command_handoff(args) -> int:
     prompt = redact(build_handoff_prompt(item, repo, report_ledger.name))
     prompt_path = handoff_dir / f"item-{args.item}-{args.agent}-prompt.md"
     prompt_path.write_text(prompt, encoding="utf-8")
-    print(f"NIGHTSHIFT_HANDOFF: GREEN | prepared item={args.item} | agent={args.agent} | prompt={prompt_path}")
-    if not args.run:
-        print("Nothing was sent. Add --run after reviewing the local handoff pack.")
-        return 0
-
-    config = load_config()
-    cloud_allowed = bool(config_value(config, "allow_cloud_reasoning", False) or args.allow_cloud)
-    if not cloud_allowed:
-        print("NIGHTSHIFT_HANDOFF: RED | cloud use was not approved; rerun with --allow-cloud for this one review")
-        return 2
-    if not shutil.which(args.agent):
-        print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
-        return 1
-
     source_ref = str(item.get("source_ref") or "")
     if source_ref:
         if not re.fullmatch(r"[0-9a-f]{40}", source_ref):
@@ -4093,6 +4079,26 @@ def command_handoff(args) -> int:
                 "NIGHTSHIFT_HANDOFF: RED | bounded pack failed privacy validation: "
                 + "; ".join(privacy_reasons)[:240]
             )
+            return 1
+        print(f"NIGHTSHIFT_HANDOFF: GREEN | prepared item={args.item} | agent={args.agent} | prompt={prompt_path}")
+        print(
+            "Handoff pack: "
+            f"files={pack_metrics['materialized_file_count']} "
+            f"bytes={pack_metrics['materialized_bytes']} "
+            f"prompt_bytes={pack_metrics['prompt_bytes']} "
+            f"redactions={pack_metrics['redaction_markers']} privacy=GREEN"
+        )
+        if not args.run:
+            print("Nothing was sent. Add --run after reviewing the local handoff pack.")
+            return 0
+
+        config = load_config()
+        cloud_allowed = bool(config_value(config, "allow_cloud_reasoning", False) or args.allow_cloud)
+        if not cloud_allowed:
+            print("NIGHTSHIFT_HANDOFF: RED | cloud use was not approved; rerun with --allow-cloud for this one review")
+            return 2
+        if not shutil.which(args.agent):
+            print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
             return 1
         review_started = time.monotonic()
         result = run_cmd(
