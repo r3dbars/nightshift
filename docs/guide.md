@@ -337,7 +337,7 @@ Windows worker only:
 export WINDOWS_WORKER_BASE_URL=http://WINDOWS_HOST:11434/v1
 export WINDOWS_WORKER_MODEL=qwen3-coder:30b
 night-shift doctor --repo /path/to/project --windows-url "$WINDOWS_WORKER_BASE_URL"
-night-shift run --repo /path/to/project --mode quiet --max-local 0
+night-shift run --repo /path/to/project --mode quiet --no-local
 ```
 
 Mac plus Windows:
@@ -364,6 +364,10 @@ Optional lanes:
 - Windows: use any OpenAI-compatible server and point `WINDOWS_WORKER_BASE_URL`
   at it. If you do not have one, leave it unset and run Mac-only with
   `--max-windows 0`.
+
+`--no-local` and `--no-windows` are hard per-run/shift overrides. They skip that
+lane's health probe and ignore saved setup and environment settings, so a
+Windows-only test cannot silently wake the Mac model (and vice versa).
 
 ## Who It Is For
 
