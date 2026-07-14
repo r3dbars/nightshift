@@ -2736,6 +2736,8 @@ buildThing() { return 1; }
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(night_shift.command_handoff(args), 0)
             self.assertIn("Nothing was sent", output.getvalue())
+            self.assertIn("Handoff pack: files=1", output.getvalue())
+            self.assertIn("privacy=GREEN", output.getvalue())
             prompt = (ledger / "handoff" / "item-1-codex-prompt.md").read_text(encoding="utf-8")
             self.assertIn("[REDACTED_SECRET]", prompt)
             self.assertNotIn("supersecretvalue", prompt)
@@ -2751,6 +2753,10 @@ buildThing() { return 1; }
             subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
             parent.mkdir()
             child.mkdir()
+            (repo / "src").mkdir()
+            (repo / "src" / "app.py").write_text("return 42\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
             (parent / "cycles.json").write_text(json.dumps([{"ledger": str(child)}]), encoding="utf-8")
             (child / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
             (child / "work-queue.json").write_text(json.dumps([{
