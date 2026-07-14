@@ -4307,6 +4307,9 @@ def command_handoff(args) -> int:
     if not cloud_allowed:
         print("NIGHTSHIFT_HANDOFF: RED | cloud use was not approved; rerun with --allow-cloud for this one review")
         return 2
+    if not source_ref:
+        print("NIGHTSHIFT_HANDOFF: RED | cloud review requires an exact pinned candidate revision")
+        return 1
     if not shutil.which(args.agent):
         print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
         return 1
