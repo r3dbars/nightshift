@@ -46,10 +46,10 @@ from night_shift_state import append_attempt, exclusive_lock, fresh_explicit_goa
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, append_review_outcome, build_handoff_prompt, handoff_outcome_persistence_reason, handoff_pack_file_hashes, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
-from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, HUMAN_OUTCOME_VALUES, append_feedback_event, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, latest_verified_review_for_candidate, should_record_feedback_event, should_record_review_outcome, task_family
+from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, HUMAN_OUTCOME_VALUES, append_feedback_event, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, latest_verified_review_for_candidate, link_review_to_feedback_event, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
-from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, outcome_ledger_summary, repo_outcome_adjustment
+from night_shift_repo_outcomes import append_repo_outcome, link_review_to_repo_outcome, load_repo_outcomes, outcome_ledger_summary, repo_outcome_adjustment
 from night_shift_autopilot import AutopilotCycleState
 from night_shift_selection import (
     declared_symbols,
@@ -4386,6 +4386,8 @@ def command_handoff(args) -> int:
     )
     metadata["outcome_recorded"] = not persistence_reason
     metadata["outcome_persistence_reason"] = persistence_reason
+    linked_feedback = {}
+    linked_repo_outcome = {}
     (handoff_dir / f"item-{args.item}-{args.agent}.json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -4394,6 +4396,13 @@ def command_handoff(args) -> int:
         outcome["item"] = args.item
         if should_record_review_outcome(existing, outcome):
             append_review_outcome(REVIEW_OUTCOMES_PATH, outcome, existing)
+        linked_feedback = link_review_to_feedback_event(FEEDBACK_PATH, outcome)
+        linked_repo_outcome = link_review_to_repo_outcome(REPO_OUTCOMES_PATH, linked_feedback, outcome)
+        metadata["feedback_review_linked"] = bool(linked_feedback)
+        metadata["repo_outcome_review_linked"] = bool(linked_repo_outcome)
+        (handoff_dir / f"item-{args.item}-{args.agent}.json").write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
     if persistence_reason:
         print(
             "NIGHTSHIFT_HANDOFF: YELLOW | independent read-only review complete; "

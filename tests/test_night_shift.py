@@ -2824,6 +2824,46 @@ buildThing() { return 1; }
                 night_shift.REPO_OUTCOMES_PATH = original_outcomes
                 night_shift.REVIEW_OUTCOMES_PATH = original_reviews
 
+    def test_later_review_reconciles_feedback_recorded_first_without_duplicate_vote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger"
+            ledger.mkdir()
+            source_ref = "a" * 40
+            feedback = {
+                "ledger": str(ledger), "rank": 1, "fingerprint": "reviewed-candidate",
+                "source_ref": source_ref, "verdict": "useful", "human_outcome": "accepted",
+            }
+            outcome = {
+                "ledger": str(ledger.resolve()), "item": 1, "fingerprint": "reviewed-candidate",
+                "source_ref": source_ref, "valid_review": True, "verdict": "CONFIRMED",
+            }
+            feedback_path = root / "feedback.jsonl"
+            repo_outcomes_path = root / "repo-outcomes.jsonl"
+            night_shift.append_feedback_event(feedback_path, feedback)
+            feedback_id = "|".join(
+                str(feedback.get(field) or "")
+                for field in ("ledger", "rank", "fingerprint", "verdict", "human_outcome")
+            )
+            night_shift.append_repo_outcome(repo_outcomes_path, {
+                "kind": "feedback", "feedback_id": feedback_id, "feedback_verified": 0,
+                "feedback_useful": 1, "human_outcome_accepted": 1, "repo": "/repo",
+                "source_ref": source_ref,
+            })
+            linked = night_shift.link_review_to_feedback_event(feedback_path, outcome)
+            repo_linked = night_shift.link_review_to_repo_outcome(
+                repo_outcomes_path, linked, outcome
+            )
+            self.assertTrue(linked["review_verified"])
+            self.assertEqual(linked["review_verdict"], "CONFIRMED")
+            self.assertEqual(repo_linked["feedback_verified"], 1)
+            self.assertEqual(repo_linked["feedback_review_verdict"], "CONFIRMED")
+            self.assertEqual(len(feedback_path.read_text(encoding="utf-8").splitlines()), 1)
+            self.assertEqual(len(repo_outcomes_path.read_text(encoding="utf-8").splitlines()), 1)
+            self.assertEqual(
+                night_shift.link_review_to_feedback_event(feedback_path, outcome), linked
+            )
+
     def test_interactive_feedback_asks_friendly_questions_and_persists_outcome(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -49,6 +49,76 @@ def append_feedback_event(path: Path, event: dict) -> None:
         raise
 
 
+def _canonical_ledger(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return str(Path(raw).expanduser().resolve())
+    except (OSError, RuntimeError):
+        return raw
+
+
+def _review_matches_feedback(event: dict, outcome: dict) -> bool:
+    if not event.get("ledger") or not outcome.get("ledger"):
+        return False
+    try:
+        item = int(outcome.get("item"))
+        rank = int(event.get("rank"))
+    except (TypeError, ValueError):
+        return False
+    return (
+        _canonical_ledger(event.get("ledger")) == _canonical_ledger(outcome.get("ledger"))
+        and rank == item
+        and event.get("fingerprint") == outcome.get("fingerprint")
+        and event.get("source_ref") == outcome.get("source_ref")
+    )
+
+
+def link_review_to_feedback_event(path: Path, outcome: dict) -> dict:
+    """Upgrade an earlier exact feedback event after a valid terminal review."""
+    if (
+        outcome.get("valid_review") is not True
+        or outcome.get("verdict") not in {"CONFIRMED", "REJECTED"}
+        or not outcome.get("fingerprint")
+        or not outcome.get("source_ref")
+    ):
+        return {}
+    try:
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    for index in range(len(raw_lines) - 1, -1, -1):
+        try:
+            event = json.loads(raw_lines[index])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(event, dict) or not _review_matches_feedback(event, outcome):
+            continue
+        linked = dict(event)
+        linked["review_verdict"] = outcome["verdict"]
+        linked["review_verified"] = True
+        if linked == event:
+            return linked
+        raw_lines[index] = json.dumps(linked, sort_keys=True)
+        content = "\n".join(raw_lines) + "\n"
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        except Exception:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
+        return linked
+    return {}
+
+
 def task_family(slug: str) -> str:
     value = str(slug or "task").strip().lower()
     for prefix in FAMILY_PREFIXES:
