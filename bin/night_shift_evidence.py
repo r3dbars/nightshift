@@ -139,10 +139,14 @@ def evidence_validation_reasons(
     }
     backticked_paths = {
         value for value in backticked
-        if value in allowed or not all(
+        if not (
+            len(value) >= 2
+            and value[0] == value[-1]
+            and value[0] in {'"', "'"}
+        ) and (value in allowed or not all(
             re.fullmatch(r"[A-Z][A-Z0-9_-]*", part)
             for part in value.split("/")
-        )
+        ))
     }
     claim_without_backticks = re.sub(r"`[^`]*`", "", claim)
     claim_without_literals = re.sub(r"\"[^\"\n]*\"|'[^'\n]*'", "", claim_without_backticks)
