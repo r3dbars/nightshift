@@ -7,6 +7,7 @@ import re
 
 CLARITY_VALUES = {"clear", "confusing"}
 EFFORT_VALUES = {"quick", "some-work", "too-much"}
+HUMAN_OUTCOME_VALUES = {"accepted", "revised", "rejected"}
 
 
 FAMILY_PREFIXES = (
@@ -54,6 +55,9 @@ def feedback_quality_snapshot(events: list[dict], repo: str = "") -> dict[str, i
         "quick": sum(event.get("effort") == "quick" for event in current),
         "some-work": sum(event.get("effort") == "some-work" for event in current),
         "too-much": sum(event.get("effort") == "too-much" for event in current),
+        "accepted": sum(event.get("human_outcome") == "accepted" for event in current),
+        "revised": sum(event.get("human_outcome") == "revised" for event in current),
+        "rejected": sum(event.get("human_outcome") == "rejected" for event in current),
     }
 
 
@@ -93,12 +97,12 @@ def feedback_score(events: list[dict], repo: str, family: str) -> tuple[int, int
 def should_record_feedback_event(existing: list[dict], event: dict) -> bool:
     identity = (
         event.get("ledger"), event.get("rank"), event.get("fingerprint"), event.get("verdict"),
-        event.get("clarity"), event.get("effort"),
+        event.get("clarity"), event.get("effort"), event.get("human_outcome"),
     )
     return not any(
         (
             row.get("ledger"), row.get("rank"), row.get("fingerprint"), row.get("verdict"),
-            row.get("clarity"), row.get("effort"),
+            row.get("clarity"), row.get("effort"), row.get("human_outcome"),
         )
         == identity
         for row in existing

@@ -454,11 +454,17 @@ night-shift feedback --latest --item 1 --useful
 night-shift feedback --latest --item 2 --not-useful --note "too generic"
 # Optional: also record clarity and review effort.
 night-shift feedback --latest --item 1 --useful --clarity clear --effort quick
+# Optional: record what happened after review.
+night-shift feedback --latest --item 1 --useful --outcome accepted
+night-shift feedback --latest --item 1 --useful --outcome revised
+night-shift feedback --latest --item 1 --not-useful --outcome rejected --note "not worth carrying forward"
 ```
 
 Feedback stays local and affects later prompts and rankings for that repo. The
 optional clarity and effort fields help measure whether the morning brief is
-easy to understand and quick to review.
+easy to understand and quick to review. The optional outcome records whether a
+verified draft was accepted, changed, or discarded, so Night Shift can measure
+real value rather than treating every useful vote as a finished result.
 
 The right next action is usually one of these:
 

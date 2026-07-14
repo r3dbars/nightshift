@@ -35,6 +35,9 @@ def outcome_ledger_summary(rows: list[dict]) -> dict[str, int | float]:
         "useful_feedback": sum(int(row.get("feedback_useful") or 0) for row in rows),
         "useful_verified_feedback": sum(int(row.get("useful_verified_feedback") or 0) for row in rows),
         "useful_candidate_feedback": sum(int(row.get("useful_candidate_feedback") or 0) for row in rows),
+        "accepted_verified_outcomes": sum(int(row.get("human_outcome_accepted") or 0) for row in rows if row.get("feedback_verified")),
+        "revised_verified_outcomes": sum(int(row.get("human_outcome_revised") or 0) for row in rows if row.get("feedback_verified")),
+        "rejected_verified_outcomes": sum(int(row.get("human_outcome_rejected") or 0) for row in rows if row.get("feedback_verified")),
         "hosted_draft_prs": sum(int(row.get("draft_pr_opened") or 0) for row in run_rows),
         "hosted_green_draft_prs": sum(int(row.get("hosted_checks_state") in {"pass", "passed"}) for row in run_rows),
     }
@@ -51,6 +54,9 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
     not_useful_feedback = 0
     useful_verified_feedback = 0
     useful_candidate_feedback = 0
+    accepted_verified_outcomes = 0
+    revised_verified_outcomes = 0
+    rejected_verified_outcomes = 0
     hosted_prs = 0
     hosted_green = 0
     hosted_failed = 0
@@ -65,6 +71,10 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
                 useful_verified_feedback += 1
             else:
                 useful_candidate_feedback += 1
+        if row.get("feedback_verified"):
+            accepted_verified_outcomes += int(row.get("human_outcome_accepted") or 0)
+            revised_verified_outcomes += int(row.get("human_outcome_revised") or 0)
+            rejected_verified_outcomes += int(row.get("human_outcome_rejected") or 0)
         if int(row.get("draft_pr_opened") or 0):
             hosted_prs += 1
             if str(row.get("hosted_checks_state") or "") in {"pass", "passed"}:
@@ -82,6 +92,9 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
             wasted += 1
     points += min(useful_feedback * 25, 50)
     points -= min(not_useful_feedback * 25, 50)
+    points += min(accepted_verified_outcomes * 35, 50)
+    points += min(revised_verified_outcomes * 10, 20)
+    points -= min(rejected_verified_outcomes * 30, 50)
     return max(-40, min(50, points)), {
         "recent_runs": len(recent),
         "productive_runs": productive,
@@ -93,6 +106,9 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
         "not_useful_feedback": not_useful_feedback,
         "useful_verified_feedback": useful_verified_feedback,
         "useful_candidate_feedback": useful_candidate_feedback,
+        "accepted_verified_outcomes": accepted_verified_outcomes,
+        "revised_verified_outcomes": revised_verified_outcomes,
+        "rejected_verified_outcomes": rejected_verified_outcomes,
         "hosted_draft_prs": hosted_prs,
         "hosted_green_draft_prs": hosted_green,
         "hosted_failed_or_unknown_draft_prs": hosted_failed,

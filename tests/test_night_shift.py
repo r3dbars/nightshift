@@ -363,6 +363,12 @@ class NightShiftQualityTests(unittest.TestCase):
         ])
         self.assertEqual(args.privacy_route, "mac-only")
 
+    def test_feedback_parser_exposes_local_human_outcome(self):
+        args = night_shift.build_parser().parse_args([
+            "feedback", "--item", "1", "--useful", "--outcome", "accepted",
+        ])
+        self.assertEqual(args.outcome, "accepted")
+
     def test_remote_cleanup_required_stays_yellow_in_morning_brief(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)
@@ -2305,7 +2311,10 @@ buildThing() { return 1; }
         ]
         self.assertEqual(
             night_shift.feedback_quality_snapshot(events, "/repo"),
-            {"clear": 0, "confusing": 1, "quick": 0, "some-work": 1, "too-much": 0},
+            {
+                "clear": 0, "confusing": 1, "quick": 0, "some-work": 1,
+                "too-much": 0, "accepted": 0, "revised": 0, "rejected": 0,
+            },
         )
 
     def test_feedback_quality_enrichment_is_not_a_duplicate_vote(self):
@@ -2604,7 +2613,7 @@ buildThing() { return 1; }
                 args = SimpleNamespace(
                     ledger=str(ledger), latest=False, item=1,
                     useful=False, not_useful=True, note="too generic",
-                    clarity="clear", effort="quick",
+                    clarity="clear", effort="quick", outcome="rejected",
                 )
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(night_shift.command_feedback(args), 0)
@@ -2614,6 +2623,9 @@ buildThing() { return 1; }
                 self.assertEqual(event["verdict"], "not-useful")
                 self.assertEqual(event["clarity"], "clear")
                 self.assertEqual(event["effort"], "quick")
+                self.assertEqual(event["human_outcome"], "rejected")
+                outcome = json.loads(night_shift.REPO_OUTCOMES_PATH.read_text(encoding="utf-8"))
+                self.assertEqual(outcome["human_outcome_rejected"], 1)
                 self.assertGreaterEqual(event["feedback_delay_seconds"], 4)
             finally:
                 night_shift.FEEDBACK_PATH = original
@@ -2659,6 +2671,13 @@ buildThing() { return 1; }
     def test_feedback_rejects_unknown_quality_signal(self):
         args = SimpleNamespace(
             useful=True, not_useful=False, item=1, clarity="maybe", effort="quick",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(night_shift.command_feedback(args), 2)
+
+    def test_feedback_rejects_contradictory_human_outcome(self):
+        args = SimpleNamespace(
+            useful=False, not_useful=True, item=1, clarity="", effort="", outcome="accepted",
         )
         with redirect_stdout(io.StringIO()):
             self.assertEqual(night_shift.command_feedback(args), 2)

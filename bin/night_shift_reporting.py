@@ -415,7 +415,9 @@ class ReportEngine:
                 "- Morning review signals: "
                 f"clear={feedback_quality['clear']} confusing={feedback_quality['confusing']}; "
                 f"effort quick={feedback_quality['quick']} some-work={feedback_quality['some-work']} "
-                f"too-much={feedback_quality['too-much']}"
+                f"too-much={feedback_quality['too-much']}; "
+                f"outcomes accepted={feedback_quality['accepted']} revised={feedback_quality['revised']} "
+                f"rejected={feedback_quality['rejected']}"
             )
         continuity = self.feedback_continuity(str((scan or {}).get("repo") or ""))
         if continuity:
@@ -468,6 +470,7 @@ class ReportEngine:
                 "Teach Night Shift (one quick vote):",
                 f"- If choice 1 would save you time: `night-shift feedback --ledger {ledger_arg} --item 1 --useful`",
                 f"- If it missed the mark: `night-shift feedback --ledger {ledger_arg} --item 1 --not-useful --note \"one short reason\"`",
+                f"- Optional result: add `--useful --outcome accepted` if you used it, `--useful --outcome revised` if you changed it, or `--not-useful --outcome rejected` if you discarded it.",
                 "- Optional: add `--clarity clear` or `--clarity confusing`, plus `--effort quick`, `--effort some-work`, or `--effort too-much`.",
                 "- This stays on this computer and changes future rankings for this repo.",
             ])
