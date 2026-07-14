@@ -135,3 +135,48 @@ def append_repo_outcome(path: Path, row: dict, limit: int = 500) -> None:
         except OSError:
             pass
         raise
+
+
+def link_review_to_repo_outcome(path: Path, feedback: dict, outcome: dict) -> dict:
+    """Upgrade the matching feedback outcome without adding a duplicate vote."""
+    if not feedback or outcome.get("verdict") not in {"CONFIRMED", "REJECTED"}:
+        return {}
+    feedback_id = "|".join(
+        str(feedback.get(field) or "")
+        for field in ("ledger", "rank", "fingerprint", "verdict", "human_outcome")
+    )
+    if not feedback_id:
+        return {}
+    try:
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    for index in range(len(raw_lines) - 1, -1, -1):
+        try:
+            row = json.loads(raw_lines[index])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(row, dict) or row.get("feedback_id") != feedback_id:
+            continue
+        linked = dict(row)
+        linked["feedback_review_verdict"] = outcome["verdict"]
+        linked["feedback_verified"] = 1
+        if linked == row:
+            return linked
+        raw_lines[index] = json.dumps(linked, sort_keys=True)
+        content = "\n".join(raw_lines) + "\n"
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        except Exception:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
+        return linked
+    return {}
