@@ -159,6 +159,20 @@ class PortfolioReportEngine:
         if status == "GREEN":
             display_status = "GREEN" if proven or not new_candidates else "YELLOW"
         morning_items = self.morning_items(latest_by_repo)
+        candidate_count = 0
+        verified_drafts = 0
+        verified_tokens = 0
+        for row in cycle_rows:
+            outcomes = row.get("outcomes") or {}
+            candidates = int(outcomes.get("candidate_count") or 0)
+            verified = int(outcomes.get("verified_drafts") or 0)
+            if not outcomes and (row.get("draft") or {}).get("status") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}:
+                verified = 1
+            candidate_count += candidates
+            verified_drafts += verified
+            verified_tokens += int(outcomes.get("verified_outcome_tokens") or 0)
+        candidate_only = max(0, candidate_count - verified_drafts)
+        tokens_per_verified = round(verified_tokens / verified_drafts, 4) if verified_drafts else 0
         (ledger / "morning-items.json").write_text(
             json.dumps(morning_items, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -265,6 +279,9 @@ class PortfolioReportEngine:
         lines.extend([
             "", "Run totals:", f"- Repositories visited: {len(latest_by_repo)}",
             f"- Repository batches completed: {len(cycle_rows)}",
+            f"- Model candidates: {candidate_count} ({candidate_only} candidate-only)",
+            f"- Verified drafts: {verified_drafts}",
+            f"- Tokens per verified draft: {tokens_per_verified}",
             f"- Durable task history: {self.task_history_path}", "", "Safety:",
             "- Repository checkouts were read-only unless isolated draft execution was explicitly enabled.",
             "- Tested draft PRs may be opened only when one-time GitHub authorization is saved.",

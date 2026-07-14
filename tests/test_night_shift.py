@@ -393,6 +393,8 @@ class NightShiftQualityTests(unittest.TestCase):
                 brief,
             )
             self.assertIn("the patch is ready for review", brief)
+            self.assertIn("Model candidates: 0 (0 candidate-only)", brief)
+            self.assertIn("Verified drafts: 1", brief)
             self.assertNotIn("no deterministic outcome", brief)
 
     def test_portfolio_brief_explains_rejected_draft_reason(self):

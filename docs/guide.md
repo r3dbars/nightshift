@@ -24,6 +24,12 @@ GitHub repositories:
 - small patch plans
 - morning briefs that say what is real, what is draft, and what still needs a human
 
+Night Shift keeps two outcome counts separate: a `candidate` is a model-ranked
+`KEEP` or `MAYBE`; a `verified draft` is a bounded patch that passed its
+approved checks. The durable `outcome-metrics.json` records both, plus
+`tokens_per_verified_draft`, so a busy night cannot look productive just
+because the model returned suggestions.
+
 The joke version: it lets your machines have a productive little night shift,
 without letting them become management.
 
