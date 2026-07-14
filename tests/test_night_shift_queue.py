@@ -573,6 +573,9 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
             self.assertIn("make CLAIM neutral", mission["prompt"])
             self.assertIn("Keep CLAIM positive and source-grounded", mission["prompt"])
             self.assertIn("Put the coverage gap only in WHY_NOW", mission["prompt"])
+            self.assertIn("Put each EVIDENCE citation on its own line", mission["prompt"])
+            self.assertIn("not asserted", mission["prompt"])
+            self.assertIn("Do not mention test files or coverage status in CLAIM", mission["prompt"])
             self.assertIn("Do not claim production code is broken", mission["prompt"])
 
     def test_goal_guidance_grounding_finds_plain_symbol_and_keeps_mission_ready(self):
