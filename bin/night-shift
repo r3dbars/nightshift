@@ -3054,16 +3054,7 @@ def command_autopilot(args) -> int:
                     planned_count=len(planned),
                 )
                 signals = item.get("signals") or {}
-                if item.get("primary"):
-                    portfolio_reason = "your current project"
-                elif item.get("priority"):
-                    portfolio_reason = "saved priority"
-                elif signals.get("failed_runs"):
-                    portfolio_reason = "recent failing checks"
-                elif signals.get("prs") or signals.get("issues"):
-                    portfolio_reason = "active GitHub work"
-                else:
-                    portfolio_reason = "recent activity"
+                portfolio_reason = PORTFOLIO.selection_reason(item)
                 cycle_row.update({
                     "portfolio_rank": portfolio_rank,
                     "portfolio_score": int(item.get("score") or 0),

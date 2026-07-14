@@ -93,6 +93,25 @@ class PortfolioEngine:
             selected.sort(key=lambda row: (-int(row.get("score", 0)), row.get("slug", "")))
         return selected
 
+    @staticmethod
+    def selection_reason(item: dict) -> str:
+        """Explain the strongest reason this repository received a slot."""
+        if item.get("primary"):
+            return "your current project"
+        if item.get("priority"):
+            return "saved priority"
+        outcome = item.get("outcome_summary") or {}
+        if int(outcome.get("useful_feedback") or 0) > 0:
+            return "you marked recent work here useful"
+        if int(outcome.get("not_useful_feedback") or 0) > 0:
+            return "cooling down after recent low-value work"
+        signals = item.get("signals") or {}
+        if signals.get("failed_runs"):
+            return "recent failing checks"
+        if signals.get("prs") or signals.get("issues"):
+            return "active GitHub work"
+        return "recent activity"
+
     def github_repo_signals(self, slug: str, default_branch: str = "") -> dict:
         empty = {"prs": [], "issues": [], "failed_runs": [], "score": 0}
         if not slug or not shutil.which("gh"):
