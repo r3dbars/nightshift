@@ -148,6 +148,7 @@ def evidence_validation_reasons(
     unquoted_paths = set(re.findall(
         r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.@+-]+", claim_without_backticks
     ))
+    unquoted_paths.difference_update({"./", "../"})
     claimed_paths = backticked_paths | unquoted_paths
     cited_paths = {relative for relative, _, _ in entries}
     if negative_claim:

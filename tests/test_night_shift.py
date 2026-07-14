@@ -1115,6 +1115,26 @@ ACTION_TYPE: patch-plan
                 "negative claim did not cite claimed path: GREEN/YELLOW/RED", reasons
             )
 
+    def test_relative_import_prefix_is_not_treated_as_a_repo_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "status.py").write_text(
+                "def import_path():\n    return './module'\n", encoding="utf-8"
+            )
+            output = """CLAIM: `import_path` lacks a focused test for values prefixed with \"./\"
+EVIDENCE: status.py:2 | return './module'
+FILES_TO_TOUCH: status.py
+TESTS_TO_RUN: python -m pytest
+EXPECTED_RESULT: import_path() returns a string starting with \"./\"
+ACTION_TYPE: patch-plan
+"""
+            reasons = night_shift.evidence_validation_reasons(
+                output, repo, ["status.py"], proof_kind="test"
+            )
+            self.assertNotIn(
+                "negative claim did not cite claimed path: ./", reasons
+            )
+
     def test_extensionless_negative_claim_path_still_requires_a_citation(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
