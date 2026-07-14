@@ -320,6 +320,14 @@ class PortfolioReportingTests(unittest.TestCase):
             }),
             "cooling down after recent low-value work",
         )
+        self.assertEqual(
+            PortfolioEngine.selection_reason({
+                "primary": True,
+                "outcome_summary": {"useful_feedback": 1},
+                "signals": {},
+            }),
+            "your current project; you marked recent work here useful",
+        )
 
 if __name__ == "__main__":
     unittest.main()
