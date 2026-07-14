@@ -13,6 +13,16 @@ from night_shift_portfolio import PortfolioEngine
 
 
 class PortfolioRankingDeterminismTests(unittest.TestCase):
+    def test_repo_slug_returns_empty_for_missing_repo(self):
+        def unexpected_run(*_args, **_kwargs):
+            raise AssertionError("missing repositories must not invoke git")
+
+        engine = PortfolioEngine(
+            unexpected_run, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now"
+        )
+
+        self.assertEqual(engine.repo_slug(None), "")
+
     def test_repeated_discovery_keeps_the_same_ranked_portfolio(self):
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         repos = [
