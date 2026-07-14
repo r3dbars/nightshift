@@ -302,6 +302,10 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertIn("Good morning - here is the short version:", morning)
             self.assertLess(morning.index("owner/z-high"), morning.index("owner/a-low"))
             self.assertIn("Why this repo: recent failing checks", morning)
+            self.assertIn(
+                f"night-shift handoff --ledger {root} --item 1 --agent codex --run --allow-cloud",
+                morning,
+            )
             items = json.loads((root / "morning-items.json").read_text())
             self.assertEqual([item["repo"] for item in items], ["owner/z-high", "owner/a-low"])
             self.assertEqual(items[0]["selection_reason"], "recent failing checks")
