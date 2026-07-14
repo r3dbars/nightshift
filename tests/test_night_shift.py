@@ -415,7 +415,7 @@ class NightShiftQualityTests(unittest.TestCase):
                 self.assertEqual(event["source_ref"], "a" * 40)
                 outcome = json.loads(night_shift.REPO_OUTCOMES_PATH.read_text(encoding="utf-8"))
                 self.assertEqual(outcome["feedback_useful"], 1)
-                self.assertEqual(outcome["repo"], "/repo")
+                self.assertEqual(outcome["repo"], "owner/repo")
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(night_shift.command_feedback(args), 0)
                 self.assertEqual(
