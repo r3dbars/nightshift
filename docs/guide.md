@@ -30,6 +30,10 @@ approved checks. The durable `outcome-metrics.json` records both, plus
 `tokens_per_verified_draft`, so a busy night cannot look productive just
 because the model returned suggestions.
 
+To check the long-term rebuild target mechanically, run
+`python3 scripts/check-quality-scorecard.py`. It exits nonzero and lists every
+dimension below 95 until the evidence is actually there.
+
 The joke version: it lets your machines have a productive little night shift,
 without letting them become management.
 
