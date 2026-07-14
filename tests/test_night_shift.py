@@ -2751,6 +2751,8 @@ buildThing() { return 1; }
             child = root / "child"
             repo.mkdir()
             subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
             parent.mkdir()
             child.mkdir()
             (repo / "src").mkdir()
