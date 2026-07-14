@@ -45,7 +45,7 @@ from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, fresh_explicit_goal_tasks, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_outcome_persistence_reason, handoff_pack_file_hashes, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
+from night_shift_handoff import CANDIDATE_BOUNDARY, append_review_outcome, build_handoff_prompt, handoff_outcome_persistence_reason, handoff_pack_file_hashes, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
 from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, HUMAN_OUTCOME_VALUES, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
@@ -4393,9 +4393,7 @@ def command_handoff(args) -> int:
         existing = load_review_outcomes()
         outcome["item"] = args.item
         if should_record_review_outcome(existing, outcome):
-            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            with REVIEW_OUTCOMES_PATH.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(outcome, sort_keys=True) + "\n")
+            append_review_outcome(REVIEW_OUTCOMES_PATH, outcome, existing)
     if persistence_reason:
         print(
             "NIGHTSHIFT_HANDOFF: YELLOW | independent read-only review complete; "
