@@ -2361,6 +2361,13 @@ def validate_run_args(args) -> bool:
     return True
 
 
+def apply_privacy_lane_limits(max_local: int, max_windows: int, privacy_route: str | None) -> tuple[int, int]:
+    """Keep remote LAN work closed unless the user explicitly chose that route."""
+    if privacy_route != "mac-and-lan":
+        return max_local, 0
+    return max_local, max_windows
+
+
 def command_plan(args) -> int:
     ledger = create_ledger(args.mode)
     root = require_git_repo(args.repo)
@@ -2389,6 +2396,9 @@ def command_run(args) -> int:
     defaults = MODE_DEFAULTS[args.mode].copy()
     max_local = defaults["local"] if args.max_local is None else args.max_local
     max_windows = defaults["windows"] if args.max_windows is None else args.max_windows
+    max_local, max_windows = apply_privacy_lane_limits(
+        max_local, max_windows, getattr(args, "privacy_route", "mac-only")
+    )
     parallel_local = defaults["parallel_local"] if args.parallel_local is None else args.parallel_local
     parallel_windows = defaults["parallel_windows"] if args.parallel_windows is None else args.parallel_windows
     target_tokens = defaults["target_tokens"] if args.token_target is None else args.token_target
@@ -2427,6 +2437,7 @@ def command_run(args) -> int:
                 "guidance": guidance,
                 "goal": goal_text,
                 "task_limit": getattr(args, "task_limit", None),
+                "privacy_route": getattr(args, "privacy_route", "mac-only"),
             },
             indent=2,
             sort_keys=True,

@@ -621,6 +621,20 @@ RISK: low
                 else:
                     os.environ["WINDOWS_WORKER_BASE_URL"] = previous
 
+    def test_mac_only_privacy_closes_windows_scheduler_lane(self):
+        self.assertEqual(
+            night_shift.apply_privacy_lane_limits(2, 2, "mac-only"),
+            (2, 0),
+        )
+        self.assertEqual(
+            night_shift.apply_privacy_lane_limits(2, 2, "cloud-ok"),
+            (2, 0),
+        )
+        self.assertEqual(
+            night_shift.apply_privacy_lane_limits(2, 2, "mac-and-lan"),
+            (2, 2),
+        )
+
     def test_advanced_setup_is_explicit(self):
         parser = night_shift.build_parser()
         simple = parser.parse_args(["start", "--repo", str(ROOT), "--yes", "--dry-run"])
