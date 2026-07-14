@@ -119,6 +119,34 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(rows[0]["hosted_checks"]["reason"], "GitHub draft status could not be read")
             self.assertEqual(rows[0]["draft_state"], "unknown")
 
+    def test_reconcile_drafts_upgrades_legacy_publication_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "published-drafts.jsonl"
+            ledger.write_text(json.dumps({
+                "repo": "owner/repo",
+                "pr_url": "https://github.com/owner/repo/pull/9",
+                "branch": "night-shift/legacy",
+            }) + "\n", encoding="utf-8")
+
+            def fake(command, **kwargs):
+                return result(stdout=json.dumps({
+                    "isDraft": True,
+                    "statusCheckRollup": [{"name": "Actions", "conclusion": "SUCCESS"}],
+                }))
+
+            rows = PublishEngine(
+                fake,
+                root / "worktrees",
+                lambda: "20260714t232000z",
+                publication_ledger=ledger,
+            ).reconcile_drafts(root)
+            self.assertEqual(rows[0]["status"], "DRAFT_PR_OPENED")
+            self.assertEqual(rows[0]["draft_state"], "draft")
+            self.assertEqual(rows[0]["hosted_checks"]["state"], "passed")
+            saved = json.loads(ledger.read_text(encoding="utf-8"))
+            self.assertEqual(saved["status"], "DRAFT_PR_OPENED")
+
     def proof(self, patch_path):
         return {
             "status": "PROVEN_REPAIR",
