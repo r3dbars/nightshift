@@ -4302,8 +4302,7 @@ def command_handoff(args) -> int:
         print("Nothing was sent. Review the saved pack, then add --run for one explicitly approved review.")
         return 0
 
-    config = load_config()
-    cloud_allowed = bool(config_value(config, "allow_cloud_reasoning", False) or args.allow_cloud)
+    cloud_allowed = bool(args.allow_cloud)
     if not cloud_allowed:
         print("NIGHTSHIFT_HANDOFF: RED | cloud use was not approved; rerun with --allow-cloud for this one review")
         return 2
