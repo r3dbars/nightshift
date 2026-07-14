@@ -3050,6 +3050,23 @@ buildThing() { return 1; }
         self.assertEqual(command[command.index("--add-dir") + 1], "/tmp/night-shift-review")
         self.assertEqual(command[-1], "Review this bounded pack.")
 
+    def test_cloud_preflight_requires_pin_agent_and_bounded_pack(self):
+        self.assertEqual(
+            night_shift.cloud_preflight_reasons(
+                "codex", "", False, [], ["privacy failed"]
+            ),
+            [
+                "privacy failed",
+                "no committed review files were materialized",
+                "an exact pinned candidate revision is required",
+                "the selected coding agent is unavailable: codex",
+            ],
+        )
+        self.assertEqual(
+            night_shift.cloud_preflight_reasons("codex", "a" * 40, True, ["app.py"], []),
+            [],
+        )
+
     @unittest.skipUnless(night_shift.shutil.which("claude"), "Claude CLI is not installed")
     def test_installed_claude_supports_bounded_tools_flag(self):
         result = subprocess.run(
@@ -3091,6 +3108,8 @@ buildThing() { return 1; }
             self.assertIn("Handoff pack: files=1", output.getvalue())
             self.assertIn("privacy=GREEN", output.getvalue())
             self.assertIn("Review pack:", output.getvalue())
+            self.assertIn("CLOUD_PREFLIGHT: RED", output.getvalue())
+            self.assertIn("exact pinned candidate revision is required", output.getvalue())
             prompt = (ledger / "handoff" / "item-1-codex-prompt.md").read_text(encoding="utf-8")
             self.assertIn("[REDACTED_SECRET]", prompt)
             self.assertNotIn("supersecretvalue", prompt)
@@ -3317,7 +3336,8 @@ buildThing() { return 1; }
             )
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(night_shift.command_handoff(args), 1)
-            self.assertIn("cloud review requires an exact pinned candidate revision", output.getvalue())
+            self.assertIn("CLOUD_PREFLIGHT: RED", output.getvalue())
+            self.assertIn("cloud preflight failed: an exact pinned candidate revision is required", output.getvalue())
 
     def test_handoff_pack_privacy_gate_rejects_surviving_secret(self):
         with tempfile.TemporaryDirectory() as tmp:

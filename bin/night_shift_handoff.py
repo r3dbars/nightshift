@@ -180,6 +180,24 @@ def handoff_pack_privacy_reasons(prompt: str, target: Path, files: list[str], re
     return reasons
 
 
+def cloud_preflight_reasons(
+    agent: str,
+    source_ref: str,
+    agent_available: bool,
+    copied_files: list[str],
+    privacy_reasons: list[str],
+) -> list[str]:
+    """Explain why a prepared pack is not ready for one optional cloud review."""
+    reasons = list(privacy_reasons)
+    if not copied_files:
+        reasons.append("no committed review files were materialized")
+    if not re.fullmatch(r"[0-9a-f]{40}", source_ref or ""):
+        reasons.append("an exact pinned candidate revision is required")
+    if not agent_available:
+        reasons.append(f"the selected coding agent is unavailable: {agent}")
+    return list(dict.fromkeys(reasons))
+
+
 def citation_exists(repo: Path, relative: str, line: int, source_ref: str = "") -> bool:
     if line < 1 or Path(relative).is_absolute() or ".." in Path(relative).parts:
         return False

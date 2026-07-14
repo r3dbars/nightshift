@@ -475,10 +475,11 @@ class ReportEngine:
         if work_items:
             ledger_arg = shlex.quote(str(ledger))
             lines.append(
-                "- One-action independent review (read-only cloud; this command is explicit consent): "
-                f"`night-shift handoff --ledger {ledger_arg} --item 1 --agent codex --run --allow-cloud`"
+                "- Safe next step: prepare the bounded review pack locally first: "
+                f"`night-shift handoff --ledger {ledger_arg} --item 1 --agent codex`"
             )
             lines.extend([
+                "- Nothing is sent by that command. If it says `CLOUD_PREFLIGHT: GREEN` and you want one read-only cloud review, rerun it with `--run --allow-cloud`.",
                 "",
                 "Teach Night Shift (one quick vote):",
                 f"- If choice 1 would save you time: `night-shift feedback --ledger {ledger_arg} --item 1 --useful`",

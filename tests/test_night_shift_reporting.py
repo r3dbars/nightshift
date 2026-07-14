@@ -172,9 +172,11 @@ class ReportingTests(unittest.TestCase):
             self.assertIn("Deterministically proven worker findings:", brief)
             self.assertIn("Evidence-backed candidates that still need deterministic proof:", brief)
             self.assertIn(
-                f"night-shift handoff --ledger {ledger} --item 1 --agent codex --run --allow-cloud",
+                f"night-shift handoff --ledger {ledger} --item 1 --agent codex`",
                 brief,
             )
+            self.assertIn("Nothing is sent by that command", brief)
+            self.assertIn("rerun it with `--run --allow-cloud`", brief)
             self.assertIn("Teach Night Shift (one quick vote):", brief)
             self.assertIn(
                 f"night-shift feedback --ledger {ledger} --item 1 --useful",
@@ -469,9 +471,10 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertLess(morning.index("owner/z-high"), morning.index("owner/a-low"))
             self.assertIn("Why this repo: recent failing checks", morning)
             self.assertIn(
-                f"night-shift handoff --ledger {root} --item 1 --agent codex --run --allow-cloud",
+                f"night-shift handoff --ledger {root} --item 1 --agent codex`",
                 morning,
             )
+            self.assertIn("nothing is sent", morning)
             items = json.loads((root / "morning-items.json").read_text())
             self.assertEqual([item["repo"] for item in items], ["owner/z-high", "owner/a-low"])
             self.assertEqual(items[0]["selection_reason"], "recent failing checks")
