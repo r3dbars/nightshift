@@ -2631,6 +2631,45 @@ buildThing() { return 1; }
                 night_shift.FEEDBACK_PATH = original
                 night_shift.REPO_OUTCOMES_PATH = original_outcomes
 
+    def test_interactive_feedback_asks_friendly_questions_and_persists_outcome(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger"
+            ledger.mkdir()
+            (ledger / "mode.json").write_text(json.dumps({"repo": "/repo"}), encoding="utf-8")
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "key": "changed-file-proof-01:tests:patch-plan",
+                "labels": ["changed-file-proof-01-src-app"],
+                "fingerprint": "interactive-candidate",
+                "source_ref": "a" * 40,
+                "summary": "Add a regression test",
+            }]), encoding="utf-8")
+            original_feedback = night_shift.FEEDBACK_PATH
+            original_outcomes = night_shift.REPO_OUTCOMES_PATH
+            night_shift.FEEDBACK_PATH = root / "feedback.jsonl"
+            night_shift.REPO_OUTCOMES_PATH = root / "repo-outcomes.jsonl"
+            try:
+                args = SimpleNamespace(
+                    ledger=str(ledger), latest=False, item=1,
+                    useful=False, not_useful=False, interactive=True,
+                    note="", clarity="", effort="", outcome="",
+                )
+                with patch(
+                    "builtins.input",
+                    side_effect=["yes", "changed", "yes", "quick", "it caught the bug"],
+                ), redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(night_shift.command_feedback(args), 0)
+                self.assertIn("stays local", output.getvalue())
+                event = json.loads(night_shift.FEEDBACK_PATH.read_text(encoding="utf-8"))
+                self.assertEqual(event["verdict"], "useful")
+                self.assertEqual(event["human_outcome"], "revised")
+                self.assertEqual(event["clarity"], "clear")
+                self.assertEqual(event["effort"], "quick")
+                self.assertEqual(event["note"], "it caught the bug")
+            finally:
+                night_shift.FEEDBACK_PATH = original_feedback
+                night_shift.REPO_OUTCOMES_PATH = original_outcomes
+
     def test_legacy_path_feedback_influences_canonical_portfolio_repo(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
