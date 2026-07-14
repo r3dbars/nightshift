@@ -21,6 +21,19 @@ handoff, Windows worker, GitHub write, commit, or pull request was enabled.
 The parent morning brief reported `Model candidates: 1 (0 candidate-only)`
 and `Verified drafts: 1`.
 
+## Latest-Main Accounting Replay
+
+- Run: `/Users/redbars/.codex/maestro/overnight/night-shift-20260714T162455Z-autopilot`
+- Source: `r3dbars/nightshift` at `d360ef1`
+- Result: one `VERIFIED_DRAFT`
+- Model calls: one local call
+- Estimated tokens: `3469`
+- Outcome metrics: `verified_drafts=1`, `verified_outcome_rate=1.0`,
+  `tokens_per_verified_draft=3469.0`
+- Verification: `bash scripts/check-package.sh`, baseline `0`, after `0`
+- Disposable worktree: removed
+- Source checkout: unchanged
+
 ## Clean Three-Repo Mac-Only Replay
 
 - Run: `/Users/redbars/.codex/maestro/overnight/night-shift-20260714T160233Z-autopilot`
