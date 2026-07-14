@@ -32,6 +32,18 @@ class PortfolioRankingDeterminismTests(unittest.TestCase):
         with patch("night_shift_portfolio.shutil.which", return_value=None):
             self.assertEqual(engine.authenticated_owner(), "")
 
+    def test_normalize_priority_repos_strips_git_deduplicates_and_rejects_invalid(self):
+        self.assertEqual(
+            PortfolioEngine.normalize_priority_repos([
+                " owner/repo.git ",
+                "OWNER/repo",
+                "owner/second-repo",
+                "not-a-slug",
+                "owner/too/many/segments",
+            ]),
+            ["owner/repo", "owner/second-repo"],
+        )
+
     def test_repeated_discovery_keeps_the_same_ranked_portfolio(self):
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         repos = [
