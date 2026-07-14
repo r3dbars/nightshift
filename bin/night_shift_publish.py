@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -13,6 +14,45 @@ from night_shift_sandbox import sandbox_command
 
 
 PUBLISHABLE_STATUSES = {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
+HOSTED_CHECK_FAILURES = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"}
+HOSTED_CHECK_PENDING = {"", "EXPECTED", "PENDING", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED"}
+
+
+def summarize_hosted_checks(checks: list[dict]) -> dict:
+    """Summarize GitHub check runs without treating missing data as a pass."""
+    names: list[str] = []
+    failed: list[str] = []
+    pending: list[str] = []
+    unknown: list[str] = []
+    for check in checks:
+        if not isinstance(check, dict):
+            unknown.append("unknown")
+            continue
+        name = str(check.get("name") or check.get("context") or "unknown")
+        state = str(check.get("conclusion") or check.get("state") or check.get("status") or "").upper()
+        names.append(name)
+        if state in HOSTED_CHECK_FAILURES:
+            failed.append(name)
+        elif state in HOSTED_CHECK_PENDING:
+            pending.append(name)
+        elif state != "SUCCESS":
+            unknown.append(name)
+    if failed:
+        status = "failed"
+    elif pending:
+        status = "pending"
+    elif unknown or not checks:
+        status = "unknown"
+    else:
+        status = "passed"
+    return {
+        "state": status,
+        "check_count": len(checks),
+        "checks": names,
+        "failed": failed,
+        "pending": pending,
+        "unknown": unknown,
+    }
 
 
 class PublishEngine:
@@ -22,11 +62,50 @@ class PublishEngine:
         worktree_root: Path,
         now_stamp: Callable[[], str],
         publication_ledger: Path | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        hosted_check_attempts: int = 3,
+        hosted_check_interval: float = 5.0,
     ) -> None:
         self.run_cmd = run_cmd
         self.worktree_root = worktree_root
         self.now_stamp = now_stamp
         self.publication_ledger = publication_ledger or worktree_root.parent / "published-drafts.jsonl"
+        self.sleep = sleep
+        self.hosted_check_attempts = max(1, hosted_check_attempts)
+        self.hosted_check_interval = max(0.0, hosted_check_interval)
+
+    def _poll_hosted_checks(self, worktree: Path, pr_url: str) -> dict:
+        """Poll briefly, then preserve pending/unknown as explicit morning evidence."""
+        latest = {"state": "unknown", "check_count": 0, "checks": [], "failed": [], "pending": [], "unknown": []}
+        for attempt in range(self.hosted_check_attempts):
+            viewed = self.run_cmd(
+                ["gh", "pr", "view", pr_url, "--json", "statusCheckRollup"],
+                cwd=worktree,
+                timeout=30,
+            )
+            try:
+                payload = json.loads(viewed.stdout)
+                if not isinstance(payload, dict):
+                    raise ValueError("GitHub returned a non-object response")
+                checks = payload.get("statusCheckRollup")
+                if not isinstance(checks, list):
+                    raise ValueError("statusCheckRollup is not a list")
+                latest = summarize_hosted_checks(checks)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                latest = {
+                    "state": "unknown",
+                    "check_count": 0,
+                    "checks": [],
+                    "failed": [],
+                    "pending": [],
+                    "unknown": [],
+                    "reason": "GitHub check status could not be read",
+                }
+            latest["observed_at"] = self.now_stamp()
+            if latest["state"] != "pending" or attempt + 1 >= self.hosted_check_attempts:
+                return latest
+            self.sleep(self.hosted_check_interval)
+        return latest
 
     def _already_published(self, fingerprint: str) -> bool:
         try:
@@ -308,6 +387,7 @@ class PublishEngine:
                     "pr_closed": closed.rc == 0,
                 })
             self._record_publication(fingerprint, repo_name, pr_url, branch)
+            hosted_checks = self._poll_hosted_checks(worktree, pr_url)
             return finish({
                 "status": "DRAFT_PR_OPENED",
                 "fingerprint": fingerprint,
@@ -316,6 +396,7 @@ class PublishEngine:
                 "source_ref": source_ref,
                 "files": list(validated.paths),
                 "verification": " ".join(verification_argv),
+                "hosted_checks": hosted_checks,
                 "proof": str(result_path),
             })
         finally:

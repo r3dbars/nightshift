@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
 from night_shift_policy import RepoProfile
-from night_shift_publish import PublishEngine
+from night_shift_publish import PublishEngine, summarize_hosted_checks
 
 
 PATCH = """diff --git a/src/app.py b/src/app.py
@@ -45,6 +45,24 @@ def profile():
 
 
 class PublishTests(unittest.TestCase):
+    def test_hosted_checks_require_explicit_success(self):
+        self.assertEqual(
+            summarize_hosted_checks([
+                {"name": "Actions", "conclusion": "SUCCESS"},
+                {"context": "Vercel", "state": "SUCCESS"},
+            ])['state'],
+            "passed",
+        )
+        self.assertEqual(
+            summarize_hosted_checks([{"name": "Actions", "conclusion": "FAILURE"}])['state'],
+            "failed",
+        )
+        self.assertEqual(
+            summarize_hosted_checks([{"name": "Actions", "status": "IN_PROGRESS"}])['state'],
+            "pending",
+        )
+        self.assertEqual(summarize_hosted_checks([])['state'], "unknown")
+
     def proof(self, patch_path):
         return {
             "status": "PROVEN_REPAIR",
@@ -79,6 +97,10 @@ class PublishTests(unittest.TestCase):
                 if args[:3] == ["gh", "pr", "list"]:
                     return result(stdout="[]")
                 if args[:3] == ["gh", "pr", "view"]:
+                    if "statusCheckRollup" in args:
+                        return result(stdout=json.dumps({
+                            "statusCheckRollup": [{"name": "Actions", "conclusion": "SUCCESS"}],
+                        }))
                     return result(stdout="true\n")
                 return result()
 
@@ -87,6 +109,7 @@ class PublishTests(unittest.TestCase):
                 root, "owner/repo", self.proof(patch_path), profile(), root / "proof"
             )
             self.assertEqual(published["status"], "DRAFT_PR_OPENED")
+            self.assertEqual(published["hosted_checks"]["state"], "passed")
             push_index = next(i for i, args in enumerate(calls) if args[:2] == ["git", "push"])
             sandbox_index = next(
                 i for i, args in enumerate(calls)

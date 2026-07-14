@@ -168,6 +168,12 @@ class PortfolioReportEngine:
                 lines.append(
                     f"  Draft PR: {publish.get('pr_url') or publish.get('reason', 'not opened')}"
                 )
+                hosted = publish.get("hosted_checks") or {}
+                if hosted:
+                    lines.append(
+                        f"  GitHub checks: {hosted.get('state', 'unknown')}"
+                        f" ({hosted.get('check_count', 0)} reported)"
+                    )
                 if publish.get("status") == "REMOTE_CLEANUP_REQUIRED":
                     lines.append(
                         "  ACTION REQUIRED: check GitHub and close/delete the reported draft PR or branch."
