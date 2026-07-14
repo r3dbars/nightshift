@@ -67,6 +67,25 @@ def rejection_count(path: Path, repo: str, head: str) -> int:
     return count
 
 
+def fresh_explicit_goal_tasks(
+    tasks: list[dict], attempts: dict[str, dict], guidance: str, goal: str
+) -> list[dict]:
+    """Return only one never-attempted mission when a user names a new goal.
+
+    The revision circuit still blocks automatic retries and previously rejected
+    work. A concrete new mission is a deliberate user request, so it gets one
+    fresh chance without reopening the old queue.
+    """
+    if guidance != "goal" or not str(goal or "").strip():
+        return []
+    return [
+        task for task in tasks
+        if task.get("slug") == "mission-brief"
+        and task.get("fingerprint")
+        and task.get("fingerprint") not in attempts
+    ]
+
+
 def cooldown_seconds(rejections: int) -> int:
     return min(7 * 24 * 3600, 900 * (2 ** max(0, rejections - 1)))
 

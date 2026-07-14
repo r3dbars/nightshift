@@ -478,6 +478,51 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
                 PortfolioEngine.task_fingerprint("owner/repo", "a" * 40, changed_mission),
             )
 
+    def test_goal_guidance_prefers_the_exact_source_path_named_by_user(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app" / "analytics").mkdir(parents=True)
+            (repo / "app" / "analytics" / "analytics-metrics.ts").write_text(
+                "export function formatDuration(seconds: number) {\n"
+                "  return seconds > 60 ? '2m 5s' : 'N/A';\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            (repo / "app" / "analytics" / "page.tsx").write_text(
+                "import { formatDuration } from './analytics-metrics';\n"
+                "export function AnalyticsPage() { return formatDuration(125); }\n",
+                encoding="utf-8",
+            )
+            (repo / "tests").mkdir()
+            (repo / "tests" / "analytics.test.ts").write_text(
+                "import { formatDuration } from '../app/analytics/analytics-metrics';\n"
+                "formatDuration(0);\n",
+                encoding="utf-8",
+            )
+            source = "app/analytics/analytics-metrics.ts"
+            scan = {
+                "recent_files": ["app/analytics/page.tsx"],
+                "source_files": ["app/analytics/page.tsx", source],
+                "test_files": ["tests/analytics.test.ts"],
+                "coverage_test_files": ["tests/analytics.test.ts"],
+                "doc_files": [], "todo_sample": [],
+                "test_commands": ["npm run test:unit"],
+                "tracked_files": [
+                    "app/analytics/page.tsx", source, "tests/analytics.test.ts"
+                ],
+            }
+            goal = (
+                "Add one behavioral regression test for formatDuration in "
+                f"{source} that proves 125 seconds is displayed as 2m 5s"
+            )
+            queue = build_repo_work_queue(
+                repo, scan, "quiet", "brief", guidance="goal", goal_text=goal,
+                run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            )
+            mission = next(item for item in queue if item["slug"] == "mission-brief")
+            self.assertEqual(mission["files"][0], source)
+            self.assertIn(f"source_file={source}", "\n".join(mission["evidence_sources"].values()))
+
     def test_goal_guidance_grounding_finds_plain_symbol_and_keeps_mission_ready(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

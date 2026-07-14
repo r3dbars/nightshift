@@ -41,7 +41,7 @@ from night_shift_sandbox import (
     sandbox_command,
 )
 from night_shift_trust import load_effective_profile, save_approval
-from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
+from night_shift_state import append_attempt, exclusive_lock, fresh_explicit_goal_tasks, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
@@ -2520,12 +2520,25 @@ def command_run(args) -> int:
     queue = eligible
     rejection_budget = REJECTION_BUDGET[args.mode]
     prior_rejections = rejection_count(TASK_ATTEMPTS_PATH, repo_name, scan.get("head", ""))
+    circuit_bypass_tasks = fresh_explicit_goal_tasks(queue, attempts, guidance, goal_text)
+    circuit_bypassed = prior_rejections >= rejection_budget and bool(circuit_bypass_tasks)
     if prior_rejections >= rejection_budget:
+        queue = circuit_bypass_tasks
         (ledger / "model-circuit.json").write_text(
-            json.dumps({"status": "OPEN", "repo": repo_name, "head": scan.get("head", ""), "rejections": prior_rejections, "budget": rejection_budget}, indent=2) + "\n",
+            json.dumps(
+                {
+                    "status": "BYPASSED_FOR_NEW_EXPLICIT_GOAL" if circuit_bypassed else "OPEN",
+                    "repo": repo_name,
+                    "head": scan.get("head", ""),
+                    "rejections": prior_rejections,
+                    "budget": rejection_budget,
+                    "fresh_goal_tasks": len(circuit_bypass_tasks),
+                    "fresh_goal_bypass": circuit_bypassed,
+                },
+                indent=2,
+            ) + "\n",
             encoding="utf-8",
         )
-        queue = []
     lifecycle_path = ledger / "task-lifecycle.jsonl"
     for item in queue:
         record_state(
@@ -2617,7 +2630,11 @@ def command_run(args) -> int:
     total_workers = max(1, parallel_local + parallel_windows)
     lane_limits = {"local": max(1, parallel_local), "windows": max(1, parallel_windows)}
     lane_running = {"local": 0, "windows": 0}
-    circuit = {"rejections": prior_rejections, "budget": rejection_budget, "opened": prior_rejections >= rejection_budget}
+    circuit = {
+        "rejections": prior_rejections,
+        "budget": rejection_budget,
+        "opened": prior_rejections >= rejection_budget and not circuit_bypassed,
+    }
 
     def submit_ready(executor, pending, remaining):
         submitted = 0
@@ -2750,7 +2767,17 @@ def command_run(args) -> int:
                     circuit["opened"] = True
                     remaining.clear()
                     (ledger / "model-circuit.json").write_text(
-                        json.dumps({"status": "OPEN", "repo": repo_name, "head": scan.get("head", ""), "rejections": circuit["rejections"], "budget": circuit["budget"]}, indent=2) + "\n",
+                        json.dumps(
+                            {
+                                "status": "OPEN",
+                                "repo": repo_name,
+                                "head": scan.get("head", ""),
+                                "rejections": circuit["rejections"],
+                                "budget": circuit["budget"],
+                                "fresh_goal_bypass": circuit_bypassed,
+                            },
+                            indent=2,
+                        ) + "\n",
                         encoding="utf-8",
                     )
             if stop_file.exists():

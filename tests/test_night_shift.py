@@ -3374,6 +3374,28 @@ import { helper } from '@/lib/helpers';
             self.assertEqual(night_shift.rejection_count(path, "owner/repo", "abc"), 2)
             self.assertEqual(night_shift.rejection_count(path, "owner/repo", "def"), 1)
 
+    def test_revision_circuit_allows_only_a_fresh_explicit_mission(self):
+        tasks = [
+            {"slug": "mission-brief", "fingerprint": "fresh"},
+            {"slug": "mission-brief", "fingerprint": "already-rejected"},
+            {"slug": "failed-ci-42", "fingerprint": "automatic"},
+        ]
+        attempts = {"already-rejected": {"state": "REJECTED"}}
+        self.assertEqual(
+            [row["fingerprint"] for row in night_shift.fresh_explicit_goal_tasks(
+                tasks, attempts, "goal", "test formatMicros"
+            )],
+            ["fresh"],
+        )
+        self.assertEqual(
+            night_shift.fresh_explicit_goal_tasks(tasks, attempts, "scan", "test formatMicros"),
+            [],
+        )
+        self.assertEqual(
+            night_shift.fresh_explicit_goal_tasks(tasks, attempts, "goal", ""),
+            [],
+        )
+
     def test_task_lifecycle_requires_ordered_transitions(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "lifecycle.jsonl"
