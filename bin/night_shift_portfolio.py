@@ -110,9 +110,26 @@ class PortfolioEngine:
         ranked = sorted(rows, key=lambda row: (-int(row.get("score", 0)), row.get("slug", "")))
         selected = ranked[:limit]
         primary = next((row for row in ranked if row.get("primary")), None)
-        if primary and not any(row is primary for row in selected):
-            selected[-1] = primary
-            selected.sort(key=lambda row: (-int(row.get("score", 0)), row.get("slug", "")))
+        required = ([primary] if primary else []) + [
+            row for row in ranked if row.get("priority") and row is not primary
+        ]
+        for required_row in required:
+            if any(row is required_row for row in selected):
+                continue
+            if required_row is primary:
+                replacement_index = len(selected) - 1
+            else:
+                replacement_index = next(
+                    (
+                        index
+                        for index in range(len(selected) - 1, -1, -1)
+                        if not selected[index].get("primary") and not selected[index].get("priority")
+                    ),
+                    None,
+                )
+            if replacement_index is not None:
+                selected[replacement_index] = required_row
+        selected.sort(key=lambda row: (-int(row.get("score", 0)), row.get("slug", "")))
         return selected
 
     @staticmethod

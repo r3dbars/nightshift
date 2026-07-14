@@ -5657,6 +5657,19 @@ import { helper } from '@/lib/helpers';
         selected = night_shift.PortfolioEngine.select_ranked_rows(rows, 2)
         self.assertEqual([row["slug"] for row in selected], ["owner/broken", "owner/current"])
 
+    def test_portfolio_selection_protects_priority_rows_when_capacity_allows(self):
+        rows = [
+            {"slug": "owner/noisy", "score": 1000, "primary": False, "priority": False},
+            {"slug": "owner/priority-a", "score": 100, "primary": False, "priority": True},
+            {"slug": "owner/priority-b", "score": 90, "primary": False, "priority": True},
+            {"slug": "owner/current", "score": 10, "primary": True, "priority": False},
+        ]
+        selected = night_shift.PortfolioEngine.select_ranked_rows(rows, 3)
+        self.assertEqual(
+            {row["slug"] for row in selected},
+            {"owner/current", "owner/priority-a", "owner/priority-b"},
+        )
+
     def test_portfolio_caps_every_backlog_signal_family(self):
         now = night_shift.datetime.now(night_shift.timezone.utc).isoformat().replace("+00:00", "Z")
         prs = []
