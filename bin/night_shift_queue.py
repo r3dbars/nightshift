@@ -520,6 +520,7 @@ class QueueEvidenceIndex:
     ) -> dict[str, str]:
         lines = self.read_current_text(source_path).splitlines()
         declaration = None
+        node_end = None
         if Path(source_path).suffix == ".py":
             try:
                 tree = ast.parse("\n".join(lines))
@@ -540,6 +541,7 @@ class QueueEvidenceIndex:
                         and value.name == symbol
                     )
                 declaration = node.lineno - 1
+                node_end = getattr(node, "end_lineno", None)
             except (SyntaxError, StopIteration):
                 return {}
         else:
@@ -550,10 +552,13 @@ class QueueEvidenceIndex:
         if declaration is None:
             return {}
         start = max(0, declaration)
+        stop = min(len(lines), start + 12)
+        if isinstance(node_end, int) and node_end > start:
+            stop = min(stop, node_end)
         excerpt = [f"source_file={source_path}"]
         excerpt.extend(
             f"source_line={index + 1} | {lines[index].strip()}"
-            for index in range(start, min(len(lines), start + 12))
+            for index in range(start, stop)
             if lines[index].strip()
         )
         safe_source = re.sub(r"[^A-Za-z0-9_.-]+", "-", source_path).strip("-")
