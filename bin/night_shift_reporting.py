@@ -359,6 +359,17 @@ class ReportEngine:
         if branch or head: lines.append(f"- Repository revision: {branch or '(detached)'} at {head or 'unknown'}")
         return lines
 
+    @staticmethod
+    def morning_choice_heading(work_items: list[dict]) -> str:
+        """Match the morning heading to the number and proof strength of the items."""
+        if not work_items:
+            return "What I checked:"
+        if len(work_items) == 1:
+            return "One lead to review:" if work_items[0]["primary"].get("score") == "KEEP" else "One possible lead:"
+        if all(item["primary"].get("score") == "KEEP" for item in work_items):
+            return "Leads to review:"
+        return "Possible leads:"
+
     def write_morning(self, ledger: Path, mode: str, results: list[dict], target_tokens: int, overall: str, scan: dict | None = None) -> None:
         local = [row for row in results if row["lane"] == "local"]
         windows = [row for row in results if row["lane"] == "windows"]
@@ -385,7 +396,7 @@ class ReportEngine:
             first_action = "Fix the startup gate or run with reachable local/Windows lanes."
         try: task_skips = json.loads((ledger / "task-skips.json").read_text(encoding="utf-8"))
         except (OSError, ValueError): task_skips = []
-        choice_heading = "Three useful choices:" if work_items else "What I checked:"
+        choice_heading = self.morning_choice_heading(work_items)
         lines = [
             "# Morning Brief", "", f"Status: {status}", "",
             "Good morning - here is the short version:", "",

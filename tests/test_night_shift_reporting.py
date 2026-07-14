@@ -165,6 +165,7 @@ class ReportingTests(unittest.TestCase):
             )
             brief = (ledger / "morning.md").read_text()
             self.assertIn("Good morning - here is the short version:", brief)
+            self.assertIn("Possible leads:", brief)
             self.assertIn("You do not need to read everything", brief)
             self.assertIn("Keep this [KEEP]", brief)
             self.assertIn("Maybe this [MAYBE]", brief)
@@ -184,6 +185,16 @@ class ReportingTests(unittest.TestCase):
                 brief,
             )
             self.assertIn("stays on this computer", brief)
+
+    def test_morning_uses_singular_honest_heading_for_one_possible_lead(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            self.engine().write_morning(
+                ledger, "quiet", [result(score="MAYBE")], 100, "GREEN"
+            )
+            brief = (ledger / "morning.md").read_text()
+            self.assertIn("One possible lead:", brief)
+            self.assertNotIn("Three useful choices:", brief)
 
     def test_morning_reports_current_learning_for_repo(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -370,12 +381,30 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertEqual(item["outcome_status"], "VERIFIED_DRAFT")
             self.assertIn("Status: YELLOW", (root / "morning.md").read_text())
             morning = (root / "morning.md").read_text()
+            self.assertIn("One verified outcome to review:", morning)
             self.assertIn("Evidence: src/app.py:12 | return value", morning)
             self.assertIn("Files: src/app.py, tests/test_app.py", morning)
             self.assertIn("Verify: python3 -m unittest tests.test_app", morning)
             self.assertIn("Proof: /tmp/proof.json", morning)
             self.assertIn("--clarity clear", morning)
             self.assertIn("--effort quick", morning)
+
+    def test_brief_uses_singular_honest_heading_for_one_unverified_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = root / "child"
+            child.mkdir()
+            (child / "work-queue.json").write_text(json.dumps([{
+                "key": "tests:one", "labels": ["tests"], "score": "MAYBE",
+                "summary": "Check one focused path", "evidence": "src/app.py:1",
+            }]))
+            self.engine(root).write_brief(root, [{
+                "repo": "owner/repo", "ledger": str(child), "new_tasks": 1,
+            }], "YELLOW")
+            morning = (root / "morning.md").read_text()
+            self.assertIn("One possible lead:", morning)
+            self.assertIn("One possible lead; no deterministic outcome yet.", morning)
+            self.assertNotIn("Your morning choices:", morning)
 
     def test_brief_makes_verified_draft_next_step_clear(self):
         with tempfile.TemporaryDirectory() as tmp:

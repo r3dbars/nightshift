@@ -2199,7 +2199,7 @@ buildThing() { return 1; }
             )
             brief = (ledger / "morning.md").read_text(encoding="utf-8")
             self.assertIn("Status: YELLOW", brief)
-            self.assertIn("2 unproven candidate(s); no deterministic outcome", brief)
+            self.assertIn("2 possible leads; no deterministic outcome yet.", brief)
             self.assertNotIn("weak claim", brief)
 
     def test_empty_portfolio_brief_gives_one_clear_next_step(self):
