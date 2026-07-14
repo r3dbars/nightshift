@@ -96,15 +96,18 @@ class PortfolioEngine:
     @staticmethod
     def selection_reason(item: dict) -> str:
         """Explain the strongest reason this repository received a slot."""
-        if item.get("primary"):
-            return "your current project"
-        if item.get("priority"):
-            return "saved priority"
         outcome = item.get("outcome_summary") or {}
+        outcome_reason = ""
         if int(outcome.get("useful_feedback") or 0) > 0:
-            return "you marked recent work here useful"
-        if int(outcome.get("not_useful_feedback") or 0) > 0:
-            return "cooling down after recent low-value work"
+            outcome_reason = "you marked recent work here useful"
+        elif int(outcome.get("not_useful_feedback") or 0) > 0:
+            outcome_reason = "cooling down after recent low-value work"
+        if item.get("primary"):
+            return "; ".join(filter(None, ("your current project", outcome_reason)))
+        if item.get("priority"):
+            return "; ".join(filter(None, ("saved priority", outcome_reason)))
+        if outcome_reason:
+            return outcome_reason
         signals = item.get("signals") or {}
         if signals.get("failed_runs"):
             return "recent failing checks"
