@@ -2508,6 +2508,30 @@ buildThing() { return 1; }
                 night_shift.FEEDBACK_PATH = original
                 night_shift.REPO_OUTCOMES_PATH = original_outcomes
 
+    def test_legacy_path_feedback_influences_canonical_portfolio_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            original_feedback = night_shift.FEEDBACK_PATH
+            original_outcomes = night_shift.REPO_OUTCOMES_PATH
+            night_shift.FEEDBACK_PATH = root / "feedback.jsonl"
+            night_shift.REPO_OUTCOMES_PATH = root / "repo-outcomes.jsonl"
+            night_shift.FEEDBACK_PATH.write_text(json.dumps({
+                "ledger": "/tmp/old-ledger",
+                "rank": 1,
+                "fingerprint": "old-fingerprint",
+                "repo": "/tmp/checkout",
+                "verdict": "useful",
+            }) + "\n", encoding="utf-8")
+            try:
+                with patch.object(night_shift, "repo_root", return_value=root / "checkout"), \
+                        patch.object(night_shift, "repo_slug", return_value="owner/repo"):
+                    adjustment, summary = night_shift.portfolio_outcome_adjustment("owner/repo")
+                self.assertEqual(adjustment, 25)
+                self.assertEqual(summary["useful_feedback"], 1)
+            finally:
+                night_shift.FEEDBACK_PATH = original_feedback
+                night_shift.REPO_OUTCOMES_PATH = original_outcomes
+
     def test_feedback_delay_seconds_ignores_invalid_and_future_times(self):
         now = night_shift.datetime.now(night_shift.timezone.utc)
         viewed = (now - night_shift.timedelta(seconds=12)).isoformat()
