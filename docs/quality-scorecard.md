@@ -44,6 +44,8 @@ recorded in
 [`2026-07-14-auditable-handoff-pack.md`](proofs/2026-07-14-auditable-handoff-pack.md).
 The follow-up handoff preview/preflight proof is recorded in
 [`2026-07-14-handoff-preview-preflight.md`](proofs/2026-07-14-handoff-preview-preflight.md).
+The current post-merge handoff preview is recorded in
+[`2026-07-14-current-handoff-preview.md`](proofs/2026-07-14-current-handoff-preview.md).
 The draft-PR status reconciliation proof is recorded in
 [`2026-07-14-draft-status-reconciliation.md`](proofs/2026-07-14-draft-status-reconciliation.md).
 The publication-ledger reconciliation regression is recorded in
