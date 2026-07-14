@@ -50,6 +50,10 @@ The fresh explicit BetterFeedback goal replay produced one exact-file,
 behaviorally testable `MAYBE` and rejected three weaker claims; its honest
 boundary is recorded in
 [`2026-07-14-betterfeedback-goal-replay.md`](proofs/2026-07-14-betterfeedback-goal-replay.md).
+The native current-main repeat then completed a real eight-hour deadline with
+8/8 clean child cycles, zero repeat questions, and a truthful no-work brief;
+its raw ledger and limits are recorded in
+[`2026-07-14-native-eight-hour-repeat.md`](proofs/2026-07-14-native-eight-hour-repeat.md).
 The current main revision also completed a fresh explicit-goal
 `VERIFIED_DRAFT` on Night Shift itself; its 383-test sandbox result is recorded
 separately from the older 382-test base package gate. The post-PR #146
@@ -107,7 +111,7 @@ recorded in
 | Dimension | Score | Evidence | What reaches 95 |
 | --- | ---: | --- | --- |
 | Product idea | 95 | Idle local compute becomes a morning decision surface. | Preserve the promise while proving repeated value. |
-| One-command repeat use | 92 | A blank-home saved setup was followed by a real zero-question `start --yes --once` cycle in about seven seconds: exit 0, byte-identical config, no second setup ledger, truthful routing, and a morning brief. This was one cycle, not an eight-hour soak or native slash invocation. | Prove the native skill invocation starts and completes a full healthy eight-hour shift with zero repeat questions. |
+| One-command repeat use | 95 | A blank-home saved setup was followed by a real zero-question `start --yes --once` cycle in about seven seconds: exit 0, byte-identical config, no second setup ledger, truthful routing, and a morning brief. The follow-up native current-main repeat completed its full eight-hour deadline with 8/8 clean child cycles, zero repeat questions, truthful Mac-only routing, and a concise no-work brief. | Preserve the zero-question repeat path and recheck it when the launcher or saved setup changes. |
 | Installation | 95 | An empty temporary home completed the normal copied install on this Mac, a clean shell resolved the installed command, a second install stayed idempotent, and the installed command completed first-run setup with GitHub and Claude absent. Clean Ubuntu and macOS temporary-home proofs also install the command, skill, and runner context; custom `CODEX_HOME`, `--no-path`, wrapper resolution, and runner-native Node dependencies remain package-gated. | Preserve the simple install path and recheck it when packaging changes. |
 | First-run UX | 95 | A fresh isolated home with no saved setup showed the project, safe plan, boundaries, and one clear `Start Night Shift now? [Y/n]` question. After one answer it ran without changing the checkout; an immediate `--yes` repeat reused setup unchanged and asked no questions. The exact transcript is recorded in [`2026-07-13-first-run-ux.md`](proofs/2026-07-13-first-run-ux.md). | Preserve the one-consent path and recheck it when the wizard changes. |
 | Hardware detection | 95 | A live doctor run listed and chat-probed LM Studio on the Mac and Ollama on the private-LAN Windows worker. The opt-in discovery path used the Mac's existing ARP neighbors, rejected public/link-local/local addresses, queried only known model-list ports, and found the real Windows worker at `192.168.7.201` without repo data. A real LM Studio stop made doctor report local AI `YELLOW` with connection refused; restarting the actual process restored `GREEN` and chat. The pinned runner now compiles and runs a real Draft Swift test subset in isolation. Full macOS-only Swift/AppKit commands remain analysis-only unless their profile names a compatible runner. |
