@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import tempfile
 
 
 def load_repo_outcomes(path: Path, limit: int = 500) -> list[dict]:
@@ -119,7 +121,17 @@ def append_repo_outcome(path: Path, row: dict, limit: int = 500) -> None:
     existing = load_repo_outcomes(path, limit=limit)
     rows = [*existing[-max(0, limit - 1):], row]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "\n".join(json.dumps(item, sort_keys=True) for item in rows) + "\n",
-        encoding="utf-8",
-    )
+    content = "\n".join(json.dumps(item, sort_keys=True) for item in rows) + "\n"
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
