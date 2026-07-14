@@ -5537,6 +5537,16 @@ import { helper } from '@/lib/helpers';
             ["Owner/Repo", "owner/other"],
         )
 
+    def test_portfolio_signal_scan_keeps_required_repos_outside_ranked_window(self):
+        candidates = [{"slug": f"owner/repo-{index}"} for index in range(12)]
+        selected = night_shift.PortfolioEngine.candidates_for_signal_scan(
+            candidates, max_repos=2, required_slugs={"OWNER/REPO-11"}
+        )
+        self.assertEqual(
+            [row["slug"] for row in selected],
+            [f"owner/repo-{index}" for index in range(10)] + ["owner/repo-11"],
+        )
+
     def test_quiet_hours_parse_normalize_and_cross_midnight(self):
         self.assertEqual(night_shift.normalize_quiet_hours(" 9:00-17:00 "), "09:00-17:00")
         self.assertEqual(night_shift.normalize_quiet_hours("09:00 - 17:00"), "09:00-17:00")

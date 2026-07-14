@@ -89,6 +89,22 @@ class PortfolioEngine:
         return normalized
 
     @staticmethod
+    def candidates_for_signal_scan(
+        candidates: list[dict], max_repos: int, required_slugs: set[str]
+    ) -> list[dict]:
+        """Scan the ranked window plus any explicit repos outside it."""
+        limit = max(10, max_repos * 4)
+        selected = list(candidates[:limit])
+        selected_keys = {str(row.get("slug") or "").casefold() for row in selected}
+        required_keys = {str(slug).casefold() for slug in required_slugs if slug}
+        for candidate in candidates[limit:]:
+            key = str(candidate.get("slug") or "").casefold()
+            if key in required_keys and key not in selected_keys:
+                selected.append(candidate)
+                selected_keys.add(key)
+        return selected
+
+    @staticmethod
     def select_ranked_rows(rows: list[dict], max_repos: int) -> list[dict]:
         limit = max(1, max_repos)
         ranked = sorted(rows, key=lambda row: (-int(row.get("score", 0)), row.get("slug", "")))
@@ -282,7 +298,12 @@ class PortfolioEngine:
                             row.get("slug", ""),
                         )
                     )
-                    for candidate in candidates[: max(10, max_repos * 4)]:
+                    required_slugs = priority_keys | (
+                        {primary_slug.casefold()} if primary_slug else set()
+                    )
+                    for candidate in self.candidates_for_signal_scan(
+                        candidates, max_repos, required_slugs
+                    ):
                         signals = self.github_repo_signals(candidate["slug"], candidate["default_branch"])
                         outcome_adjustment, outcome_summary = self.outcome_adjustment(candidate["slug"])
                         candidate["signals"] = signals
