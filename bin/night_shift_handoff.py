@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 
 from night_shift_redaction import redact
 from night_shift_evidence import proposes_test_theater
@@ -260,3 +263,25 @@ def handoff_outcome_persistence_reason(
     if not missing:
         return ""
     return "missing " + " and ".join(missing)
+
+
+def append_review_outcome(
+    path: Path, outcome: dict, existing: list[dict], limit: int = 500
+) -> None:
+    """Persist a bounded review ledger without exposing prior rows to interruption."""
+    rows = [*existing[-max(0, limit - 1):], outcome]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = "\n".join(json.dumps(item, sort_keys=True) for item in rows) + "\n"
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
