@@ -3139,6 +3139,23 @@ buildThing() { return 1; }
         ready_pr = {**pr, "source_ref": "a" * 40}
         self.assertEqual(night_shift.model_task_readiness_reasons(ready_pr, "night-shift"), [])
 
+    def test_imported_source_paths_resolve_alias_and_relative_modules(self):
+        available = {
+            "app/analytics/analytics-metrics.ts",
+            "lib/helpers.ts",
+            "tests/unit/lib/analytics-metrics.test.ts",
+        }
+        text = """
+import { formatPercent } from '../../../app/analytics/analytics-metrics';
+import { helper } from '@/lib/helpers';
+"""
+        self.assertEqual(
+            night_shift.imported_source_paths(
+                "tests/unit/lib/analytics-metrics.test.ts", text, available
+            ),
+            ["app/analytics/analytics-metrics.ts", "lib/helpers.ts"],
+        )
+
     def test_issue_queue_ranks_bounded_symbol_grounded_work_before_tracker(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

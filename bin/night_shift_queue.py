@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import posixpath
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -206,6 +207,25 @@ def narrow_task_files(files: list[str], limit: int = 6) -> list[str]:
     unique = list(dict.fromkeys(path for path in files if path and not path.startswith(".git/")))
     ranked = sorted(enumerate(unique), key=lambda row: (task_file_priority(row[1]), row[0]))
     return [path for _, path in ranked[:limit]]
+
+
+def imported_source_paths(relative: str, text: str, available: set[str]) -> list[str]:
+    """Resolve repo-local TypeScript/JavaScript imports to tracked files."""
+    found: list[str] = []
+    for specifier in re.findall(r"(?:from|import)\s*[\"']([^\"']+)[\"']", text):
+        if specifier.startswith("@/"):
+            base = specifier[2:]
+        elif specifier.startswith("."):
+            base = posixpath.normpath(posixpath.join(posixpath.dirname(relative), specifier))
+        else:
+            continue
+        candidates = [base] if posixpath.splitext(base)[1] else [
+            base,
+            *(f"{base}{suffix}" for suffix in (".ts", ".tsx", ".js", ".jsx")),
+            *(f"{base}/index{suffix}" for suffix in (".ts", ".tsx", ".js", ".jsx")),
+        ]
+        found.extend(candidate for candidate in candidates if candidate in available)
+    return list(dict.fromkeys(found))
 
 
 class RepoRevisionAdapter:
@@ -856,6 +876,11 @@ def build_repo_work_queue(
         pr_source_ref = str(pr.get("headRefOid") or "")
         if pr_source_ref and revisions.ensure_pr_ref(str(number), pr_source_ref):
             pr_files = [path for path in pr_files if revisions.file_exists(path, pr_source_ref)]
+            ref_files = set(revisions.list_files(pr_source_ref) or [])
+            for relative in list(pr_files):
+                shown = run_cmd(["git", "show", f"{pr_source_ref}:{relative}"], cwd=repo, timeout=30)
+                if shown.rc == 0:
+                    pr_files.extend(imported_source_paths(relative, shown.stdout, ref_files))
         elif pr_source_ref:
             pr_files = []
             pr_source_ref = ""
