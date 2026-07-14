@@ -885,7 +885,17 @@ def build_repo_work_queue(
             pr_files = []
             pr_source_ref = ""
         checks = pr.get("statusCheckRollup") or []
-        failed_check = any(status_check_failed(row) for row in checks)
+        failed_checks = [row for row in checks if status_check_failed(row)]
+        failed_check = bool(failed_checks)
+        status_evidence: dict[str, str] = {}
+        if failed_checks:
+            evidence_lines = [f"pull_request={number}"]
+            for index, check in enumerate(failed_checks, start=1):
+                name = str(check.get("name") or check.get("context") or "unknown")
+                state = str(check.get("conclusion") or check.get("state") or "unknown").upper()
+                url = str(check.get("detailsUrl") or check.get("targetUrl") or "")
+                evidence_lines.append(f"check_{index}={name} state={state} url={url}")
+            status_evidence = {f"github-status/pr-{number}.txt": "\n".join(evidence_lines)}
         state = "requested changes" if pr.get("reviewDecision") == "CHANGES_REQUESTED" else "failed checks" if failed_check else "open draft" if pr.get("isDraft") else "open review"
         add(
             f"pr-{number}-review",
@@ -896,6 +906,7 @@ def build_repo_work_queue(
             ladder="finish",
             preferred_lane="windows" if failed_check or pr.get("reviewDecision") == "CHANGES_REQUESTED" else "local",
             signal=json.dumps(pr, sort_keys=True),
+            evidence_sources=status_evidence,
             commands=test_commands or ["git status --short"],
             source_ref=pr_source_ref,
         )
