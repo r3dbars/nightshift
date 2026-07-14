@@ -2620,6 +2620,14 @@ buildThing() { return 1; }
         self.assertEqual(night_shift.feedback_score(useful, "/repo", "tests"), (50, 5, 0))
         self.assertEqual(night_shift.feedback_score(not_useful, "/repo", "tests"), (-40, 0, 5))
 
+    def test_feedback_score_uses_explicit_human_outcomes(self):
+        events = [
+            {"repo": "/repo", "family": "tests", "verdict": "useful", "human_outcome": "accepted"},
+            {"repo": "/repo", "family": "tests", "verdict": "useful", "human_outcome": "revised"},
+            {"repo": "/repo", "family": "tests", "verdict": "not-useful", "human_outcome": "rejected"},
+        ]
+        self.assertEqual(night_shift.feedback_score(events, "/repo", "tests"), (15, 2, 1))
+
     def test_handoff_outcome_persistence_explains_missing_learning_identity(self):
         self.assertEqual(
             night_shift.handoff_outcome_persistence_reason("", "", "CONFIRMED"),

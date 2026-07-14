@@ -179,16 +179,30 @@ def feedback_delay_seconds(reviewed_at: str, feedback_at: str) -> float | None:
 
 
 def feedback_score(events: list[dict], repo: str, family: str) -> tuple[int, int, int]:
+    """Rank a task family from votes, giving explicit human outcomes more signal."""
     useful = 0
     not_useful = 0
+    adjustment = 0
     for event in latest_feedback_events(events):
         if event.get("repo") != repo or event.get("family") != family:
             continue
-        if event.get("verdict") == "useful":
+        outcome = event.get("human_outcome")
+        if outcome == "accepted":
             useful += 1
+            adjustment += 25
+        elif outcome == "revised":
+            useful += 1
+            adjustment += 10
+        elif outcome == "rejected":
+            not_useful += 1
+            adjustment -= 20
+        elif event.get("verdict") == "useful":
+            useful += 1
+            adjustment += 25
         elif event.get("verdict") == "not-useful":
             not_useful += 1
-    adjustment = max(-40, min(50, useful * 25 - not_useful * 20))
+            adjustment -= 20
+    adjustment = max(-40, min(50, adjustment))
     return adjustment, useful, not_useful
 
 
