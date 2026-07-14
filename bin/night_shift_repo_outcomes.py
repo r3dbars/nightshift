@@ -30,12 +30,28 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
     wasted = 0
     useful_feedback = 0
     not_useful_feedback = 0
+    useful_verified_feedback = 0
+    useful_candidate_feedback = 0
+    hosted_prs = 0
+    hosted_green = 0
+    hosted_failed = 0
     for row in recent:
         verified = int(row.get("verified_drafts") or 0)
         candidates = int(row.get("accepted_candidates") or 0)
         tokens = int(row.get("estimated_tokens") or 0)
         useful_feedback += int(row.get("feedback_useful") or 0)
         not_useful_feedback += int(row.get("feedback_not_useful") or 0)
+        if row.get("feedback_useful"):
+            if row.get("feedback_verified") or row.get("feedback_outcome_status") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}:
+                useful_verified_feedback += 1
+            else:
+                useful_candidate_feedback += 1
+        if int(row.get("draft_pr_opened") or 0):
+            hosted_prs += 1
+            if str(row.get("hosted_checks_state") or "") == "pass":
+                hosted_green += 1
+            elif str(row.get("hosted_checks_state") or "") in {"failed", "unknown"}:
+                hosted_failed += 1
         if verified:
             points += 25
             productive += 1
@@ -56,6 +72,11 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
         "wasted_token_runs": wasted,
         "useful_feedback": useful_feedback,
         "not_useful_feedback": not_useful_feedback,
+        "useful_verified_feedback": useful_verified_feedback,
+        "useful_candidate_feedback": useful_candidate_feedback,
+        "hosted_draft_prs": hosted_prs,
+        "hosted_green_draft_prs": hosted_green,
+        "hosted_failed_or_unknown_draft_prs": hosted_failed,
     }
 
 

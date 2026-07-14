@@ -3227,7 +3227,10 @@ def command_autopilot(args) -> int:
                 cycle_row["outcomes"] = {
                     "candidate_count": int(child_metrics.get("accepted_candidates") or 0),
                     "candidate_only_candidates": int(child_metrics.get("candidate_only_candidates") or 0),
+                    "draft_pr_opened": int(bool((cycle_row.get("publish") or {}).get("pr_url"))),
                     "estimated_tokens": int(child_metrics.get("estimated_tokens") or 0),
+                    "hosted_check_count": int(((cycle_row.get("publish") or {}).get("hosted_checks") or {}).get("check_count") or 0),
+                    "hosted_checks_state": str(((cycle_row.get("publish") or {}).get("hosted_checks") or {}).get("state") or ""),
                     "tokens_per_verified_draft": float(child_metrics.get("tokens_per_verified_draft") or 0),
                     "verified_drafts": int(child_metrics.get("verified_drafts") or 0),
                     "verified_outcome_tokens": int(child_metrics.get("verified_outcome_tokens") or 0),
@@ -3236,7 +3239,10 @@ def command_autopilot(args) -> int:
                     "accepted_candidates": int(child_metrics.get("accepted_candidates") or 0),
                     "candidate_only_candidates": int(child_metrics.get("candidate_only_candidates") or 0),
                     "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "draft_pr_opened": int(bool((cycle_row.get("publish") or {}).get("pr_url"))),
                     "estimated_tokens": int(child_metrics.get("estimated_tokens") or 0),
+                    "hosted_check_count": int(((cycle_row.get("publish") or {}).get("hosted_checks") or {}).get("check_count") or 0),
+                    "hosted_checks_state": str(((cycle_row.get("publish") or {}).get("hosted_checks") or {}).get("state") or ""),
                     "repo": cycle_row["repo"],
                     "source_ref": str((planned[0].get("source_ref") if planned else "") or ""),
                     "tokens_per_verified_draft": float(child_metrics.get("tokens_per_verified_draft") or 0),
@@ -4243,6 +4249,7 @@ def command_feedback(args) -> int:
         "summary": item.get("summary", ""),
         "verdict": verdict,
         "note": args.note or "",
+        "outcome_status": str(item.get("outcome_status") or ""),
     }
     if clarity:
         row["clarity"] = clarity
@@ -4278,6 +4285,8 @@ def command_feedback(args) -> int:
             "kind": "feedback",
             "repo": outcome_repo,
             "source_ref": row["source_ref"],
+            "feedback_outcome_status": row["outcome_status"],
+            "feedback_verified": int(row["outcome_status"] in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}),
         })
     print(f"NIGHTSHIFT_FEEDBACK: GREEN | item={args.item} | verdict={verdict} | saved={FEEDBACK_PATH}")
     print("Night Shift will use this signal when ranking future work and choosing which repos get time.")

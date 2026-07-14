@@ -34,6 +34,10 @@ To check the long-term rebuild target mechanically, run
 `python3 scripts/check-quality-scorecard.py`. It exits nonzero and lists every
 dimension below 95 until the evidence is actually there.
 
+When you vote on a morning item, Night Shift also saves whether that item was
+only a candidate or had a verified draft behind it. That keeps later learning
+honest about what was actually useful.
+
 The joke version: it lets your machines have a productive little night shift,
 without letting them become management.
 
