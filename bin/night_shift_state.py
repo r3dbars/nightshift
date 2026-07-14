@@ -93,7 +93,7 @@ def cooldown_seconds(rejections: int) -> int:
 def may_attempt(previous: dict | None, fingerprint: str, head: str, now: float | None = None) -> tuple[bool, str]:
     if not previous:
         return True, "new task"
-    if previous.get("head") != head:
+    if previous.get("task_revision", previous.get("head")) != head:
         return True, "repository revision changed"
     if previous.get("state") != "REJECTED":
         return False, "already attempted at this repository revision"
