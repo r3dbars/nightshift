@@ -265,6 +265,8 @@ class CorrectionPromptTests(unittest.TestCase):
         self.assertIn("one physical source line with ASCII digits only", prompt)
         self.assertIn("Never use a line range, Unicode dash, HTML `<br>`", prompt)
         self.assertIn("If no exact single line proves the claim, set ACTION_TYPE: reject", prompt)
+        self.assertIn("Do not infer or reconstruct a neighboring line", prompt)
+        self.assertIn("If the supplied lines do not prove the claim, set ACTION_TYPE: reject", prompt)
 
     def test_correction_prompt_includes_prior_answer_and_forbids_task_hopping(self):
         prompt = correction_prompt(

@@ -101,6 +101,7 @@ def correction_prompt(
         + path_lines
         + "\nCopy-ready deterministic citations (copy only the relevant one or two exactly):\n"
         + citation_lines
+        + "\nFor any repository source file named in a goal-source entry, cite only the exact source_line entries shown for that file. Do not infer or reconstruct a neighboring line, even if its number seems obvious. If the supplied lines do not prove the claim, set ACTION_TYPE: reject.\n"
         + "\nAllowed verification commands (copy at least one exactly):\n"
         + command_lines
     )
