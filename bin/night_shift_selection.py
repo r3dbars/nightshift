@@ -5,6 +5,8 @@ import json
 import re
 from collections.abc import Callable
 
+from night_shift_portfolio import status_check_failed
+
 
 IGNORED_PATH_TERMS = {
     "app", "api", "src", "lib", "route", "index", "page", "test", "tests", "unit", "id",
@@ -145,7 +147,7 @@ def model_task_readiness_reasons(
             reasons.append("failed-step log does not name a candidate repo file")
     elif slug.startswith("pr-"):
         checks = signal.get("statusCheckRollup") or []
-        failed_check = any(row.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for row in checks)
+        failed_check = any(status_check_failed(row) for row in checks)
         if signal.get("reviewDecision") != "CHANGES_REQUESTED" and not failed_check:
             reasons.append("PR has neither requested changes nor failed checks")
         if not task.get("source_ref"):
