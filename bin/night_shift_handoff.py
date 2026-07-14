@@ -34,7 +34,7 @@ def review_agent_command(agent: str, prompt: str, review_root: Path) -> list[str
         ]
     if agent == "claude":
         return [
-            "claude", "-p", "--permission-mode", "plan", "--allowed-tools", "Read",
+            "claude", "-p", "--permission-mode", "plan", "--tools", "Read",
             "--no-session-persistence", "--safe-mode", "--add-dir", str(review_root), prompt,
         ]
     raise ValueError(f"unsupported coding agent: {agent}")

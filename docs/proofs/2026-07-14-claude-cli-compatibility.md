@@ -4,19 +4,19 @@ Date: 2026-07-14
 
 ## Finding
 
-The installed Claude Code CLI reports version `2.1.201`. Its help output accepts
-`--allowed-tools <tools...>` and does not list the older `--tools` option.
+The installed Claude Code CLI reports version `2.1.201`. Its help output
+supports `--tools <tools...>`, which is the option that restricts the available
+tool set for a session.
 
-Night Shift's bounded handoff command builder had been emitting `--tools Read`.
-The existing test only inspected that constructed list, so it could pass while
-the real installed CLI rejected the command before a review started.
+The compatibility test now checks the installed help output rather than only
+checking our own constructed command list.
 
 ## Fix
 
 Claude handoffs now emit:
 
 ```text
-claude -p --permission-mode plan --allowed-tools Read \
+claude -p --permission-mode plan --tools Read \
   --no-session-persistence --safe-mode --add-dir <temporary-review-dir> <prompt>
 ```
 
@@ -26,5 +26,8 @@ compatibility check.
 
 ## Verification
 
-The regression test now requires `--allowed-tools Read` and rejects `--tools`.
-The full host and isolated package gate passes 416 tests.
+The regression test now requires `--tools Read` and verifies that the installed
+CLI advertises the same restriction flag.
+The host gate passes 417 tests, including the live help check. The isolated
+package gate passes 416 runnable tests and skips the compatibility check when
+Claude is not installed in the runner.

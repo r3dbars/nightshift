@@ -2643,13 +2643,20 @@ buildThing() { return 1; }
         )
         self.assertEqual(command[0:3], ["claude", "-p", "--permission-mode"])
         self.assertIn("plan", command)
-        self.assertIn("--allowed-tools", command)
-        self.assertEqual(command[command.index("--allowed-tools") + 1], "Read")
-        self.assertNotIn("--tools", command)
+        self.assertIn("--tools", command)
+        self.assertEqual(command[command.index("--tools") + 1], "Read")
         self.assertIn("--no-session-persistence", command)
         self.assertIn("--safe-mode", command)
         self.assertEqual(command[command.index("--add-dir") + 1], "/tmp/night-shift-review")
         self.assertEqual(command[-1], "Review this bounded pack.")
+
+    @unittest.skipUnless(night_shift.shutil.which("claude"), "Claude CLI is not installed")
+    def test_installed_claude_supports_bounded_tools_flag(self):
+        result = subprocess.run(
+            ["claude", "--help"], capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--tools <tools...>", result.stdout)
 
     def test_handoff_prepares_locally_without_cloud_call(self):
         with tempfile.TemporaryDirectory() as tmp:
