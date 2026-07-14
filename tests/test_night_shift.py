@@ -3612,6 +3612,13 @@ import { helper } from '@/lib/helpers';
                 night_shift._active_autopilot, night_shift.write_last_nightly, night_shift.command_autopilot,
             ) = originals
 
+    def test_launchd_plist_preserves_tool_path_and_codex_home(self):
+        body = night_shift.launchd_plist_body(23, 30)
+        self.assertIn("<key>EnvironmentVariables</key>", body)
+        self.assertIn(f"<key>CODEX_HOME</key><string>{night_shift.CODEX_HOME}</string>", body)
+        self.assertIn(f"<key>PATH</key><string>{night_shift.BIN}", body)
+        self.assertIn("/opt/homebrew/bin", body)
+
     def test_nightly_skips_cleanly_during_quiet_hours(self):
         writes = []
         originals = (
