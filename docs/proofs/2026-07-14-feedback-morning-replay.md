@@ -62,6 +62,21 @@ The latest raw run ledger is:
 /Users/redbars/.codex/night-shift/feedback-effect-replay.dUjzXO/maestro/overnight/night-shift-20260714T131418Z-quiet
 ```
 
+## Correction hardening replay
+
+The follow-up fresh-home replay used the stricter correction prompt. The first
+local answer still attempted to cite an incomplete source fragment, but the
+retry explicitly refused the task because the supplied single line could not
+prove the ordering behavior. It did not invent the neighboring source line.
+
+- ledger: `/Users/redbars/.codex/night-shift/unseen-line-replay.Z4sEdb/maestro/overnight/night-shift-20260714T131926Z-quiet`
+- local calls: 2
+- estimated tokens: 5,728
+- final status: `REJECT`
+- feedback adjustment: 3 candidates, `+75` total
+- source checkout changes: 0
+- GitHub writes: 0
+
 ## Verification
 
 The focused reporting tests and the complete package gate pass 419 tests on the
