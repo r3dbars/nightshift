@@ -3042,12 +3042,16 @@ buildThing() { return 1; }
             (repo / "private.txt").write_text("do not send\n", encoding="utf-8")
             subprocess.run(["git", "add", "."], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
+            source_ref = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True, capture_output=True, check=True
+            ).stdout.strip()
             ledger.mkdir()
             (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
             (ledger / "work-queue.json").write_text(json.dumps([{
                 "rank": 1, "score": "MAYBE", "summary": "Add a test",
                 "evidence": "src/app.py:2 | return 42", "files": ["src/app.py"],
                 "tests": "python -m pytest", "verification_commands": ["python -m pytest"],
+                "source_ref": source_ref,
             }]), encoding="utf-8")
             args = SimpleNamespace(
                 ledger=str(ledger), latest=False, item=1, agent="codex",
@@ -3110,7 +3114,7 @@ buildThing() { return 1; }
             self.assertTrue(metadata["read_only"])
             self.assertTrue(metadata["valid_review"])
             self.assertEqual(metadata["materialized_files"], ["src/app.py"])
-            self.assertEqual(metadata["source_ref"], "")
+            self.assertEqual(metadata["source_ref"], source_ref)
             self.assertEqual(metadata["materialized_file_count"], 1)
             self.assertGreater(metadata["materialized_bytes"], 0)
             self.assertGreater(metadata["prompt_bytes"], 0)
@@ -3123,6 +3127,33 @@ buildThing() { return 1; }
             self.assertTrue(pack_manifest["sent"])
             self.assertTrue(pack_manifest["valid_review"])
             self.assertEqual(pack_manifest["privacy"], "GREEN")
+
+    def test_handoff_cloud_run_requires_pinned_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            ledger = root / "ledger"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            (repo / "app.py").write_text("return 42\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
+            ledger.mkdir()
+            (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "rank": 1, "score": "MAYBE", "summary": "Review current code",
+                "evidence": "app.py:1 | return 42", "files": ["app.py"],
+                "tests": "python -m unittest",
+            }]), encoding="utf-8")
+            args = SimpleNamespace(
+                ledger=str(ledger), latest=False, item=1, agent="codex",
+                run=True, allow_cloud=True, timeout=30,
+            )
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(night_shift.command_handoff(args), 1)
+            self.assertIn("cloud review requires an exact pinned candidate revision", output.getvalue())
 
     def test_handoff_pack_privacy_gate_rejects_surviving_secret(self):
         with tempfile.TemporaryDirectory() as tmp:
