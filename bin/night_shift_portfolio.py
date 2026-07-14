@@ -249,6 +249,7 @@ class PortfolioEngine:
         priority_repos: list[str] | None = None,
     ) -> list[dict]:
         primary_slug = self.repo_slug(primary_repo)
+        primary_key = primary_slug.casefold()
         priority_keys = {slug.casefold() for slug in self.normalize_priority_repos(priority_repos)}
         rows: list[dict] = []
         if shutil.which("gh"):
@@ -286,7 +287,7 @@ class PortfolioEngine:
                                 "private": bool(item.get("isPrivate")),
                                 "default_branch": branch,
                                 "url": item.get("url", ""),
-                                "primary": slug == primary_slug,
+                                "primary": slug.casefold() == primary_key,
                                 "priority": slug.casefold() in priority_keys,
                                 "activity_score": max(0, 80 - int(age_hours / 6)),
                             }
@@ -299,7 +300,7 @@ class PortfolioEngine:
                         )
                     )
                     required_slugs = priority_keys | (
-                        {primary_slug.casefold()} if primary_slug else set()
+                        {primary_key} if primary_key else set()
                     )
                     for candidate in self.candidates_for_signal_scan(
                         candidates, max_repos, required_slugs
@@ -328,7 +329,7 @@ class PortfolioEngine:
                     "default_branch": fallback_branch or "main",
                     "url": "",
                     "primary": True,
-                    "priority": primary_slug.casefold() in priority_keys,
+                    "priority": primary_key in priority_keys,
                     "signals": self.github_repo_signals(primary_slug, fallback_branch or "main"),
                     "score": 1000,
                     "path": str(primary_repo),
