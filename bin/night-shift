@@ -63,6 +63,7 @@ from night_shift_queue import (
     TASK_LADDER,
     build_repo_work_queue as _build_repo_work_queue,
     contains_identifier,
+    imported_source_paths,
     is_test_path,
     narrow_task_files,
 )
