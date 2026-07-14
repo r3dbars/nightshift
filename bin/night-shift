@@ -1724,6 +1724,7 @@ def task_context_block(task: dict) -> str:
         {semantic_lines}
         {evidence_rule}
         - Copy one complete citation from the copy-ready list exactly. Do not recalculate or renumber its source line from the file excerpt.
+        - If CLAIM uses missing, no, lacks, absent, or without and names a repository source path, EVIDENCE must also cite that same source path:line; a synthetic coverage or invocation citation alone is not enough.
         """
     ).strip()
 
