@@ -2113,6 +2113,11 @@ buildThing() { return 1; }
         self.assertTrue(night_shift.requests_coverage_work("testing needs a focused review"))
         self.assertTrue(night_shift.requests_coverage_work("find one missing behavioral test"))
         self.assertTrue(night_shift.requests_coverage_work("identify a regression coverage gap"))
+        self.assertTrue(
+            night_shift.requests_coverage_work(
+                "find the currently untested branches in the payment retry logic module and document the missing regression coverage"
+            )
+        )
         self.assertFalse(night_shift.requests_coverage_work("do not run tests; inspect the API issue"))
         self.assertFalse(night_shift.requests_coverage_work("summarize the test results"))
 
