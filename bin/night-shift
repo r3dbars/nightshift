@@ -4299,7 +4299,65 @@ def command_handoff(args) -> int:
     return 0
 
 
+def collect_interactive_feedback(args) -> bool:
+    """Collect plain-language morning feedback without requiring CLI flags."""
+    print("Let's make Night Shift smarter. This takes a few seconds and stays local.")
+    try:
+        useful_answer = input("Was this useful? [y/n] ").strip().lower()
+        if useful_answer in {"y", "yes"}:
+            args.useful, args.not_useful = True, False
+        elif useful_answer in {"n", "no"}:
+            args.useful, args.not_useful = False, True
+        else:
+            print("NIGHTSHIFT_FEEDBACK: RED | please answer y or n")
+            return False
+
+        if args.useful:
+            outcome_answer = input("Did you use it as-is, change it, or skip it? [as-is/changed/skip] ").strip().lower()
+            args.outcome = {
+                "as-is": "accepted", "as is": "accepted", "used": "accepted",
+                "changed": "revised", "changed it": "revised", "revised": "revised",
+            }.get(outcome_answer, "" if outcome_answer in {"", "skip", "skipped", "no", "n"} else None)
+        else:
+            outcome_answer = input("Did you discard it? [y/skip] ").strip().lower()
+            args.outcome = "rejected" if outcome_answer in {"y", "yes", "discard", "discarded"} else (
+                "" if outcome_answer in {"", "skip", "skipped", "n", "no"} else None
+            )
+        if args.outcome is None:
+            print("NIGHTSHIFT_FEEDBACK: RED | please choose one of the shown outcome options")
+            return False
+
+        clarity_answer = input("Was the morning brief easy to understand? [y/n/skip] ").strip().lower()
+        args.clarity = {
+            "y": "clear", "yes": "clear", "n": "confusing", "no": "confusing",
+        }.get(clarity_answer, "" if clarity_answer in {"", "skip", "skipped"} else None)
+        if args.clarity is None:
+            print("NIGHTSHIFT_FEEDBACK: RED | please answer y, n, or skip")
+            return False
+
+        effort_answer = input("How much work did review take? [quick/some-work/too-much/skip] ").strip().lower()
+        args.effort = {
+            "quick": "quick", "fast": "quick",
+            "some-work": "some-work", "some work": "some-work", "medium": "some-work",
+            "too-much": "too-much", "too much": "too-much", "hard": "too-much",
+        }.get(effort_answer, "" if effort_answer in {"", "skip", "skipped"} else None)
+        if args.effort is None:
+            print("NIGHTSHIFT_FEEDBACK: RED | please choose quick, some-work, too-much, or skip")
+            return False
+        args.note = input("Anything Night Shift should remember? [optional] ").strip()
+    except EOFError:
+        print("NIGHTSHIFT_FEEDBACK: RED | interactive feedback needs a terminal")
+        return False
+    return True
+
+
 def command_feedback(args) -> int:
+    if getattr(args, "interactive", False):
+        if args.useful or args.not_useful:
+            print("NIGHTSHIFT_FEEDBACK: RED | interactive mode cannot be combined with --useful or --not-useful")
+            return 2
+        if not collect_interactive_feedback(args):
+            return 2
     if args.useful == args.not_useful:
         print("NIGHTSHIFT_FEEDBACK: RED | choose exactly one of --useful or --not-useful")
         return 2
@@ -4695,6 +4753,10 @@ def build_parser() -> argparse.ArgumentParser:
     feedback.add_argument("--item", type=int, required=True, help="ranked work-queue item number")
     feedback.add_argument("--useful", action="store_true", help="prefer similar grounded work")
     feedback.add_argument("--not-useful", action="store_true", help="downrank this repeated suggestion")
+    feedback.add_argument(
+        "--interactive", action="store_true",
+        help="ask a few friendly morning questions instead of requiring feedback flags",
+    )
     feedback.add_argument(
         "--outcome", choices=sorted(HUMAN_OUTCOME_VALUES),
         help="optional local result: accepted as-is, revised by you, or rejected",
