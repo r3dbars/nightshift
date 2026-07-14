@@ -3347,6 +3347,39 @@ buildThing() { return 1; }
             self.assertIn("CLOUD_PREFLIGHT: RED", output.getvalue())
             self.assertIn("cloud preflight failed: an exact pinned candidate revision is required", output.getvalue())
 
+    def test_handoff_preview_names_install_action_when_agent_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            ledger = root / "ledger"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            (repo / "app.py").write_text("return 42\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
+            ledger.mkdir()
+            (ledger / "mode.json").write_text(json.dumps({"repo": str(repo)}), encoding="utf-8")
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "rank": 1, "score": "MAYBE", "summary": "Review current code",
+                "evidence": "app.py:1 | return 42", "files": ["app.py"],
+                "tests": "python -m unittest",
+            }]), encoding="utf-8")
+            args = SimpleNamespace(
+                ledger=str(ledger), latest=False, item=1, agent="codex",
+                run=False, allow_cloud=False, timeout=30,
+            )
+            original_which = night_shift.shutil.which
+            night_shift.shutil.which = lambda name: None
+            try:
+                with redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(night_shift.command_handoff(args), 0)
+            finally:
+                night_shift.shutil.which = original_which
+            self.assertIn("CLOUD_PREFLIGHT: RED", output.getvalue())
+            self.assertIn("Install the codex CLI and make sure it is on PATH, then rerun this command.", output.getvalue())
+
     def test_handoff_pack_privacy_gate_rejects_surviving_secret(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -4328,6 +4328,8 @@ def command_handoff(args) -> int:
     print(f"Review pack: {pack_dir} | manifest={pack_manifest_path}")
     if preflight_reasons:
         print("CLOUD_PREFLIGHT: RED | " + "; ".join(preflight_reasons)[:300])
+        if not shutil.which(args.agent):
+            print(f"Install the {args.agent} CLI and make sure it is on PATH, then rerun this command.")
     else:
         print("CLOUD_PREFLIGHT: GREEN | exact revision pinned, agent available, bounded pack passed privacy checks")
     if not args.run:
