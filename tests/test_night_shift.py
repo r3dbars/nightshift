@@ -5547,6 +5547,42 @@ import { helper } from '@/lib/helpers';
             [f"owner/repo-{index}" for index in range(10)] + ["owner/repo-11"],
         )
 
+    def test_portfolio_matches_primary_repo_slug_without_case_sensitivity(self):
+        primary_repo = Path("/tmp/night-shift-primary")
+        now = night_shift.datetime.now(night_shift.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        def fake_run(cmd, **kwargs):
+            command = [str(part) for part in cmd]
+            if command[:4] == ["git", "remote", "get-url", "origin"]:
+                return night_shift.CmdResult("", 0, "git@github.com:Owner/Repo.git\n", "")
+            if command[:3] == ["gh", "api", "user"]:
+                return night_shift.CmdResult("", 0, "owner\n", "")
+            if command[:3] == ["gh", "repo", "list"]:
+                payload = [{
+                    "nameWithOwner": "owner/repo",
+                    "pushedAt": now,
+                    "isPrivate": True,
+                    "isArchived": False,
+                    "isFork": False,
+                    "defaultBranchRef": {"name": "main"},
+                    "url": "",
+                }]
+                return night_shift.CmdResult("", 0, json.dumps(payload), "")
+            if command and command[0] == "gh":
+                return night_shift.CmdResult("", 0, "[]", "")
+            return night_shift.CmdResult("", 1, "", "unexpected")
+
+        original_which = night_shift.shutil.which
+        night_shift.shutil.which = lambda name: "/usr/bin/gh" if name == "gh" else original_which(name)
+        try:
+            engine = night_shift.PortfolioEngine(fake_run, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
+            rows = engine.discover(primary_repo, active_days=14, max_repos=1)
+        finally:
+            night_shift.shutil.which = original_which
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["primary"])
+        self.assertEqual(rows[0]["slug"], "owner/repo")
+
     def test_quiet_hours_parse_normalize_and_cross_midnight(self):
         self.assertEqual(night_shift.normalize_quiet_hours(" 9:00-17:00 "), "09:00-17:00")
         self.assertEqual(night_shift.normalize_quiet_hours("09:00 - 17:00"), "09:00-17:00")
