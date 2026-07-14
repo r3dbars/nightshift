@@ -117,6 +117,8 @@ class ReportingTests(unittest.TestCase):
                 200, "GREEN",
             )
             brief = (ledger / "morning.md").read_text()
+            self.assertIn("Good morning - here is the short version:", brief)
+            self.assertIn("You do not need to read everything", brief)
             self.assertIn("Keep this [KEEP]", brief)
             self.assertIn("Maybe this [MAYBE]", brief)
             self.assertIn("Deterministically proven worker findings:", brief)
@@ -297,6 +299,7 @@ class PortfolioReportingTests(unittest.TestCase):
                 },
             ], "GREEN")
             morning = (root / "morning.md").read_text()
+            self.assertIn("Good morning - here is the short version:", morning)
             self.assertLess(morning.index("owner/z-high"), morning.index("owner/a-low"))
             self.assertIn("Why this repo: recent failing checks", morning)
             items = json.loads((root / "morning-items.json").read_text())
