@@ -46,7 +46,7 @@ from night_shift_state import append_attempt, exclusive_lock, fresh_explicit_goa
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
 from night_shift_handoff import CANDIDATE_BOUNDARY, append_review_outcome, build_handoff_prompt, handoff_outcome_persistence_reason, handoff_pack_file_hashes, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
-from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, HUMAN_OUTCOME_VALUES, append_feedback_event, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
+from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, HUMAN_OUTCOME_VALUES, append_feedback_event, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, latest_verified_review_for_candidate, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
 from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, outcome_ledger_summary, repo_outcome_adjustment
@@ -4544,6 +4544,13 @@ def command_feedback(args) -> int:
     delay = feedback_delay_seconds(reviewed_at, created_at)
     if delay is not None:
         row["feedback_delay_seconds"] = delay
+    review = latest_verified_review_for_candidate(
+        load_review_outcomes(), str(ledger), args.item,
+        str(row.get("fingerprint") or ""), str(row.get("source_ref") or ""),
+    )
+    if review:
+        row["review_verdict"] = review["verdict"]
+        row["review_verified"] = True
     existing = load_feedback()
     if not should_record_feedback_event(existing, row):
         print(
@@ -4566,7 +4573,11 @@ def command_feedback(args) -> int:
             "repo": outcome_repo,
             "source_ref": row["source_ref"],
             "feedback_outcome_status": row["outcome_status"],
-            "feedback_verified": int(row["outcome_status"] in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}),
+            "feedback_review_verdict": row.get("review_verdict", ""),
+            "feedback_verified": int(
+                row.get("review_verified")
+                or row["outcome_status"] in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
+            ),
             "human_outcome": human_outcome,
             "human_outcome_accepted": int(human_outcome == "accepted"),
             "human_outcome_revised": int(human_outcome == "revised"),
