@@ -118,6 +118,12 @@ a `VERIFIED_DRAFT`. Both remain local and uncommitted for morning review.
 If the isolated check cannot run, the morning brief includes the short redacted
 runner cause, such as a missing test executable, so the next setup step is clear.
 
+Night Shift makes at most one draft attempt per repository during a shift. A
+verified draft is skipped because the repo already produced useful work. A
+rejected or unavailable attempt is also skipped, with a clear retry-next-shift
+note, so a temporary failure cannot turn into repeated model calls. The next
+shift can try that repository again.
+
 For failed GitHub Actions runs, source, package scripts, evidence validation,
 and the disposable worktree all use the run's exact `headSha`. A PR-only file
 is never analyzed or edited as though it came from the default branch.

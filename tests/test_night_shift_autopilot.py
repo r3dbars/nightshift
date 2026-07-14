@@ -34,8 +34,9 @@ class AutopilotCycleStateTests(unittest.TestCase):
             self.assertTrue(state.may_draft("owner/repo", True, "draft-prs"))
             state.finish_draft_attempt(row, {"status": "VERIFIED_DRAFT"})
             self.assertFalse(state.may_draft("owner/repo", True, "draft-prs"))
+            self.assertTrue(state.should_skip_attempted_repo("owner/repo"))
             self.assertTrue(state.should_skip_verified_repo("owner/repo"))
-            skipped = state.record_verified_skip(repo="owner/repo", checkout=Path(tmp))
+            skipped = state.record_attempted_skip(repo="owner/repo", checkout=Path(tmp))
             self.assertIn("verified draft", skipped["skip_reason"])
             state.attach_publish(row, {"status": "REMOTE_CLEANUP_REQUIRED"})
             state.append(row)
@@ -68,6 +69,21 @@ class AutopilotCycleStateTests(unittest.TestCase):
             self.assertFalse(state.may_draft("owner/repo", True, "brief"))
             self.assertTrue(state.may_draft("owner/repo", True, "draft-local"))
             self.assertTrue(state.may_draft("owner/repo", True, "draft-prs"))
+
+    def test_rejected_draft_attempt_skips_later_cycles_without_blocking_next_shift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = AutopilotCycleState(Path(tmp))
+            state.start_cycle()
+            row = {"repo": "owner/repo", "rc": 0}
+            state.finish_draft_attempt(row, {"status": "REJECT", "reason": "sandbox unavailable"})
+            self.assertFalse(state.may_draft("owner/repo", True, "draft-local"))
+            self.assertTrue(state.should_skip_attempted_repo("owner/repo"))
+            skipped = state.record_attempted_skip(repo="owner/repo", checkout=Path(tmp))
+            self.assertIn("retry next shift", skipped["skip_reason"])
+
+            next_shift = AutopilotCycleState(Path(tmp))
+            next_shift.start_cycle()
+            self.assertFalse(next_shift.should_skip_attempted_repo("owner/repo"))
 
 
 if __name__ == "__main__":
