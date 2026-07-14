@@ -1121,7 +1121,7 @@ ACTION_TYPE: patch-plan
             (repo / "status.py").write_text(
                 "def import_path():\n    return './module'\n", encoding="utf-8"
             )
-            output = """CLAIM: `import_path` lacks a focused test for values prefixed with \"./\"
+            output = """CLAIM: `import_path` lacks a focused test for values prefixed with `\"./\"`
 EVIDENCE: status.py:2 | return './module'
 FILES_TO_TOUCH: status.py
 TESTS_TO_RUN: python -m pytest
