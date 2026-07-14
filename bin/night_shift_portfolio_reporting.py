@@ -314,8 +314,9 @@ class PortfolioReportEngine:
                 "- Optional result: add `--useful --outcome accepted` if you used it, `--useful --outcome revised` if you changed it, or `--not-useful --outcome rejected` if you discarded it.",
                 "- Optional: add `--clarity clear` or `--clarity confusing`, plus `--effort quick`, `--effort some-work`, or `--effort too-much`.",
                 "",
-                "One-action independent review (read-only; nothing is sent unless you run it):",
-                f"- `night-shift handoff --ledger {ledger_arg} --item 1 --agent codex --run --allow-cloud`",
+                "Safe next step: prepare the bounded review pack locally first (nothing is sent):",
+                f"- `night-shift handoff --ledger {ledger_arg} --item 1 --agent codex`",
+                "- If it says `CLOUD_PREFLIGHT: GREEN` and you want one read-only cloud review, rerun it with `--run --allow-cloud`.",
             ])
         else:
             lines.extend([

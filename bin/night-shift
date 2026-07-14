@@ -45,7 +45,7 @@ from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, fresh_explicit_goal_tasks, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import CANDIDATE_BOUNDARY, append_review_outcome, build_handoff_prompt, handoff_outcome_persistence_reason, handoff_pack_file_hashes, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
+from night_shift_handoff import CANDIDATE_BOUNDARY, append_review_outcome, build_handoff_prompt, cloud_preflight_reasons, handoff_outcome_persistence_reason, handoff_pack_file_hashes, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
 from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, HUMAN_OUTCOME_VALUES, append_feedback_event, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, latest_verified_review_for_candidate, link_review_to_feedback_event, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
@@ -4290,6 +4290,13 @@ def command_handoff(args) -> int:
             + "; ".join(privacy_reasons)[:240]
         )
         return 1
+    preflight_reasons = cloud_preflight_reasons(
+        args.agent,
+        source_ref,
+        bool(shutil.which(args.agent)),
+        copied,
+        privacy_reasons,
+    )
     print(f"NIGHTSHIFT_HANDOFF: GREEN | prepared item={args.item} | agent={args.agent} | prompt={prompt_path}")
     print(
         "Handoff pack: "
@@ -4299,19 +4306,20 @@ def command_handoff(args) -> int:
         f"redactions={pack_metrics['redaction_markers']} privacy=GREEN"
     )
     print(f"Review pack: {pack_dir} | manifest={pack_manifest_path}")
+    if preflight_reasons:
+        print("CLOUD_PREFLIGHT: RED | " + "; ".join(preflight_reasons)[:300])
+    else:
+        print("CLOUD_PREFLIGHT: GREEN | exact revision pinned, agent available, bounded pack passed privacy checks")
     if not args.run:
-        print("Nothing was sent. Review the saved pack, then add --run for one explicitly approved review.")
+        print("Nothing was sent. Review the saved pack first; add --run --allow-cloud only if you explicitly approve this one review.")
         return 0
 
     cloud_allowed = bool(args.allow_cloud)
     if not cloud_allowed:
         print("NIGHTSHIFT_HANDOFF: RED | cloud use was not approved; rerun with --allow-cloud for this one review")
         return 2
-    if not source_ref:
-        print("NIGHTSHIFT_HANDOFF: RED | cloud review requires an exact pinned candidate revision")
-        return 1
-    if not shutil.which(args.agent):
-        print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
+    if preflight_reasons:
+        print("NIGHTSHIFT_HANDOFF: RED | cloud preflight failed: " + "; ".join(preflight_reasons)[:300])
         return 1
     with tempfile.TemporaryDirectory(prefix="night-shift-handoff-") as temporary:
         review_root = Path(temporary)
