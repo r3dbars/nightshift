@@ -164,14 +164,26 @@ def runtime_tool(name: str) -> Path:
 
 def shared_worktree_root() -> Path:
     """Keep disposable worktrees on a macOS path that Colima can mount."""
-    root = WORKTREE_ROOT
+    return shared_macos_codex_path(WORKTREE_ROOT)
+
+
+def shared_macos_codex_path(root: Path) -> Path:
+    """Move temporary Mac state to a Colima-shared home-backed path."""
     if platform.system() != "Darwin" or str(root).startswith("/Users/"):
         return root
     user = os.environ.get("USER", "")
     real_home = Path("/Users") / user if user else Path()
     if user and real_home.is_dir():
-        return real_home / ".codex" / "night-shift" / "worktrees"
+        return real_home / ".codex" / "night-shift" / root.name
     return root
+
+
+def shared_repo_cache_root() -> Path:
+    return shared_macos_codex_path(REPO_CACHE_ROOT)
+
+
+def shared_dependency_cache_root() -> Path:
+    return shared_macos_codex_path(DEPENDENCY_CACHE_ROOT)
 
 AUTOPILOT_DEFAULTS = {
     "quiet": {"repo_limit": 1, "task_limit": 8, "poll_minutes": 60},
@@ -555,7 +567,7 @@ def repo_dependency_source(repo: Path, profile) -> Path | None:
     """Use a runner-native external cache when one was prepared for this approval."""
     return dependency_source_for_repo(
         repo,
-        DEPENDENCY_CACHE_ROOT,
+        shared_dependency_cache_root(),
         str(getattr(profile, "approved_remote", "")),
         str(getattr(profile, "image", "")),
     )
@@ -572,7 +584,7 @@ def should_prepare_runner_dependencies(repo: Path, requested: bool = False) -> b
 
 PORTFOLIO = PortfolioEngine(
     run_cmd,
-    REPO_CACHE_ROOT,
+    shared_repo_cache_root(),
     TASK_HISTORY_PATH,
     now_stamp,
     lambda slug: portfolio_outcome_adjustment(slug),
@@ -2259,10 +2271,10 @@ def command_trust_repo(args) -> int:
         print(f"NIGHTSHIFT_TRUST_REPO: RED | generated approval is invalid: {profile_detail}")
         return 1
     dependency_source = dependency_source_for_repo(
-        repo, DEPENDENCY_CACHE_ROOT, remote, image,
+        repo, shared_dependency_cache_root(), remote, image,
     )
     if should_prepare_runner_dependencies(repo, getattr(args, "prepare_dependencies", False)):
-        cache_dir = dependency_cache_path(DEPENDENCY_CACHE_ROOT, remote, image, repo / "package-lock.json")
+        cache_dir = dependency_cache_path(shared_dependency_cache_root(), remote, image, repo / "package-lock.json")
         prepared, dependency_detail = prepare_node_dependencies(
             repo, cache_dir, remote, image, run_cmd,
         )
