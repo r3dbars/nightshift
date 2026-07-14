@@ -3169,6 +3169,24 @@ def command_autopilot(args) -> int:
             for portfolio_rank, (item, checkout) in enumerate(prepared, start=1):
                 if stop_file.exists() or deadline_reached(deadline, stop_file):
                     break
+                repo_name = item.get("slug", str(checkout))
+                if controller.should_skip_verified_repo(repo_name):
+                    cycle_row = controller.record_verified_skip(repo=repo_name, checkout=checkout)
+                    signals = item.get("signals") or {}
+                    cycle_row.update({
+                        "portfolio_rank": portfolio_rank,
+                        "portfolio_score": int(item.get("score") or 0),
+                        "portfolio_primary": bool(item.get("primary")),
+                        "portfolio_priority": bool(item.get("priority")),
+                        "portfolio_reason": PORTFOLIO.selection_reason(item),
+                        "portfolio_signals": {
+                            "failed_runs": len(signals.get("failed_runs") or []),
+                            "issues": len(signals.get("issues") or []),
+                            "prs": len(signals.get("prs") or []),
+                        },
+                    })
+                    controller.append(cycle_row)
+                    continue
                 remaining_seconds = int(deadline - time.time()) if deadline else getattr(args, "timeout", 900)
                 if remaining_seconds <= 0:
                     break

@@ -10,6 +10,7 @@ class AutopilotCycleState:
     ledger: Path
     rows: list[dict] = field(default_factory=list)
     drafted_repos: set[str] = field(default_factory=set)
+    verified_repos: set[str] = field(default_factory=set)
     cycle: int = 0
     status: str = "GREEN"
     cycle_had_work: bool = False
@@ -54,7 +55,24 @@ class AutopilotCycleState:
     def finish_draft_attempt(self, row: dict, draft: dict | None) -> None:
         if draft is not None:
             row["draft"] = draft
+            if str(draft.get("status") or "") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}:
+                self.verified_repos.add(str(row.get("repo") or ""))
         self.drafted_repos.add(str(row.get("repo") or ""))
+
+    def should_skip_verified_repo(self, repo: str) -> bool:
+        """Avoid more model calls after this repo already produced a verified draft."""
+        return str(repo or "") in self.verified_repos
+
+    def record_verified_skip(self, *, repo: str, checkout: Path) -> dict:
+        return {
+            "cycle": self.cycle,
+            "repo": repo,
+            "checkout": str(checkout.expanduser().resolve()),
+            "ledger": "",
+            "rc": 0,
+            "new_tasks": 0,
+            "skip_reason": "verified draft already produced for this repo during this shift",
+        }
 
     @staticmethod
     def may_publish(permission: str, allow_draft_prs: bool, draft_status: str) -> bool:
