@@ -553,7 +553,7 @@ class QueueEvidenceIndex:
         excerpt = [f"source_file={source_path}"]
         excerpt.extend(
             f"source_line={index + 1} | {lines[index].strip()}"
-            for index in range(start, min(len(lines), start + 6))
+            for index in range(start, min(len(lines), start + 12))
             if lines[index].strip()
         )
         safe_source = re.sub(r"[^A-Za-z0-9_.-]+", "-", source_path).strip("-")
@@ -770,7 +770,11 @@ def build_repo_work_queue(
                 "Put the coverage gap only in WHY_NOW. Do not claim production code is broken, "
                 "missing, or incorrect unless a supplied failing test or failure log proves it. Put each "
                 "EVIDENCE citation on its own line; never combine citations with semicolons. Describe the "
-                "concrete input and expected observable result in BEST_NEXT_ACTION and EXPECTED_RESULT."
+                "concrete input and expected observable result in BEST_NEXT_ACTION and EXPECTED_RESULT. "
+                "Each EVIDENCE citation must directly support CLAIM and that observable result: cite the "
+                "return expression, output construction, or exact behavior branch, not only an intermediate "
+                "variable assignment or declaration. If the supplied source lines do not directly prove the "
+                "claim, set ACTION_TYPE: reject."
             )
         if mission_executable and mission_semantic_contract:
             mission_prompt += (

@@ -36,7 +36,7 @@ def coverage_citation_examples(evidence_sources: dict[str, str] | None) -> list[
                     match = re.match(r"source_line=(\d+)\s*\|\s*(.+)", line)
                     if match:
                         group.append(f"{source_file}:{match.group(1)} | {match.group(2)}")
-                groups.append(group[:4])
+                groups.append(group[:4] if len(group) <= 4 else [*group[:2], *group[-2:]])
                 continue
         indexed = [
             (line_number, line) for line_number, line in enumerate(str(source).splitlines(), start=1)
