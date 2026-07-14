@@ -137,6 +137,27 @@ def should_record_feedback_event(existing: list[dict], event: dict) -> bool:
     )
 
 
+def latest_verified_review_for_candidate(
+    outcomes: list[dict], ledger: str, item: int, fingerprint: str, source_ref: str
+) -> dict:
+    """Return the latest valid terminal review for this exact displayed candidate."""
+    matches = [
+        outcome for outcome in outcomes
+        if outcome.get("ledger") == ledger
+        and outcome.get("item") == item
+        and outcome.get("fingerprint") == fingerprint
+        and outcome.get("source_ref") == source_ref
+    ]
+    if not matches:
+        return {}
+    latest = matches[-1]
+    if latest.get("valid_review") is not True:
+        return {}
+    if latest.get("verdict") not in {"CONFIRMED", "REJECTED"}:
+        return {}
+    return latest
+
+
 def apply_task_feedback(
     tasks: list[dict], events: list[dict], repo: str, mode: str
 ) -> tuple[list[dict], list[dict]]:

@@ -2687,6 +2687,33 @@ buildThing() { return 1; }
             [rejected], {**base, "verdict": "NEEDS_INFO"}
         ))
 
+    def test_latest_verified_review_requires_exact_candidate_identity(self):
+        base = {
+            "ledger": "/ledger", "item": 1, "fingerprint": "candidate",
+            "source_ref": "a" * 40, "valid_review": True,
+        }
+        self.assertEqual(
+            night_shift.latest_verified_review_for_candidate(
+                [{**base, "verdict": "CONFIRMED"}],
+                "/ledger", 1, "candidate", "a" * 40,
+            )["verdict"],
+            "CONFIRMED",
+        )
+        self.assertEqual(
+            night_shift.latest_verified_review_for_candidate(
+                [{**base, "verdict": "CONFIRMED"}],
+                "/ledger", 1, "candidate", "b" * 40,
+            ),
+            {},
+        )
+        self.assertEqual(
+            night_shift.latest_verified_review_for_candidate(
+                [{**base, "verdict": "NEEDS_INFO"}],
+                "/ledger", 1, "candidate", "a" * 40,
+            ),
+            {},
+        )
+
     def test_latest_valid_review_verdict_controls_exact_candidate(self):
         task = {"slug": "candidate", "fingerprint": "abc", "ladder_priority": 300}
         base = {
@@ -2752,6 +2779,50 @@ buildThing() { return 1; }
             finally:
                 night_shift.FEEDBACK_PATH = original
                 night_shift.REPO_OUTCOMES_PATH = original_outcomes
+
+    def test_feedback_links_exact_valid_handoff_review_to_verified_outcome(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger"
+            ledger.mkdir()
+            source_ref = "a" * 40
+            (ledger / "mode.json").write_text(json.dumps({"repo": "/repo"}), encoding="utf-8")
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "key": "changed-file-proof-01:tests:patch-plan",
+                "labels": ["changed-file-proof-01-src-app"],
+                "fingerprint": "reviewed-candidate",
+                "source_ref": source_ref,
+                "summary": "Add a regression test",
+            }]), encoding="utf-8")
+            (root / "review-outcomes.jsonl").write_text(json.dumps({
+                "ledger": str(ledger.resolve()), "item": 1, "fingerprint": "reviewed-candidate",
+                "source_ref": source_ref, "valid_review": True, "verdict": "CONFIRMED",
+            }) + "\n", encoding="utf-8")
+            original_feedback = night_shift.FEEDBACK_PATH
+            original_outcomes = night_shift.REPO_OUTCOMES_PATH
+            original_reviews = night_shift.REVIEW_OUTCOMES_PATH
+            night_shift.FEEDBACK_PATH = root / "feedback.jsonl"
+            night_shift.REPO_OUTCOMES_PATH = root / "repo-outcomes.jsonl"
+            night_shift.REVIEW_OUTCOMES_PATH = root / "review-outcomes.jsonl"
+            try:
+                args = SimpleNamespace(
+                    ledger=str(ledger), latest=False, item=1,
+                    useful=True, not_useful=False, note="confirmed review was useful",
+                    clarity="", effort="", outcome="accepted",
+                )
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(night_shift.command_feedback(args), 0)
+                event = json.loads(night_shift.FEEDBACK_PATH.read_text(encoding="utf-8"))
+                self.assertTrue(event["review_verified"])
+                self.assertEqual(event["review_verdict"], "CONFIRMED")
+                outcome = json.loads(night_shift.REPO_OUTCOMES_PATH.read_text(encoding="utf-8"))
+                self.assertEqual(outcome["feedback_verified"], 1)
+                self.assertEqual(outcome["feedback_review_verdict"], "CONFIRMED")
+                self.assertEqual(outcome["human_outcome_accepted"], 1)
+            finally:
+                night_shift.FEEDBACK_PATH = original_feedback
+                night_shift.REPO_OUTCOMES_PATH = original_outcomes
+                night_shift.REVIEW_OUTCOMES_PATH = original_reviews
 
     def test_interactive_feedback_asks_friendly_questions_and_persists_outcome(self):
         with tempfile.TemporaryDirectory() as tmp:
