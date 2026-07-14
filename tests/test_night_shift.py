@@ -3263,6 +3263,32 @@ buildThing() { return 1; }
         self.assertEqual(first, night_shift.task_fingerprint("owner/repo", "abc123", task))
         self.assertNotEqual(first, night_shift.task_fingerprint("owner/repo", "def456", task))
 
+    def test_task_revision_uses_latest_touched_file_not_docs_only_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Night Shift Test"], cwd=repo, check=True)
+            (repo / "app.py").write_text("return 1\n", encoding="utf-8")
+            (repo / "README.md").write_text("first\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "source"], cwd=repo, check=True)
+            source_revision = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "docs"], cwd=repo, check=True)
+            head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+            self.assertEqual(
+                night_shift.task_revision_for(repo, {"files": ["app.py"], "source_ref": head}, head),
+                source_revision,
+            )
+            self.assertEqual(
+                night_shift.task_revision_for(repo, {"files": ["app.py"], "source_ref": "remote-sha"}, head),
+                "remote-sha",
+            )
+
     def test_compounding_queue_uses_unique_ladder_tasks(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
@@ -3447,6 +3473,16 @@ import { helper } from '@/lib/helpers';
         self.assertFalse(night_shift.may_attempt(previous, "task", "abc", now=1001)[0])
         self.assertTrue(night_shift.may_attempt(previous, "task", "def", now=1001)[0])
         self.assertTrue(night_shift.may_attempt(previous, "task", "abc", now=3000)[0])
+
+        file_scoped = {
+            "head": "docs-only",
+            "task_revision": "source-file",
+            "state": "REJECTED",
+            "epoch": 1000,
+            "rejections": 2,
+        }
+        self.assertFalse(night_shift.may_attempt(file_scoped, "task", "source-file", now=1001)[0])
+        self.assertTrue(night_shift.may_attempt(file_scoped, "task", "changed-source", now=1001)[0])
 
     def test_rejection_count_is_scoped_to_one_repo_revision(self):
         with tempfile.TemporaryDirectory() as tmp:

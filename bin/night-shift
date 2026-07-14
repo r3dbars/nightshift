@@ -1312,6 +1312,18 @@ def task_fingerprint(repo_name: str, head: str, task: dict) -> str:
     return PortfolioEngine.task_fingerprint(repo_name, head, task)
 
 
+def task_revision_for(repo: Path, task: dict, fallback: str) -> str:
+    """Use the task's pinned ref or latest touched-file commit for dedupe."""
+    source_ref = str(task.get("source_ref") or "")
+    if source_ref and source_ref != fallback:
+        return source_ref
+    files = sorted({str(path) for path in task.get("files") or [] if str(path).strip()})
+    if not files:
+        return fallback
+    result = run_cmd(["git", "log", "-1", "--format=%H", "--", *files], cwd=repo, timeout=30)
+    return result.stdout.strip() if result.rc == 0 and result.stdout.strip() else fallback
+
+
 def append_task_history(rows: list[dict]) -> None:
     portfolio_engine().append_history(rows)
 def repo_signal_scan(repo: Path | None) -> dict:
@@ -2529,16 +2541,23 @@ def command_run(args) -> int:
     history = load_task_history()
     attempts = latest_attempts(TASK_ATTEMPTS_PATH)
     for item in queue:
-        item["fingerprint"] = task_fingerprint(repo_name, scan.get("head", ""), item)
+        item["task_revision"] = task_revision_for(root, item, str(scan.get("head") or ""))
+        item["fingerprint"] = task_fingerprint(repo_name, item["task_revision"], item)
     queue, review_skips = apply_review_outcomes(
         queue, load_review_outcomes(), str(root), str(scan.get("head") or "")
     )
     skipped: list[dict] = [*readiness_skips, *feedback_skips, *review_skips]
     eligible = []
     for item in queue:
-        allowed, reason = may_attempt(attempts.get(item["fingerprint"]), item["fingerprint"], scan.get("head", ""))
+        allowed, reason = may_attempt(
+            attempts.get(item["fingerprint"]), item["fingerprint"], item["task_revision"]
+        )
         if item["fingerprint"] in history:
-            skipped.append({"fingerprint": item["fingerprint"], "category": "repeat", "reason": "already accepted at this revision"})
+            skipped.append({
+                "fingerprint": item["fingerprint"],
+                "category": "repeat",
+                "reason": "already accepted for unchanged task files",
+            })
         elif allowed:
             eligible.append(item)
         else:
@@ -2639,6 +2658,7 @@ def command_run(args) -> int:
                 candidate_files,
                 item.get("verification_commands", []),
                 item["fingerprint"],
+                item["task_revision"],
                 item.get("ladder", "strengthen"),
                 item.get("proof_kind", "source"),
                 bool(item.get("executable", False)),
@@ -2674,6 +2694,7 @@ def command_run(args) -> int:
                 candidate_files,
                 verification_commands,
                 fingerprint,
+                task_revision,
                 ladder,
                 proof_kind,
                 executable,
@@ -2709,6 +2730,7 @@ def command_run(args) -> int:
             pending[future] = {
                 "lane": lane,
                 "fingerprint": fingerprint,
+                "task_revision": task_revision,
                 "ladder": ladder,
                 "proof_kind": proof_kind,
                 "executable": executable,
@@ -2746,6 +2768,7 @@ def command_run(args) -> int:
                     result["repo"] = str(root)
                     result["repo_name"] = repo_name
                     result["fingerprint"] = pending_item["fingerprint"]
+                    result["task_revision"] = pending_item["task_revision"]
                     result["ladder"] = pending_item["ladder"]
                     result["proof_kind"] = pending_item["proof_kind"]
                     result["executable"] = pending_item["executable"]
@@ -2778,6 +2801,7 @@ def command_run(args) -> int:
                             "repo": str(root),
                             "repo_name": repo_name,
                             "fingerprint": pending_item["fingerprint"],
+                            "task_revision": pending_item["task_revision"],
                             "ladder": pending_item["ladder"],
                             "proof_kind": pending_item["proof_kind"],
                             "executable": pending_item["executable"],
@@ -2827,6 +2851,7 @@ def command_run(args) -> int:
                 "fingerprint": fingerprint,
                 "repo": row.get("repo_name", repo_name),
                 "head": scan.get("head", ""),
+                "task_revision": row.get("task_revision", scan.get("head", "")),
                 "state": "REJECTED" if rejected else "DISCOVERED",
                 "score": row.get("score", "REJECT"),
                 "reason": row.get("summary", "")[:500],
@@ -2845,6 +2870,7 @@ def command_run(args) -> int:
                 "fingerprint": row["fingerprint"],
                 "repo": row.get("repo_name", repo_name),
                 "head": scan.get("head", ""),
+                "task_revision": row.get("task_revision", scan.get("head", "")),
                 "task": row.get("label", ""),
                 "ladder": row.get("ladder", ""),
                 "score": row.get("score", "REJECT"),
