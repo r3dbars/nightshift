@@ -160,9 +160,17 @@ class PortfolioReportEngine:
             reason = row.get("portfolio_reason") or "recent activity"
             lines.extend([f"- {repo_name}: {summary}", f"  Why this repo: {reason}", f"  Proof: {child}"])
             if draft:
+                draft_status = str(draft.get("status") or "unknown")
+                draft_reason = str(draft.get("reason") or "")
+                guard_reasons = draft.get("guard_reasons") or []
+                if not draft_reason and guard_reasons:
+                    draft_reason = "; ".join(str(value) for value in guard_reasons)
+                if draft_status in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}:
+                    draft_detail = draft.get("patch") or draft_reason or "proof recorded"
+                else:
+                    draft_detail = draft_reason or "not proven"
                 lines.append(
-                    f"  Draft: {draft.get('status', 'unknown')} | "
-                    f"{draft.get('patch') or draft.get('reason', '')}"
+                    f"  Draft: {draft_status} | {draft_detail}"
                 )
             publish = row.get("publish") or {}
             if publish:
