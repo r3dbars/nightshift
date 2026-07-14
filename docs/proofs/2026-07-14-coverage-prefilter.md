@@ -14,8 +14,12 @@ reject symbol-presence, import, signature, or textual-match-only proposals.
 The fresh post-merge portfolio pass inspected `r3dbars/transcripted` at
 `792a8b52ed5d2759560648d8149e31553b2de39e`. Before this change, its bounded
 local attempt spent 5,180 tokens on `recent-change-test-gap`, then rejected the
-worker's symbol-presence proposal. The next draft-local pass must record the
-same candidate as a pre-model skip with zero model tokens.
+worker's symbol-presence proposal. The post-merge child ledger
+`/Users/redbars/.codex/maestro/overnight/night-shift-20260714T213701Z-night-shift`
+recorded the same candidate in `task-skips.json` with the reason `test candidate
+has no safe automatic patch path`; it made no model call for that candidate.
+The run's only model attempt was a separate Windows PR review at 4,478 tokens,
+which also failed closed on unsupported negative evidence.
 
 The pass also visited `r3dbars/BetterFeedback` and `r3dbars/nightshift`, and
 recorded honest no-work rows without GitHub writes or source-checkout edits.
