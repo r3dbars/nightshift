@@ -2538,8 +2538,31 @@ buildThing() { return 1; }
             "changed-file-proof",
         )
         self.assertEqual(night_shift.task_family("custom-maintenance-12"), "custom-maintenance")
+        self.assertEqual(night_shift.task_family("custom-maintenance-12-13"), "custom-maintenance")
         self.assertEqual(night_shift.task_family("  PR-42-Review  "), "pr")
         self.assertEqual(night_shift.task_family(""), "task")
+
+    def test_feedback_score_respects_documented_clamp_bounds(self):
+        useful = [
+            {"repo": "/repo", "family": "tests", "fingerprint": f"useful-{index}", "verdict": "useful"}
+            for index in range(5)
+        ]
+        not_useful = [
+            {"repo": "/repo", "family": "tests", "fingerprint": f"not-useful-{index}", "verdict": "not-useful"}
+            for index in range(5)
+        ]
+        self.assertEqual(night_shift.feedback_score(useful, "/repo", "tests"), (50, 5, 0))
+        self.assertEqual(night_shift.feedback_score(not_useful, "/repo", "tests"), (-40, 0, 5))
+
+    def test_handoff_outcome_persistence_explains_missing_learning_identity(self):
+        self.assertEqual(
+            night_shift.handoff_outcome_persistence_reason("", "", "CONFIRMED"),
+            "missing candidate fingerprint and source revision",
+        )
+        self.assertEqual(
+            night_shift.handoff_outcome_persistence_reason("fingerprint", "a" * 40, "CONFIRMED"),
+            "",
+        )
 
     def test_repeated_negative_feedback_skips_family_before_model_calls(self):
         task = {"slug": "changed-file-proof-01-src-app", "ladder_priority": 300}
