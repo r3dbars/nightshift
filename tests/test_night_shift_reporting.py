@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
 from night_shift_reporting import ReportEngine
+from night_shift_portfolio import PortfolioEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
 
 
@@ -301,6 +302,24 @@ class PortfolioReportingTests(unittest.TestCase):
             items = json.loads((root / "morning-items.json").read_text())
             self.assertEqual([item["repo"] for item in items], ["owner/z-high", "owner/a-low"])
             self.assertEqual(items[0]["selection_reason"], "recent failing checks")
+
+    def test_portfolio_selection_reason_explains_feedback_learning(self):
+        self.assertEqual(
+            PortfolioEngine.selection_reason({
+                "slug": "owner/useful",
+                "outcome_summary": {"useful_feedback": 1},
+                "signals": {},
+            }),
+            "you marked recent work here useful",
+        )
+        self.assertEqual(
+            PortfolioEngine.selection_reason({
+                "slug": "owner/cooled",
+                "outcome_summary": {"not_useful_feedback": 1},
+                "signals": {},
+            }),
+            "cooling down after recent low-value work",
+        )
 
 if __name__ == "__main__":
     unittest.main()
