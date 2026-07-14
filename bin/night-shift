@@ -575,9 +575,43 @@ PORTFOLIO = PortfolioEngine(
     REPO_CACHE_ROOT,
     TASK_HISTORY_PATH,
     now_stamp,
-    lambda slug: repo_outcome_adjustment(load_repo_outcomes(REPO_OUTCOMES_PATH), slug),
+    lambda slug: portfolio_outcome_adjustment(slug),
 )
 DRAFTS = DraftEngine(run_cmd, WORKTREE_ROOT, now_stamp)
+
+
+def portfolio_outcome_adjustment(slug: str) -> tuple[int, dict]:
+    """Combine durable repo outcomes with older path-based local votes."""
+    rows = load_repo_outcomes(REPO_OUTCOMES_PATH)
+    known_feedback = {
+        str(row.get("feedback_id"))
+        for row in rows
+        if row.get("kind") == "feedback" and row.get("feedback_id")
+    }
+    for event in latest_feedback_events(load_feedback()):
+        feedback_repo = str(event.get("repo") or "").strip()
+        if not feedback_repo:
+            continue
+        canonical_repo = feedback_repo
+        source_repo = repo_root(feedback_repo)
+        if source_repo:
+            canonical_repo = repo_slug(source_repo) or feedback_repo
+        if canonical_repo.casefold() != str(slug).casefold():
+            continue
+        feedback_id = "|".join(
+            str(event.get(field) or "")
+            for field in ("ledger", "rank", "fingerprint", "verdict")
+        )
+        if feedback_id in known_feedback:
+            continue
+        rows.append({
+            "feedback_not_useful": 1 if event.get("verdict") == "not-useful" else 0,
+            "feedback_useful": 1 if event.get("verdict") == "useful" else 0,
+            "feedback_id": feedback_id,
+            "kind": "feedback-compatibility",
+            "repo": slug,
+        })
+    return repo_outcome_adjustment(rows, slug)
 
 
 def apply_compute_overrides(args) -> None:
@@ -4099,10 +4133,15 @@ def command_feedback(args) -> int:
     with FEEDBACK_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, sort_keys=True) + "\n")
     if outcome_repo:
+        feedback_id = "|".join(
+            str(row.get(field) or "")
+            for field in ("ledger", "rank", "fingerprint", "verdict")
+        )
         append_repo_outcome(REPO_OUTCOMES_PATH, {
             "completed_at": created_at,
             "feedback_not_useful": 1 if verdict == "not-useful" else 0,
             "feedback_useful": 1 if verdict == "useful" else 0,
+            "feedback_id": feedback_id,
             "kind": "feedback",
             "repo": outcome_repo,
             "source_ref": row["source_ref"],
