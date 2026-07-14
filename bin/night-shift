@@ -3170,8 +3170,8 @@ def command_autopilot(args) -> int:
                 if stop_file.exists() or deadline_reached(deadline, stop_file):
                     break
                 repo_name = item.get("slug", str(checkout))
-                if controller.should_skip_verified_repo(repo_name):
-                    cycle_row = controller.record_verified_skip(repo=repo_name, checkout=checkout)
+                if controller.should_skip_attempted_repo(repo_name):
+                    cycle_row = controller.record_attempted_skip(repo=repo_name, checkout=checkout)
                     signals = item.get("signals") or {}
                     cycle_row.update({
                         "portfolio_rank": portfolio_rank,

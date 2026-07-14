@@ -10,6 +10,7 @@ class AutopilotCycleState:
     ledger: Path
     rows: list[dict] = field(default_factory=list)
     drafted_repos: set[str] = field(default_factory=set)
+    attempted_repos: set[str] = field(default_factory=set)
     verified_repos: set[str] = field(default_factory=set)
     cycle: int = 0
     status: str = "GREEN"
@@ -53,17 +54,28 @@ class AutopilotCycleState:
         )
 
     def finish_draft_attempt(self, row: dict, draft: dict | None) -> None:
+        self.attempted_repos.add(str(row.get("repo") or ""))
         if draft is not None:
             row["draft"] = draft
             if str(draft.get("status") or "") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}:
                 self.verified_repos.add(str(row.get("repo") or ""))
         self.drafted_repos.add(str(row.get("repo") or ""))
 
+    def should_skip_attempted_repo(self, repo: str) -> bool:
+        """Avoid repeated model calls after one draft attempt in this shift."""
+        name = str(repo or "")
+        return name in self.attempted_repos or name in self.drafted_repos
+
     def should_skip_verified_repo(self, repo: str) -> bool:
         """Avoid more model calls after this repo already produced a verified draft."""
         return str(repo or "") in self.verified_repos
 
-    def record_verified_skip(self, *, repo: str, checkout: Path) -> dict:
+    def record_attempted_skip(self, *, repo: str, checkout: Path) -> dict:
+        name = str(repo or "")
+        if name in self.verified_repos:
+            reason = "verified draft already produced for this repo during this shift"
+        else:
+            reason = "draft attempt already made for this repo during this shift; retry next shift"
         return {
             "cycle": self.cycle,
             "repo": repo,
@@ -71,8 +83,11 @@ class AutopilotCycleState:
             "ledger": "",
             "rc": 0,
             "new_tasks": 0,
-            "skip_reason": "verified draft already produced for this repo during this shift",
+            "skip_reason": reason,
         }
+
+    def record_verified_skip(self, *, repo: str, checkout: Path) -> dict:
+        return self.record_attempted_skip(repo=repo, checkout=checkout)
 
     @staticmethod
     def may_publish(permission: str, allow_draft_prs: bool, draft_status: str) -> bool:
