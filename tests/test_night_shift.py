@@ -392,6 +392,23 @@ class NightShiftQualityTests(unittest.TestCase):
             self.assertIn("Human usefulness review remains", brief)
             self.assertNotIn("no deterministic outcome", brief)
 
+    def test_portfolio_brief_explains_rejected_draft_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            child = ledger / "child"
+            child.mkdir()
+            night_shift.portfolio_brief(ledger, [{
+                "repo": "owner/repo", "ledger": str(child), "new_tasks": 1,
+                "draft": {
+                    "status": "REJECT",
+                    "patch": "/tmp/opaque/applied.patch",
+                    "guard_reasons": ["isolated verification did not pass"],
+                },
+            }], "YELLOW")
+            brief = (ledger / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("Draft: REJECT | isolated verification did not pass", brief)
+            self.assertNotIn("opaque/applied.patch", brief)
+
     def test_portfolio_feedback_marks_the_exact_displayed_child_item(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
