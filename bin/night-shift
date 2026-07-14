@@ -44,7 +44,7 @@ from night_shift_trust import load_effective_profile, save_approval
 from night_shift_state import append_attempt, exclusive_lock, latest_attempts, latest_states, may_attempt, record_state, rejection_count
 from night_shift_redaction import context_path_is_sensitive, redact, sanitize_evidence_sources, sanitize_task_for_ledger
 from night_shift_patch_protocol import validate_patch
-from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, select_handoff_item, validate_handoff_review
+from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handoff_pack_metrics, handoff_pack_privacy_reasons, handoff_review_ready, handoff_review_verdict, materialize_review_files, review_agent_command, select_handoff_item, validate_handoff_review
 from night_shift_feedback import apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
@@ -4035,7 +4035,7 @@ def command_handoff(args) -> int:
     if not cloud_allowed:
         print("NIGHTSHIFT_HANDOFF: RED | cloud use was not approved; rerun with --allow-cloud for this one review")
         return 2
-    if args.agent != "codex" or not shutil.which("codex"):
+    if not shutil.which(args.agent):
         print("NIGHTSHIFT_HANDOFF: RED | the selected coding agent is not available")
         return 1
 
@@ -4066,10 +4066,7 @@ def command_handoff(args) -> int:
             return 1
         review_started = time.monotonic()
         result = run_cmd(
-            [
-                "codex", "exec", "--ephemeral", "--sandbox", "read-only",
-                "--skip-git-repo-check", "--color", "never", "-C", str(review_root), prompt,
-            ],
+            review_agent_command(args.agent, prompt, review_root),
             cwd=review_root,
             timeout=args.timeout,
         )
@@ -4471,7 +4468,7 @@ def build_parser() -> argparse.ArgumentParser:
     handoff.add_argument("--latest", action="store_true", help="use the newest Night Shift ledger")
     handoff.add_argument("--ledger", required=False, help="specific ledger path")
     handoff.add_argument("--item", type=int, default=1, help="ranked KEEP/MAYBE item to review")
-    handoff.add_argument("--agent", choices=["codex"], default="codex")
+    handoff.add_argument("--agent", choices=["codex", "claude"], default="codex", help="review with Codex or Claude; both receive a bounded read-only pack")
     handoff.add_argument("--run", action="store_true", help="send the prepared pack to the selected coding agent")
     handoff.add_argument("--allow-cloud", action="store_true", help="one-time consent to send this bounded pack to the cloud agent")
     handoff.add_argument("--timeout", type=int, default=900)
