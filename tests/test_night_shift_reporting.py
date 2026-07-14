@@ -88,6 +88,10 @@ class ReportingTests(unittest.TestCase):
                 {"category": "feedback", "reason": "low-value family"},
                 {"category": "review-outcome", "reason": "rejected exact candidate"},
             ]
+            (ledger / "planned-work-queue.json").write_text(json.dumps([
+                {"feedback_adjustment": 25}, {"feedback_adjustment": 0},
+                {"feedback_adjustment": -20},
+            ]))
             self.engine(feedback=feedback).write_outcome_metrics(ledger, [], skipped)
             metrics = json.loads((ledger / "outcome-metrics.json").read_text())
             self.assertTrue(metrics["feedback_signal_active"])
@@ -96,6 +100,10 @@ class ReportingTests(unittest.TestCase):
             self.assertEqual(metrics["repo_current_useful_preferences"], 1)
             self.assertEqual(metrics["feedback_skips_before_model"], 1)
             self.assertEqual(metrics["review_outcome_skips_before_model"], 1)
+            self.assertEqual(metrics["feedback_adjusted_candidates"], 2)
+            self.assertEqual(metrics["feedback_adjustment_total"], 5)
+            self.assertEqual(metrics["feedback_positive_adjustments"], 1)
+            self.assertEqual(metrics["feedback_negative_adjustments"], 1)
 
     def test_harvest_and_work_queue_rank_and_dedupe(self):
         with tempfile.TemporaryDirectory() as tmp:
