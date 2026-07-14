@@ -14,13 +14,13 @@ verified draft, a real draft PR that was reviewed and merged, a useful feedback
 event, a disposable soak rehearsal, a native eight-hour launch, two verified
 draft outcomes, fail-closed worker wrappers, and complete empty-run artifacts.
 PRs #157 and #158 then added copy-ready feedback commands to both single-repo
-and portfolio morning briefs; the current package gate passes 448 tests on this
+and portfolio morning briefs; the current package gate passes 449 tests on this
 Mac (the isolated runner records one skipped installed-Claude compatibility
 test when Claude is unavailable).
 The current outcome ledger now keeps model candidates separate from verified
 drafts and records tokens per verified draft; candidate-only runs no longer
 receive productive-repository ranking credit. The package gate currently passes
-448 tests. The current-main runner recovery and three-repository portfolio
+449 tests. The current-main runner recovery and three-repository portfolio
 replay are recorded in
 [`2026-07-14-runner-recovery-and-portfolio-replay.md`](proofs/2026-07-14-runner-recovery-and-portfolio-replay.md):
 the first BetterFeedback attempt failed closed on a missing `vitest` executable,
@@ -29,6 +29,11 @@ portfolio pass visited three repos without Windows calls or a fabricated result.
 The current real handoff preview and its durable redacted-pack manifest are
 recorded in
 [`2026-07-14-auditable-handoff-pack.md`](proofs/2026-07-14-auditable-handoff-pack.md).
+The merged one-attempt-per-repository policy was exercised in a live launchd
+shift: one malformed patch was rejected after one local call, then the next
+cycle visited all three repos with zero model calls and explicit retry-next-shift
+rows. The source checkout stayed clean; see
+[`2026-07-14-attempted-repo-skip.md`](proofs/2026-07-14-attempted-repo-skip.md).
 The fresh local outcome replays produced verified drafts at 3,428 and 3,469
 estimated tokens, and a clean three-repo Mac-only replay visited BetterFeedback,
 suckscancer.com, and Night Shift with zero Windows calls; the exact paths and
