@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 
 from night_shift_portfolio import status_check_failed
+from night_shift_python_evidence import parse_python_silently
 
 
 IGNORED_PATH_TERMS = {
@@ -16,7 +17,7 @@ IGNORED_PATH_TERMS = {
 def declared_symbols(text: str) -> list[str]:
     """Return testable declarations without treating Python nested helpers as APIs."""
     try:
-        tree = ast.parse(text)
+        tree = parse_python_silently(text)
     except SyntaxError:
         tree = None
     if tree is not None:

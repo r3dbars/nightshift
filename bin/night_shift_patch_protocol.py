@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
+from night_shift_python_evidence import parse_python_silently
 
 
 DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
@@ -74,7 +75,7 @@ def materialize_test_method_patch(
         if not stripped:
             continue
         try:
-            prefix_tree = ast.parse(stripped)
+            prefix_tree = parse_python_silently(stripped)
         except SyntaxError:
             return ""
         if len(prefix_tree.body) != 1 or not isinstance(prefix_tree.body[0], ast.ImportFrom):
@@ -104,7 +105,7 @@ def materialize_test_method_patch(
     if not method or len(method) > 80:
         return ""
     try:
-        tree = ast.parse("class _Generated:\n" + "\n".join(method) + "\n")
+        tree = parse_python_silently("class _Generated:\n" + "\n".join(method) + "\n")
     except SyntaxError:
         return ""
     body = tree.body[0].body if tree.body and isinstance(tree.body[0], ast.ClassDef) else []
