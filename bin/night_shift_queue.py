@@ -7,7 +7,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-from night_shift_portfolio import parse_json_text
+from night_shift_portfolio import parse_json_text, status_check_failed
 from night_shift_js_evidence import (
     JS_EXTENSIONS,
     simple_exported_function,
@@ -860,7 +860,7 @@ def build_repo_work_queue(
             pr_files = []
             pr_source_ref = ""
         checks = pr.get("statusCheckRollup") or []
-        failed_check = any(row.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for row in checks)
+        failed_check = any(status_check_failed(row) for row in checks)
         state = "requested changes" if pr.get("reviewDecision") == "CHANGES_REQUESTED" else "failed checks" if failed_check else "open draft" if pr.get("isDraft") else "open review"
         add(
             f"pr-{number}-review",

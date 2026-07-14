@@ -23,6 +23,12 @@ def iso_datetime(value: str) -> datetime | None:
         return None
 
 
+def status_check_failed(check: dict) -> bool:
+    """Treat GitHub check runs and status contexts consistently."""
+    state = str(check.get("conclusion") or check.get("state") or "").upper()
+    return state in {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"}
+
+
 class PortfolioEngine:
     GITHUB_SLUG_RE = re.compile(
         r"(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)/"
@@ -180,7 +186,7 @@ class PortfolioEngine:
         draft_prs = 0
         for pr in prs:
             checks = pr.get("statusCheckRollup") or []
-            failed = any(check.get("conclusion") in {"FAILURE", "TIMED_OUT", "CANCELLED"} for check in checks)
+            failed = any(status_check_failed(check) for check in checks)
             if failed or pr.get("reviewDecision") == "CHANGES_REQUESTED":
                 actionable_prs += 1
             elif pr.get("isDraft"):
