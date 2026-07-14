@@ -188,6 +188,10 @@ class QueueEvidenceTests(unittest.TestCase):
             goal_semantic_contract("Add a focused behavioral test for cleanup"),
             {"minimum_target_invocations": 1},
         )
+        self.assertEqual(
+            goal_semantic_contract("Expand coverage with one regression case for cleanup"),
+            {"minimum_target_invocations": 1},
+        )
         self.assertNotIn(
             "required_boolean_outcomes",
             goal_semantic_contract("Test the truthful and falsehood labels"),
@@ -522,6 +526,54 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
             mission = next(item for item in queue if item["slug"] == "mission-brief")
             self.assertEqual(mission["files"][0], source)
             self.assertIn(f"source_file={source}", "\n".join(mission["evidence_sources"].values()))
+
+            punctuated = build_repo_work_queue(
+                repo, scan, "quiet", "brief", guidance="goal",
+                goal_text=(
+                    "Add one behavioral regression test for formatDuration in "
+                    f"{source}."
+                ), run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            )
+            punctuated_mission = next(item for item in punctuated if item["slug"] == "mission-brief")
+            self.assertEqual(punctuated_mission["files"][0], source)
+
+    def test_goal_guidance_frames_existing_behavior_as_neutral_test_strengthening(self):
+        scan = {
+            "recent_files": ["app/analytics/analytics-metrics.ts"],
+            "source_files": ["app/analytics/analytics-metrics.ts"],
+            "test_files": ["tests/analytics.test.ts"],
+            "coverage_test_files": ["tests/analytics.test.ts"],
+            "doc_files": [], "todo_sample": [],
+            "test_commands": ["npm run test:unit:vitest"],
+            "tracked_files": ["app/analytics/analytics-metrics.ts", "tests/analytics.test.ts"],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app" / "analytics").mkdir(parents=True)
+            (repo / "tests").mkdir()
+            (repo / "app" / "analytics" / "analytics-metrics.ts").write_text(
+                "export function formatDeclineReason(reason: string) {\n"
+                "  return reason.split('_').filter(Boolean).join(' ');\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            (repo / "tests" / "analytics.test.ts").write_text(
+                "import { formatDeclineReason } from '../app/analytics/analytics-metrics';\n"
+                "formatDeclineReason('privacy_concern');\n",
+                encoding="utf-8",
+            )
+            mission = next(item for item in build_repo_work_queue(
+                repo, scan, "quiet", "draft-local", guidance="goal",
+                goal_text=(
+                    "Add one behavioral regression test for formatDeclineReason in "
+                    "app/analytics/analytics-metrics.ts that proves _privacy__concern_ becomes Privacy Concern"
+                ), run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            ) if item["slug"] == "mission-brief")
+            self.assertIn("This is a test-strengthening mission", mission["prompt"])
+            self.assertIn("make CLAIM neutral", mission["prompt"])
+            self.assertIn("Keep CLAIM positive and source-grounded", mission["prompt"])
+            self.assertIn("Put the coverage gap only in WHY_NOW", mission["prompt"])
+            self.assertIn("Do not claim production code is broken", mission["prompt"])
 
     def test_goal_guidance_grounding_finds_plain_symbol_and_keeps_mission_ready(self):
         with tempfile.TemporaryDirectory() as tmp:

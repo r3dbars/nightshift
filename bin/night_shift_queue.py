@@ -57,7 +57,8 @@ def goal_semantic_contract(goal: str) -> dict:
     low = goal.lower()
     contract: dict[str, object] = {}
     if re.search(
-        r"\b(?:behavioral|focused|regression)\s+test\b|"
+        r"\b(?:behavioral|focused|regression)\s+(?:test|case)\b|"
+        r"\b(?:coverage|test suite)\b.{0,48}\b(?:regression\s+case|test case)\b|"
         r"\btest\b.{0,32}\b(?:exercise|exercises|cover|covers|invoke|invokes|assert|asserts|prove|proves)\b",
         low,
     ):
@@ -678,7 +679,7 @@ def build_repo_work_queue(
         explicit_goal_sources = [
             path for path in source_files
             if re.search(
-                rf"(?<![A-Za-z0-9_.@/-]){re.escape(path)}(?![A-Za-z0-9_.@/-])",
+                rf"(?<![A-Za-z0-9_.@/-]){re.escape(path)}(?=[^A-Za-z0-9_@/-]|$)",
                 goal_text,
             )
         ]
@@ -756,6 +757,16 @@ def build_repo_work_queue(
             mission_prompt += (
                 f" Use the existing approved test file `{approved_test_files[0]}`. "
                 "Do not create a new test file; FILES_TO_TOUCH may contain only the listed candidate files."
+            )
+        if mission_semantic_contract:
+            mission_prompt += (
+                " This is a test-strengthening mission. If the current implementation already appears to "
+                "satisfy the requested behavior, make CLAIM neutral: say that the behavior is implemented and "
+                "the requested regression case is being targeted. Keep CLAIM positive and source-grounded; do "
+                "not use `missing`, `lacks`, `absent`, `without`, `no test`, `broken`, or `incorrect` in CLAIM. "
+                "Put the coverage gap only in WHY_NOW. Do not claim production code is broken, "
+                "missing, or incorrect unless a supplied failing test or failure log proves it. Describe the "
+                "concrete input and expected observable result in BEST_NEXT_ACTION and EXPECTED_RESULT."
             )
         if mission_executable and mission_semantic_contract:
             mission_prompt += (
