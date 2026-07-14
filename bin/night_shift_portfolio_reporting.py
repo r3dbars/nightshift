@@ -185,7 +185,7 @@ class PortfolioReportEngine:
             if draft.get("status") == "PROVEN_REPAIR":
                 summary = "1 proven local repair; failing-before and passing-after checks succeeded."
             elif draft.get("status") == "VERIFIED_DRAFT":
-                summary = "1 verified local draft; full checks passed. Human usefulness review remains."
+                summary = "1 verified local draft; checks passed, your checkout stayed untouched, and the patch is ready for review."
             elif morning.exists():
                 text = morning.read_text(encoding="utf-8", errors="replace")
                 match = re.search(r"Start here:\n- (.+)", text)
@@ -211,6 +211,8 @@ class PortfolioReportEngine:
                 lines.append(
                     f"  Draft: {draft_status} | {draft_detail}"
                 )
+                if draft_status in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}:
+                    lines.append("  Next: review the patch above; Night Shift did not change your checkout.")
             publish = row.get("publish") or {}
             if publish:
                 lines.append(
