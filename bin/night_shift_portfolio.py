@@ -190,7 +190,9 @@ class PortfolioEngine:
         latest_runs: dict[str, dict] = {}
         for run in all_runs:
             key = f"{run.get('workflowName') or run.get('name')}:{run.get('headBranch')}"
-            if key not in latest_runs:
+            current_time = iso_datetime(run.get("updatedAt", "")) or datetime.min.replace(tzinfo=timezone.utc)
+            previous_time = iso_datetime((latest_runs.get(key) or {}).get("updatedAt", "")) or datetime.min.replace(tzinfo=timezone.utc)
+            if key not in latest_runs or current_time > previous_time:
                 latest_runs[key] = run
         failed_runs = [
             run for run in latest_runs.values()

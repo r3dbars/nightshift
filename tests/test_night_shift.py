@@ -5573,6 +5573,30 @@ import { helper } from '@/lib/helpers';
         self.assertEqual([run["headBranch"] for run in signals["failed_runs"]], ["main"])
         self.assertEqual(signals["score"], 185)
 
+    def test_portfolio_uses_newest_run_when_github_returns_unsorted_history(self):
+        now = night_shift.datetime.now(night_shift.timezone.utc)
+        newer = now.isoformat().replace("+00:00", "Z")
+        older = (now - night_shift.timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        runs = [
+            {"databaseId": 1, "workflowName": "CI", "headBranch": "main", "status": "completed", "conclusion": "failure", "updatedAt": older},
+            {"databaseId": 2, "workflowName": "CI", "headBranch": "main", "status": "completed", "conclusion": "success", "updatedAt": newer},
+        ]
+
+        def fake_run(cmd, **_kwargs):
+            command = [str(part) for part in cmd]
+            if command[:3] == ["gh", "pr", "list"]:
+                return night_shift.CmdResult("", 0, "[]", "")
+            if command[:3] == ["gh", "issue", "list"]:
+                return night_shift.CmdResult("", 0, "[]", "")
+            if command[:3] == ["gh", "run", "list"]:
+                return night_shift.CmdResult("", 0, json.dumps(runs), "")
+            return night_shift.CmdResult("", 1, "", "unexpected")
+
+        engine = night_shift.PortfolioEngine(fake_run, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
+        signals = engine.github_repo_signals("owner/repo", "main")
+        self.assertEqual(signals["failed_runs"], [])
+        self.assertEqual(signals["score"], 0)
+
     def test_portfolio_selection_always_keeps_explicit_primary_repo(self):
         rows = [
             {"slug": "owner/broken", "score": 500, "primary": False},
