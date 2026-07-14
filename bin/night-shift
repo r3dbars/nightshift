@@ -4057,6 +4057,10 @@ def command_feedback(args) -> int:
         mode = json.loads((ledger / "mode.json").read_text(encoding="utf-8"))
     except Exception:
         mode = {}
+    outcome_repo = str(item.get("repo") or "").strip()
+    if not outcome_repo:
+        source_repo = repo_root(str(mode.get("repo") or ""))
+        outcome_repo = repo_slug(source_repo) or str(mode.get("repo") or "")
     verdict = "useful" if args.useful else "not-useful"
     labels = item.get("labels") or []
     family = item.get("family") or task_family(
@@ -4094,13 +4098,13 @@ def command_feedback(args) -> int:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with FEEDBACK_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, sort_keys=True) + "\n")
-    if row["repo"]:
+    if outcome_repo:
         append_repo_outcome(REPO_OUTCOMES_PATH, {
             "completed_at": created_at,
             "feedback_not_useful": 1 if verdict == "not-useful" else 0,
             "feedback_useful": 1 if verdict == "useful" else 0,
             "kind": "feedback",
-            "repo": row["repo"],
+            "repo": outcome_repo,
             "source_ref": row["source_ref"],
         })
     print(f"NIGHTSHIFT_FEEDBACK: GREEN | item={args.item} | verdict={verdict} | saved={FEEDBACK_PATH}")
