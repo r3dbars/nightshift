@@ -22,6 +22,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -3705,8 +3706,36 @@ def nightly_command_line() -> str:
     return f"{runtime_tool('night-shift')} nightly"
 
 
+def launchd_tool_path() -> str:
+    """Give scheduled macOS runs the same common tool locations as a shell."""
+    candidates = [
+        BIN,
+        Path("/opt/homebrew/bin"),
+        Path("/usr/local/bin"),
+        HOME / ".local" / "bin",
+        HOME / ".bun" / "bin",
+        HOME / ".lmstudio" / "bin",
+        Path("/usr/bin"),
+        Path("/bin"),
+        Path("/usr/sbin"),
+        Path("/sbin"),
+    ]
+    candidates.extend(Path(entry) for entry in os.environ.get("PATH", "").split(":") if entry)
+    seen: set[str] = set()
+    paths: list[str] = []
+    for candidate in candidates:
+        value = str(candidate)
+        if value and value not in seen:
+            seen.add(value)
+            paths.append(value)
+    return ":".join(paths)
+
+
 def launchd_plist_body(hour: int, minute: int) -> str:
     log_path = CONFIG_DIR / "nightly.log"
+    tool_path = xml_escape(str(runtime_tool("night-shift")))
+    codex_home = xml_escape(str(CODEX_HOME))
+    path_value = xml_escape(launchd_tool_path())
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -3714,9 +3743,14 @@ def launchd_plist_body(hour: int, minute: int) -> str:
     <key>Label</key><string>{LAUNCHD_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{runtime_tool('night-shift')}</string>
+        <string>{tool_path}</string>
         <string>nightly</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CODEX_HOME</key><string>{codex_home}</string>
+        <key>PATH</key><string>{path_value}</string>
+    </dict>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key><integer>{hour}</integer>
