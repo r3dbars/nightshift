@@ -3114,6 +3114,29 @@ buildThing() { return 1; }
         self.assertNotIn("draft-pr-candidate", slugs)
         self.assertNotIn("small-safe-fix-candidate", slugs)
 
+    def test_live_work_treats_failed_status_context_as_actionable_pr(self):
+        scan = {
+            "recent_files": ["src/app.ts"],
+            "source_files": ["src/app.ts"],
+            "test_files": ["tests/app.test.ts"],
+            "doc_files": [],
+            "todo_sample": [],
+            "test_commands": ["npm test"],
+            "github_open_prs_raw": json.dumps([{
+                "number": 491,
+                "headRefName": "night-shift/491",
+                "headRefOid": "a" * 40,
+                "files": [{"path": "src/app.ts"}],
+                "statusCheckRollup": [{"context": "Vercel", "state": "FAILURE"}],
+            }]),
+            "github_open_issues_raw": "[]",
+            "github_failed_runs_raw": "[]",
+            "github_failed_logs_raw": "[]",
+        }
+        queue = night_shift.build_repo_work_queue(Path("/tmp/repo"), scan, "night-shift", "draft-local")
+        pr = next(item for item in queue if item["slug"] == "pr-491-review")
+        self.assertEqual(pr["preferred_lane"], "windows")
+
     def test_issue_queue_ranks_bounded_symbol_grounded_work_before_tracker(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
@@ -5106,6 +5129,30 @@ buildThing() { return 1; }
         engine = night_shift.PortfolioEngine(fake_run, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
         signals = engine.github_repo_signals("owner/repo", "main")
         self.assertEqual(signals["score"], 745)
+
+    def test_portfolio_counts_failed_status_contexts_as_actionable_prs(self):
+        def fake_run(cmd, **_kwargs):
+            command = [str(part) for part in cmd]
+            if command[:3] == ["gh", "pr", "list"]:
+                return night_shift.CmdResult(
+                    "", 0,
+                    json.dumps([{
+                        "number": 491,
+                        "isDraft": True,
+                        "headRefName": "night-shift/491",
+                        "statusCheckRollup": [{"context": "Vercel", "state": "FAILURE"}],
+                    }]),
+                    "",
+                )
+            if command[:3] == ["gh", "issue", "list"]:
+                return night_shift.CmdResult("", 0, "[]", "")
+            if command[:3] == ["gh", "run", "list"]:
+                return night_shift.CmdResult("", 0, "[]", "")
+            return night_shift.CmdResult("", 1, "", "unexpected")
+
+        engine = night_shift.PortfolioEngine(fake_run, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
+        signals = engine.github_repo_signals("owner/repo", "main")
+        self.assertEqual(signals["score"], 120)
 
     def test_github_discovery_accepts_only_authenticated_owner_slugs(self):
         engine = night_shift.PortfolioEngine(lambda *args, **kwargs: None, Path("/tmp/cache"), Path("/tmp/history"), lambda: "now")
