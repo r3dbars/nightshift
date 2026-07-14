@@ -357,6 +357,12 @@ class NightShiftQualityTests(unittest.TestCase):
         )
         self.assertEqual(args.wake_goal, "chores")
 
+    def test_autopilot_exposes_an_explicit_privacy_route(self):
+        args = night_shift.build_parser().parse_args([
+            "autopilot", "--privacy", "mac-only",
+        ])
+        self.assertEqual(args.privacy_route, "mac-only")
+
     def test_remote_cleanup_required_stays_yellow_in_morning_brief(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)
