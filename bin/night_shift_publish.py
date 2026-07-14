@@ -126,6 +126,7 @@ class PublishEngine:
         self.publication_ledger.parent.mkdir(parents=True, exist_ok=True)
         with self.publication_ledger.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({
+                "status": "DRAFT_PR_OPENED",
                 "fingerprint": fingerprint,
                 "repo": repo_name,
                 "pr_url": pr_url,

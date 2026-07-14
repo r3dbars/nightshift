@@ -153,7 +153,7 @@ class PublishTests(unittest.TestCase):
                 if args[:3] == ["gh", "pr", "list"]:
                     return result(stdout="[]")
                 if args[:3] == ["gh", "pr", "view"]:
-                    if "statusCheckRollup" in args:
+                    if any("statusCheckRollup" in item for item in args):
                         return result(stdout=json.dumps({
                             "statusCheckRollup": [{"name": "Actions", "conclusion": "SUCCESS"}],
                         }))
@@ -184,6 +184,58 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(duplicate["status"], "REJECT")
             self.assertIn("already published", duplicate["reason"])
             self.assertEqual(sum(args[:2] == ["git", "push"] for args in calls), push_count)
+
+    def test_published_draft_is_reconcilable_from_recorded_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            patch_path = root / "repair.patch"
+            patch_path.write_text(PATCH, encoding="utf-8")
+            ledger = root / "published-drafts.jsonl"
+            calls = []
+
+            def fake(command, **kwargs):
+                args = [str(item) for item in command]
+                calls.append(args)
+                if args[:3] == ["gh", "api", "user"]:
+                    return result(stdout="owner\n")
+                if args[:3] == ["gh", "repo", "view"]:
+                    return result(stdout=json.dumps({
+                        "nameWithOwner": "owner/repo", "isFork": False,
+                        "defaultBranchRef": {"name": "main"},
+                    }))
+                if args[:3] == ["git", "diff", "--name-only"]:
+                    return result(stdout="src/app.py\n")
+                if args[:3] == ["git", "rev-parse", "HEAD"]:
+                    return result(stdout=COMMIT_SHA + "\n")
+                if args[:3] == ["gh", "pr", "create"]:
+                    return result(stdout="https://github.com/owner/repo/pull/11\n")
+                if args[:3] == ["gh", "pr", "list"]:
+                    return result(stdout="[]")
+                if args[:3] == ["gh", "pr", "view"]:
+                    if any("statusCheckRollup" in item for item in args):
+                        return result(stdout=json.dumps({
+                            "isDraft": True,
+                            "statusCheckRollup": [{"name": "Actions", "conclusion": "SUCCESS"}],
+                        }))
+                    return result(stdout="true\n")
+                return result()
+
+            engine = PublishEngine(
+                fake,
+                root / "worktrees",
+                lambda: "20260714t231000z",
+                publication_ledger=ledger,
+            )
+            published = engine.publish(
+                root, "owner/repo", self.proof(patch_path), profile(), root / "proof"
+            )
+            self.assertEqual(published["status"], "DRAFT_PR_OPENED")
+            recorded = json.loads(ledger.read_text(encoding="utf-8"))
+            self.assertEqual(recorded["status"], "DRAFT_PR_OPENED")
+
+            reconciled = engine.reconcile_drafts(root)
+            self.assertEqual(reconciled[0]["draft_state"], "draft", calls)
+            self.assertEqual(reconciled[0]["hosted_checks"]["state"], "passed")
 
     def test_rejects_non_owner_before_creating_worktree(self):
         with tempfile.TemporaryDirectory() as tmp:
