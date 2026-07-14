@@ -165,6 +165,29 @@ class PortfolioReportEngine:
             return f"I checked {summary}, but none became a safe, specific task tonight."
         return "I checked this repo, but nothing was strong enough to work on safely tonight."
 
+    @staticmethod
+    def unverified_summary(count: int) -> str:
+        """Keep candidate-only results singular and clear in the morning brief."""
+        if count == 1:
+            return "One possible lead; no deterministic outcome yet."
+        return f"{count} possible leads; no deterministic outcome yet."
+
+    @staticmethod
+    def morning_choice_heading(items: list[dict]) -> str:
+        """Use stronger language only when the portfolio item has proof."""
+        if not items:
+            return "What I checked:"
+        verified = {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
+        if len(items) == 1:
+            return (
+                "One verified outcome to review:"
+                if items[0].get("outcome_status") in verified
+                else "One possible lead:"
+            )
+        if all(item.get("outcome_status") in verified for item in items):
+            return "Verified outcomes to review:"
+        return "Possible leads:"
+
     def write_brief(self, ledger: Path, cycle_rows: list[dict], status: str) -> None:
         latest_by_repo: dict[str, dict] = {}
         for row in cycle_rows:
@@ -227,7 +250,9 @@ class PortfolioReportEngine:
                 if match and self.morning_status(morning) == "GREEN":
                     summary = match.group(1).strip()
                 elif row.get("new_tasks"):
-                    summary = f"{row['new_tasks']} unproven candidate(s); no deterministic outcome."
+                    summary = self.unverified_summary(int(row["new_tasks"]))
+            elif row.get("new_tasks"):
+                summary = self.unverified_summary(int(row["new_tasks"]))
             reason = row.get("portfolio_reason") or "recent activity"
             lines.extend([f"- {repo_name}: {summary}", f"  Why this repo: {reason}", f"  Proof: {child}"])
             signal_summary = self.signal_summary(row)
@@ -265,7 +290,7 @@ class PortfolioReportEngine:
                     )
         if morning_items:
             ledger_arg = shlex.quote(str(ledger))
-            lines.extend(["", "Your morning choices:"])
+            lines.extend(["", self.morning_choice_heading(morning_items)])
             for item in morning_items[:3]:
                 lines.append(
                     f"{item['rank']}. {item['repo']}: {item['summary']} "
