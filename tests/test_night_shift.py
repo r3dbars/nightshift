@@ -3136,6 +3136,8 @@ buildThing() { return 1; }
         queue = night_shift.build_repo_work_queue(Path("/tmp/repo"), scan, "night-shift", "draft-local")
         pr = next(item for item in queue if item["slug"] == "pr-491-review")
         self.assertEqual(pr["preferred_lane"], "windows")
+        ready_pr = {**pr, "source_ref": "a" * 40}
+        self.assertEqual(night_shift.model_task_readiness_reasons(ready_pr, "night-shift"), [])
 
     def test_issue_queue_ranks_bounded_symbol_grounded_work_before_tracker(self):
         with tempfile.TemporaryDirectory() as tmp:
