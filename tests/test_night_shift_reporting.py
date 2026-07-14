@@ -349,6 +349,29 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertIn("Verify: python3 -m unittest tests.test_app", morning)
             self.assertIn("Proof: /tmp/proof.json", morning)
 
+    def test_brief_makes_verified_draft_next_step_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = root / "child"
+            child.mkdir()
+            patch = child / "draft.patch"
+            patch.write_text("diff --git a/tests/test_app.py b/tests/test_app.py\n", encoding="utf-8")
+            self.engine(root).write_brief(root, [{
+                "repo": "owner/repo",
+                "checkout": str(root),
+                "ledger": str(child),
+                "new_tasks": 1,
+                "portfolio_rank": 1,
+                "portfolio_reason": "your current project",
+                "draft": {"status": "VERIFIED_DRAFT", "patch": str(patch)},
+            }], "GREEN")
+            morning = (root / "morning.md").read_text(encoding="utf-8")
+            self.assertIn(
+                "checks passed, your checkout stayed untouched, and the patch is ready for review",
+                morning,
+            )
+            self.assertIn("Next: review the patch above; Night Shift did not change your checkout.", morning)
+
     def test_morning_status_reads_valid_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "status.txt"

@@ -388,8 +388,11 @@ class NightShiftQualityTests(unittest.TestCase):
                 "draft": {"status": "VERIFIED_DRAFT", "patch": "/tmp/candidate.patch"},
             }], "YELLOW")
             brief = (ledger / "morning.md").read_text(encoding="utf-8")
-            self.assertIn("1 verified local draft; full checks passed", brief)
-            self.assertIn("Human usefulness review remains", brief)
+            self.assertIn(
+                "1 verified local draft; checks passed, your checkout stayed untouched, and the patch is ready for review",
+                brief,
+            )
+            self.assertIn("the patch is ready for review", brief)
             self.assertNotIn("no deterministic outcome", brief)
 
     def test_portfolio_brief_explains_rejected_draft_reason(self):
