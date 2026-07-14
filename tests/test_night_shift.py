@@ -4941,6 +4941,7 @@ import { helper } from '@/lib/helpers';
         self.assertIn("corrected unified diff", correction)
         self.assertIn("PATCH-SENTINEL", correction)
         self.assertIn("FAILURE-SENTINEL", correction)
+        self.assertIn("failing expected value as a possible worker mistake", correction)
         self.assertIn("Change only the allowed test file", correction)
         self.assertIn("rc is not returncode", correction)
         self.assertIn("a Path object is not its string form", correction)
