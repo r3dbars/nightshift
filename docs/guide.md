@@ -38,6 +38,10 @@ When you vote on a morning item, Night Shift also saves whether that item was
 only a candidate or had a verified draft behind it. That keeps later learning
 honest about what was actually useful.
 
+`night-shift health` also summarizes the full local outcome ledger, including
+verified drafts, candidate-only work, tokens per verified draft, useful votes
+by outcome type, and passing hosted drafts.
+
 The joke version: it lets your machines have a productive little night shift,
 without letting them become management.
 

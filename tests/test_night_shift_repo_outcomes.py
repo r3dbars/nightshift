@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, repo_outcome_adjustment
+from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, outcome_ledger_summary, repo_outcome_adjustment
 
 
 class RepoOutcomeTests(unittest.TestCase):
@@ -77,12 +77,32 @@ class RepoOutcomeTests(unittest.TestCase):
             {
                 "repo": "owner/repo",
                 "draft_pr_opened": 1,
-                "hosted_checks_state": "pass",
+                "hosted_checks_state": "passed",
             },
         ], "owner/repo")
         self.assertEqual(summary["useful_verified_feedback"], 1)
         self.assertEqual(summary["useful_candidate_feedback"], 1)
         self.assertEqual(summary["hosted_draft_prs"], 1)
+        self.assertEqual(summary["hosted_green_draft_prs"], 1)
+
+    def test_aggregate_outcome_summary_excludes_feedback_rows_from_run_count(self):
+        summary = outcome_ledger_summary([
+            {
+                "repo": "owner/repo", "verified_drafts": 1,
+                "verified_outcome_tokens": 3400, "candidate_only_candidates": 2,
+                "estimated_tokens": 4000, "draft_pr_opened": 1,
+                "hosted_checks_state": "pass",
+            },
+            {
+                "kind": "feedback", "feedback_useful": 1,
+                "useful_verified_feedback": 1,
+            },
+        ])
+        self.assertEqual(summary["runs"], 1)
+        self.assertEqual(summary["verified_drafts"], 1)
+        self.assertEqual(summary["candidate_only_candidates"], 2)
+        self.assertEqual(summary["tokens_per_verified_draft"], 3400)
+        self.assertEqual(summary["useful_verified_feedback"], 1)
         self.assertEqual(summary["hosted_green_draft_prs"], 1)
 
     def test_outcome_ledger_is_bounded_and_keeps_latest(self):
