@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from night_shift_evidence import action_type, artifact_priority
-from night_shift_feedback import latest_feedback_events
+from night_shift_feedback import feedback_quality_snapshot, latest_feedback_events
 from night_shift_redaction import redact, sanitize_evidence_sources, sanitize_task_for_ledger
 
 
@@ -86,6 +86,9 @@ class ReportEngine:
             len(delays),
             round(sum(delays) / len(delays), 3) if delays else None,
         )
+
+    def feedback_quality(self, repo: str = "") -> dict[str, int]:
+        return feedback_quality_snapshot(self.load_feedback(), repo)
 
     def feedback_continuity(self, repo: str = "", limit: int = 3) -> list[dict]:
         """Return the latest current votes that should shape the next brief."""
@@ -335,6 +338,7 @@ class ReportEngine:
         feedback_useful, feedback_not_useful, feedback_history, feedback_timing_count, feedback_delay_average = self.feedback_snapshot(
             str((scan or {}).get("repo") or "")
         )
+        feedback_quality = self.feedback_quality(str((scan or {}).get("repo") or ""))
         if work_items: first_action = work_items[0]["primary"]["summary"]
         elif results: first_action = factual[0].removeprefix("- ") if factual else "No evidence-backed item survived. Review the deterministic repo scan before another model run."
         elif scan and scan.get("status") == "ok":
@@ -370,6 +374,13 @@ class ReportEngine:
         if feedback_timing_count:
             lines.append(
                 f"- Review timing signals: {feedback_timing_count} vote(s), average {feedback_delay_average:g} seconds from brief view to vote"
+            )
+        if any(feedback_quality.values()):
+            lines.append(
+                "- Morning review signals: "
+                f"clear={feedback_quality['clear']} confusing={feedback_quality['confusing']}; "
+                f"effort quick={feedback_quality['quick']} some-work={feedback_quality['some-work']} "
+                f"too-much={feedback_quality['too-much']}"
             )
         continuity = self.feedback_continuity(str((scan or {}).get("repo") or ""))
         if continuity:
@@ -422,6 +433,7 @@ class ReportEngine:
                 "Teach Night Shift (one quick vote):",
                 f"- If choice 1 would save you time: `night-shift feedback --ledger {ledger_arg} --item 1 --useful`",
                 f"- If it missed the mark: `night-shift feedback --ledger {ledger_arg} --item 1 --not-useful --note \"one short reason\"`",
+                "- Optional: add `--clarity clear` or `--clarity confusing`, plus `--effort quick`, `--effort some-work`, or `--effort too-much`.",
                 "- This stays on this computer and changes future rankings for this repo.",
             ])
         lines.extend(["- Treat manual hardware/audio proof as UNKNOWN unless a human verified it.", "", "Safety:", "- No merges, releases, tags, notarization, deploys, appcast/cask updates, billing, credentials, or user-file cleanup were performed by this command.", "- Local and Windows outputs are drafts, not truth.", "", "Proof files:", f"- Repo scan: {ledger / 'repo-scan.md'}", f"- Work queue: {ledger / 'work-queue.md'}", f"- Harvest: {ledger / 'harvest.md'}", f"- Token report: {ledger / 'token-report.txt'}"])

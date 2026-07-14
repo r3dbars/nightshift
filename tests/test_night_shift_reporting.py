@@ -171,7 +171,10 @@ class ReportingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)
             feedback = [
-                {"repo": "/repo", "family": "tests", "fingerprint": "one", "verdict": "useful", "feedback_delay_seconds": 4.0},
+                {
+                    "repo": "/repo", "family": "tests", "fingerprint": "one", "verdict": "useful",
+                    "feedback_delay_seconds": 4.0, "clarity": "clear", "effort": "quick",
+                },
                 {"repo": "/repo", "family": "docs", "fingerprint": "two", "verdict": "not-useful"},
                 {"repo": "/other", "family": "tests", "fingerprint": "three", "verdict": "useful"},
             ]
@@ -184,6 +187,10 @@ class ReportingTests(unittest.TestCase):
                 brief,
             )
             self.assertIn("Review timing signals: 1 vote(s), average 4 seconds", brief)
+            self.assertIn(
+                "Morning review signals: clear=1 confusing=0; effort quick=1 some-work=0 too-much=0",
+                brief,
+            )
 
     def test_morning_carries_last_votes_forward_without_leaking_notes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -348,6 +355,8 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertIn("Files: src/app.py, tests/test_app.py", morning)
             self.assertIn("Verify: python3 -m unittest tests.test_app", morning)
             self.assertIn("Proof: /tmp/proof.json", morning)
+            self.assertIn("--clarity clear", morning)
+            self.assertIn("--effort quick", morning)
 
     def test_brief_makes_verified_draft_next_step_clear(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -433,9 +433,13 @@ Teach Night Shift after reviewing a choice:
 ```bash
 night-shift feedback --latest --item 1 --useful
 night-shift feedback --latest --item 2 --not-useful --note "too generic"
+# Optional: also record clarity and review effort.
+night-shift feedback --latest --item 1 --useful --clarity clear --effort quick
 ```
 
-Feedback stays local and affects later prompts and rankings for that repo.
+Feedback stays local and affects later prompts and rankings for that repo. The
+optional clarity and effort fields help measure whether the morning brief is
+easy to understand and quick to review.
 
 The right next action is usually one of these:
 
