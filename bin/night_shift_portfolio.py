@@ -100,7 +100,23 @@ class PortfolioEngine:
         return selected
 
     @staticmethod
-    def selection_reason(item: dict) -> str:
+    def pull_request_counts(prs: list[dict]) -> tuple[int, int, int]:
+        actionable = 0
+        ready = 0
+        drafts = 0
+        for pr in prs:
+            checks = pr.get("statusCheckRollup") or []
+            failed = any(status_check_failed(check) for check in checks)
+            if failed or pr.get("reviewDecision") == "CHANGES_REQUESTED":
+                actionable += 1
+            elif pr.get("isDraft"):
+                drafts += 1
+            else:
+                ready += 1
+        return actionable, ready, drafts
+
+    @classmethod
+    def selection_reason(cls, item: dict) -> str:
         """Explain the strongest reason this repository received a slot."""
         outcome = item.get("outcome_summary") or {}
         outcome_reason = ""
@@ -117,8 +133,19 @@ class PortfolioEngine:
         signals = item.get("signals") or {}
         if signals.get("failed_runs"):
             return "recent failing checks"
-        if signals.get("prs") or signals.get("issues"):
-            return "active GitHub work"
+        actionable_prs = int(signals.get("actionable_prs") or 0)
+        ready_prs = int(signals.get("ready_prs") or 0)
+        draft_prs = int(signals.get("draft_prs") or 0)
+        if not actionable_prs and not ready_prs and not draft_prs:
+            actionable_prs, ready_prs, draft_prs = cls.pull_request_counts(signals.get("prs") or [])
+        if actionable_prs:
+            return "pull requests need review or fixes"
+        if ready_prs:
+            return "ready-to-merge pull requests"
+        if draft_prs:
+            return "open draft pull requests"
+        if signals.get("issues"):
+            return "open GitHub issues"
         return "recent activity"
 
     def github_repo_signals(self, slug: str, default_branch: str = "") -> dict:
@@ -181,23 +208,20 @@ class PortfolioEngine:
         if active_branches:
             failed_runs = [row for row in failed_runs if row.get("headBranch") in active_branches]
         score = min(len(failed_runs), 3) * 140
-        actionable_prs = 0
-        ready_prs = 0
-        draft_prs = 0
-        for pr in prs:
-            checks = pr.get("statusCheckRollup") or []
-            failed = any(status_check_failed(check) for check in checks)
-            if failed or pr.get("reviewDecision") == "CHANGES_REQUESTED":
-                actionable_prs += 1
-            elif pr.get("isDraft"):
-                draft_prs += 1
-            else:
-                ready_prs += 1
+        actionable_prs, ready_prs, draft_prs = self.pull_request_counts(prs)
         score += min(actionable_prs, 3) * 120
         score += min(ready_prs, 3) * 50
         score += min(draft_prs, 3) * 15
         score += min(len(issues), 5) * 10
-        return {"prs": prs, "issues": issues, "failed_runs": failed_runs, "score": score}
+        return {
+            "prs": prs,
+            "issues": issues,
+            "failed_runs": failed_runs,
+            "actionable_prs": actionable_prs,
+            "ready_prs": ready_prs,
+            "draft_prs": draft_prs,
+            "score": score,
+        }
 
     def discover(
         self,

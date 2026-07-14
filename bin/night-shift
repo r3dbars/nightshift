@@ -3247,6 +3247,9 @@ def command_autopilot(args) -> int:
                             "failed_runs": len(signals.get("failed_runs") or []),
                             "issues": len(signals.get("issues") or []),
                             "prs": len(signals.get("prs") or []),
+                            "actionable_prs": int(signals.get("actionable_prs") or 0),
+                            "ready_prs": int(signals.get("ready_prs") or 0),
+                            "draft_prs": int(signals.get("draft_prs") or 0),
                         },
                     })
                     controller.append(cycle_row)
@@ -3302,6 +3305,9 @@ def command_autopilot(args) -> int:
                         "failed_runs": len(signals.get("failed_runs") or []),
                         "issues": len(signals.get("issues") or []),
                         "prs": len(signals.get("prs") or []),
+                        "actionable_prs": int(signals.get("actionable_prs") or 0),
+                        "ready_prs": int(signals.get("ready_prs") or 0),
+                        "draft_prs": int(signals.get("draft_prs") or 0),
                     },
                 })
                 if controller.may_draft(

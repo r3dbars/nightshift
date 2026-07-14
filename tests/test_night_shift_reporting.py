@@ -469,6 +469,20 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertIn("GitHub signals checked: 3 failed checks, 2 pull requests, 1 issue.", morning)
             self.assertNotIn("Your morning choices:", morning)
 
+    def test_signal_summary_explains_pull_request_states(self):
+        summary = self.engine(Path("/tmp")).signal_summary({
+            "portfolio_signals": {
+                "prs": 2,
+                "actionable_prs": 1,
+                "ready_prs": 1,
+                "issues": 1,
+            },
+        })
+        self.assertEqual(
+            summary,
+            "2 pull requests (1 needing review or fixes, 1 ready to merge), 1 issue",
+        )
+
     def test_portfolio_selection_reason_explains_feedback_learning(self):
         self.assertEqual(
             PortfolioEngine.selection_reason({
