@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -22,11 +23,20 @@ from night_shift_queue import (
 )
 from night_shift_portfolio import PortfolioEngine
 from night_shift_python_evidence import top_level_symbol_call_count_text
+from night_shift_python_evidence import parse_python_silently
 from night_shift_js_evidence import top_level_symbol_call_count_text as js_symbol_call_count_text
 from night_shift_selection import model_ready_tasks
 
 
 class QueueEvidenceTests(unittest.TestCase):
+    def test_repository_parse_does_not_leak_syntax_warnings(self):
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            tree = parse_python_silently("value = 1\nif value is 1:\n    pass\n")
+
+        self.assertIsNotNone(tree)
+        self.assertFalse(any(item.category is SyntaxWarning for item in captured))
+
     def test_top_level_python_calls_count_direct_alias_and_module_forms(self):
         text = (
             "from pkg.tools import helper as renamed\n"
@@ -723,6 +733,8 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
             self.assertTrue(task["executable"])
             self.assertIn("tests/unit/lib/analytics-metrics.test.ts", task["files"])
             self.assertIn("analysis=typescript-regex", "\n".join(task["evidence_sources"].values()))
+            self.assertIn("Use only the copy-ready goal-source citation", task["prompt"])
+            self.assertIn("return ACTION_TYPE: reject", task["prompt"])
 
     def test_invocation_gap_is_owner_aware_and_understands_import_aliases(self):
         with tempfile.TemporaryDirectory() as tmp:

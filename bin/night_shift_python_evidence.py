@@ -2,12 +2,20 @@
 from __future__ import annotations
 
 import ast
+import warnings
+
+
+def parse_python_silently(text: str) -> ast.AST:
+    """Parse repository text without leaking compiler warnings into run logs."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        return ast.parse(text)
 
 
 def top_level_symbol_call_count_text(text: str, symbol: str) -> int | None:
     """Conservatively count direct, imported, aliased, and attribute calls."""
     try:
-        tree = ast.parse(text)
+        tree = parse_python_silently(text)
     except SyntaxError:
         return None
     direct_names = {symbol}
@@ -56,7 +64,7 @@ def top_level_symbol_call_count_text(text: str, symbol: str) -> int | None:
 
 def owner_symbol_call_count_text(text: str, owner: str, symbol: str) -> int | None:
     try:
-        tree = ast.parse(text)
+        tree = parse_python_silently(text)
     except SyntaxError:
         return None
     trusted_aliases = {
@@ -283,7 +291,7 @@ def semantic_test_contract_reasons(
             return ["patched test could not be parsed for semantic proof"]
         calls += counted
         try:
-            tree = ast.parse(text)
+            tree = parse_python_silently(text)
         except SyntaxError:
             return ["patched test could not be parsed for semantic proof"]
         for node in ast.walk(tree):

@@ -14,7 +14,11 @@ from night_shift_js_evidence import (
     simple_exported_function,
     top_level_symbol_call_count_text as js_symbol_call_count_text,
 )
-from night_shift_python_evidence import owner_symbol_call_count_text, top_level_symbol_call_count_text
+from night_shift_python_evidence import (
+    owner_symbol_call_count_text,
+    parse_python_silently,
+    top_level_symbol_call_count_text,
+)
 from night_shift_selection import (
     declared_symbols,
     relevant_tests_for_source,
@@ -89,7 +93,7 @@ def symbol_is_test_addressable(path: str, source: str, symbol: str) -> bool:
     """Reject JS/TS top-level internals that tests cannot import directly."""
     if Path(path).suffix.lower() == ".py":
         try:
-            tree = ast.parse(source)
+            tree = parse_python_silently(source)
         except SyntaxError:
             return False
         if any(
@@ -144,7 +148,7 @@ def typescript_gap_is_draftable(
 
 def python_owned_methods(text: str) -> list[tuple[str, str]]:
     try:
-        tree = ast.parse(text)
+        tree = parse_python_silently(text)
     except SyntaxError:
         return []
     properties = python_property_methods(text)
@@ -164,7 +168,7 @@ def python_owned_methods(text: str) -> list[tuple[str, str]]:
 
 def python_property_methods(text: str) -> set[tuple[str, str]]:
     try:
-        tree = ast.parse(text)
+        tree = parse_python_silently(text)
     except SyntaxError:
         return set()
     cached_aliases = {"cached_property"}
@@ -523,7 +527,7 @@ class QueueEvidenceIndex:
         node_end = None
         if Path(source_path).suffix == ".py":
             try:
-                tree = ast.parse("\n".join(lines))
+                tree = parse_python_silently("\n".join(lines))
                 if owner:
                     owner_node = next(
                         value for value in tree.body
@@ -966,8 +970,10 @@ def build_repo_work_queue(
                 (
                     f"Add one focused behavioral test for `{symbol}` in `{path}` using the supplied "
                     f"{'exact imported' if is_typescript_gap else 'owner-aware'} direct-test-call and source evidence. "
+                    "Use only the copy-ready goal-source citation; do not infer or cite a blank or neighboring line. "
+                    "State one positive observable behavior supported by the return, output, or side-effect expression. "
                     "Return ACTION_TYPE: draft-pr-candidate and name the existing test file to change. "
-                    "Reject if a safe observable behavior cannot be asserted."
+                    "If the supplied source lines do not prove that behavior, return ACTION_TYPE: reject."
                     if has_supported_gap else
                     f"Inspect only `{symbol}` in `{path}`. Cite that exact source line plus the supplied coverage-index evidence. Do not discuss another function; reject when the index is incomplete or this exact gap is unsupported."
                 )
