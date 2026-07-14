@@ -3458,6 +3458,19 @@ buildThing() { return 1; }
             self.assertEqual(path.read_text(encoding="utf-8"), before)
             self.assertEqual(list(path.parent.glob(f".{path.name}.*")), [])
 
+    def test_feedback_ledger_preserves_rows_when_atomic_replace_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "feedback.jsonl"
+            first = {"ledger": "one", "rank": 1, "verdict": "useful"}
+            second = {"ledger": "two", "rank": 1, "verdict": "not-useful"}
+            night_shift.append_feedback_event(path, first)
+            before = path.read_text(encoding="utf-8")
+            with patch("night_shift_feedback.os.replace", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    night_shift.append_feedback_event(path, second)
+            self.assertEqual(path.read_text(encoding="utf-8"), before)
+            self.assertEqual(list(path.parent.glob(f".{path.name}.*")), [])
+
     def test_inline_code_is_cleaned_for_morning_output(self):
         self.assertEqual(night_shift.clean_inline_code("`bash scripts/check-package.sh`"), "bash scripts/check-package.sh")
 
