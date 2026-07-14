@@ -763,9 +763,13 @@ def build_repo_work_queue(
                 " This is a test-strengthening mission. If the current implementation already appears to "
                 "satisfy the requested behavior, make CLAIM neutral: say that the behavior is implemented and "
                 "the requested regression case is being targeted. Keep CLAIM positive and source-grounded; do "
-                "not use `missing`, `lacks`, `absent`, `without`, `no test`, `broken`, or `incorrect` in CLAIM. "
+                "not use `missing`, `lacks`, `absent`, `without`, `no test`, `not yet`, `uncovered`, "
+                "`not covered`, `not asserted`, `broken`, or `incorrect` in CLAIM. "
+                "Do not mention test files or coverage status in CLAIM; mention tests only in "
+                "WHY_NOW, BEST_NEXT_ACTION, FILES_TO_TOUCH, or EXPECTED_RESULT. "
                 "Put the coverage gap only in WHY_NOW. Do not claim production code is broken, "
-                "missing, or incorrect unless a supplied failing test or failure log proves it. Describe the "
+                "missing, or incorrect unless a supplied failing test or failure log proves it. Put each "
+                "EVIDENCE citation on its own line; never combine citations with semicolons. Describe the "
                 "concrete input and expected observable result in BEST_NEXT_ACTION and EXPECTED_RESULT."
             )
         if mission_executable and mission_semantic_contract:
