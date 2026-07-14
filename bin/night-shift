@@ -48,7 +48,7 @@ from night_shift_handoff import CANDIDATE_BOUNDARY, build_handoff_prompt, handof
 from night_shift_feedback import CLARITY_VALUES, EFFORT_VALUES, apply_review_outcomes, apply_task_feedback, feedback_delay_seconds, feedback_quality_snapshot, feedback_score, latest_feedback_events, should_record_feedback_event, should_record_review_outcome, task_family
 from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
-from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, repo_outcome_adjustment
+from night_shift_repo_outcomes import append_repo_outcome, load_repo_outcomes, outcome_ledger_summary, repo_outcome_adjustment
 from night_shift_autopilot import AutopilotCycleState
 from night_shift_selection import (
     declared_symbols,
@@ -2133,6 +2133,16 @@ def command_health(args) -> int:
             f"rejected={metrics.get('rejected', 0)} tokens~={metrics.get('estimated_tokens', 0)} "
             f"tokens/verified~={metrics.get('tokens_per_verified_draft', 0)}"
         )
+    outcome_summary = outcome_ledger_summary(load_repo_outcomes(REPO_OUTCOMES_PATH))
+    print(
+        f"- Outcome ledger: runs={outcome_summary['runs']} "
+        f"verified_drafts={outcome_summary['verified_drafts']} "
+        f"candidate_only={outcome_summary['candidate_only_candidates']} "
+        f"tokens/verified~={outcome_summary['tokens_per_verified_draft']} "
+        f"useful_verified_votes={outcome_summary['useful_verified_feedback']} "
+        f"useful_candidate_votes={outcome_summary['useful_candidate_feedback']} "
+        f"hosted_green_drafts={outcome_summary['hosted_green_draft_prs']}"
+    )
     feedback = load_feedback()
     current_feedback = latest_feedback_events(feedback)
     useful = sum(row.get("verdict") == "useful" for row in current_feedback)

@@ -21,6 +21,25 @@ def load_repo_outcomes(path: Path, limit: int = 500) -> list[dict]:
     return rows
 
 
+def outcome_ledger_summary(rows: list[dict]) -> dict[str, int | float]:
+    """Aggregate durable run and review signals without treating candidates as wins."""
+    run_rows = [row for row in rows if row.get("kind") not in {"feedback", "feedback-compatibility"}]
+    verified = sum(int(row.get("verified_drafts") or 0) for row in run_rows)
+    verified_tokens = sum(int(row.get("verified_outcome_tokens") or 0) for row in run_rows)
+    return {
+        "runs": len(run_rows),
+        "verified_drafts": verified,
+        "candidate_only_candidates": sum(int(row.get("candidate_only_candidates") or 0) for row in run_rows),
+        "estimated_tokens": sum(int(row.get("estimated_tokens") or 0) for row in run_rows),
+        "tokens_per_verified_draft": round(verified_tokens / verified, 4) if verified else 0,
+        "useful_feedback": sum(int(row.get("feedback_useful") or 0) for row in rows),
+        "useful_verified_feedback": sum(int(row.get("useful_verified_feedback") or 0) for row in rows),
+        "useful_candidate_feedback": sum(int(row.get("useful_candidate_feedback") or 0) for row in rows),
+        "hosted_draft_prs": sum(int(row.get("draft_pr_opened") or 0) for row in run_rows),
+        "hosted_green_draft_prs": sum(int(row.get("hosted_checks_state") in {"pass", "passed"}) for row in run_rows),
+    }
+
+
 def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tuple[int, dict]:
     recent = [row for row in rows if row.get("repo") == repo][-limit:]
     points = 0
@@ -48,7 +67,7 @@ def repo_outcome_adjustment(rows: list[dict], repo: str, limit: int = 8) -> tupl
                 useful_candidate_feedback += 1
         if int(row.get("draft_pr_opened") or 0):
             hosted_prs += 1
-            if str(row.get("hosted_checks_state") or "") == "pass":
+            if str(row.get("hosted_checks_state") or "") in {"pass", "passed"}:
                 hosted_green += 1
             elif str(row.get("hosted_checks_state") or "") in {"failed", "unknown"}:
                 hosted_failed += 1
