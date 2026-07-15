@@ -31,6 +31,15 @@ from night_shift_python_evidence import semantic_test_contract_reasons
 
 
 class NightShiftQualityTests(unittest.TestCase):
+    def test_run_cmd_tolerates_binary_stdout_from_git_inspection(self):
+        result = night_shift.run_cmd([
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.buffer.write(b'\\x89PNG')",
+        ])
+        self.assertEqual(result.rc, 0)
+        self.assertTrue(result.stdout.endswith("PNG"))
+
     def test_direct_checkout_uses_bundled_tools_when_install_home_is_empty(self):
         original_bin = night_shift.BIN
         try:
