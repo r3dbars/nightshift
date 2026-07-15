@@ -109,6 +109,7 @@ Typical files include:
 - `morning.md`
 - `token-report.txt`
 - `verification-proof.json` when one owner-approved deterministic check was requested.
+- `run-summary.json` for the controller's factual elapsed time and stop reason.
 
 The delegate wrapper also writes proof artifacts under:
 

@@ -326,6 +326,24 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertEqual(json.loads((root / "morning-items.json").read_text()), [])
             self.assertIn("Status: GREEN", (root / "morning.md").read_text())
 
+    def test_brief_reports_exact_controller_stop_reason_when_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "run-summary.json").write_text(json.dumps({
+                "stop_reason": "deadline",
+                "elapsed_seconds": 36_000,
+                "cycles": 12,
+                "repositories_visited": 3,
+            }), encoding="utf-8")
+            self.engine(root).write_brief(root, [], "GREEN")
+            morning = (root / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("Run status:", morning)
+            self.assertIn(
+                "Controller reached the configured stop limit after 10.0 hours; 12 cycles across 3 repositories.",
+                morning,
+            )
+            self.assertIn("Exact run proof:", morning)
+
     def test_morning_items_returns_rank_then_name_sorted_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

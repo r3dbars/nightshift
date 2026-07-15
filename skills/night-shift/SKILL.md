@@ -233,6 +233,10 @@ The command must already be in the repo profile. Night Shift saves
 the morning brief. It never invents a command, starts a service, grants
 network access, or treats a skipped check as proof.
 
+Every portfolio run saves `run-summary.json` with its exact stop reason,
+elapsed time, cycles, and repository count. The morning brief uses that file
+to say whether the run reached its deadline, was stopped, or completed early.
+
 ## End-To-End Checks
 
 Night Shift notices Playwright, Cypress, and repo E2E folders during the scan.

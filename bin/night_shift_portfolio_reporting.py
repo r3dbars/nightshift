@@ -190,6 +190,37 @@ class PortfolioReportEngine:
             return "Verified outcomes to review:"
         return "Possible leads:"
 
+    @staticmethod
+    def run_summary(ledger: Path) -> dict:
+        try:
+            value = json.loads((ledger / "run-summary.json").read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def run_stop_line(summary: dict) -> str:
+        reasons = {
+            "deadline": "reached the configured stop limit",
+            "stop-file": "was stopped by the user or scheduler",
+            "once": "completed its one-cycle run",
+            "no-prepared-repositories": "stopped because no repository checkout was available",
+            "completed": "completed normally",
+            "error": "stopped after an internal error",
+        }
+        reason = reasons.get(
+            str(summary.get("stop_reason") or ""),
+            "finished without a recorded stop reason",
+        )
+        try:
+            elapsed = float(summary.get("elapsed_seconds") or 0)
+        except (TypeError, ValueError):
+            elapsed = 0
+        duration = f"{elapsed / 3600:.1f} hours" if elapsed else "an unknown duration"
+        cycles = int(summary.get("cycles") or 0)
+        repositories = int(summary.get("repositories_visited") or 0)
+        return f"- Controller {reason} after {duration}; {cycles} cycles across {repositories} repositories."
+
     def write_brief(self, ledger: Path, cycle_rows: list[dict], status: str) -> None:
         latest_by_repo: dict[str, dict] = {}
         for row in cycle_rows:
@@ -225,8 +256,16 @@ class PortfolioReportEngine:
         lines = [
             "# Night Shift Portfolio Brief", "", f"Status: {display_status}", "",
             "Good morning - here is the short version:", "",
-            "What Night Shift worked on:",
         ]
+        summary = self.run_summary(ledger)
+        if summary:
+            lines.extend([
+                "Run status:",
+                self.run_stop_line(summary),
+                f"- Exact run proof: {ledger / 'run-summary.json'}",
+                "",
+            ])
+        lines.append("What Night Shift worked on:")
         if not latest_by_repo:
             lines.append("- No repository produced a new task this cycle.")
         ordered_rows = sorted(
