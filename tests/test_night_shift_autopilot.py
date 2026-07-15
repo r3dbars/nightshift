@@ -70,16 +70,20 @@ class AutopilotCycleStateTests(unittest.TestCase):
             self.assertTrue(state.may_draft("owner/repo", True, "draft-local"))
             self.assertTrue(state.may_draft("owner/repo", True, "draft-prs"))
 
-    def test_rejected_draft_attempt_skips_later_cycles_without_blocking_next_shift(self):
+    def test_rejected_draft_attempts_are_bounded_without_blocking_next_shift(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = AutopilotCycleState(Path(tmp))
             state.start_cycle()
             row = {"repo": "owner/repo", "rc": 0}
             state.finish_draft_attempt(row, {"status": "REJECT", "reason": "sandbox unavailable"})
+            self.assertTrue(state.may_draft("owner/repo", True, "draft-local"))
+            self.assertFalse(state.should_skip_attempted_repo("owner/repo"))
+            state.finish_draft_attempt(row, {"status": "REJECT", "reason": "no proof"})
+            state.finish_draft_attempt(row, {"status": "REJECT", "reason": "no patch"})
             self.assertFalse(state.may_draft("owner/repo", True, "draft-local"))
             self.assertTrue(state.should_skip_attempted_repo("owner/repo"))
             skipped = state.record_attempted_skip(repo="owner/repo", checkout=Path(tmp))
-            self.assertIn("retry next shift", skipped["skip_reason"])
+            self.assertIn("bounded draft-attempt budget", skipped["skip_reason"])
 
             next_shift = AutopilotCycleState(Path(tmp))
             next_shift.start_cycle()

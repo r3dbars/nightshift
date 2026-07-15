@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+MAX_DRAFT_ATTEMPTS_PER_REPO = 3
+
 
 @dataclass
 class AutopilotCycleState:
@@ -11,6 +13,7 @@ class AutopilotCycleState:
     rows: list[dict] = field(default_factory=list)
     drafted_repos: set[str] = field(default_factory=set)
     attempted_repos: set[str] = field(default_factory=set)
+    attempted_counts: dict[str, int] = field(default_factory=dict)
     verified_repos: set[str] = field(default_factory=set)
     cycle: int = 0
     status: str = "GREEN"
@@ -50,21 +53,27 @@ class AutopilotCycleState:
         return (
             execute_drafts
             and permission in {"draft-local", "draft-prs"}
-            and repo not in self.drafted_repos
+            and repo not in self.verified_repos
+            and self.attempted_counts.get(str(repo or ""), 0) < MAX_DRAFT_ATTEMPTS_PER_REPO
         )
 
     def finish_draft_attempt(self, row: dict, draft: dict | None) -> None:
-        self.attempted_repos.add(str(row.get("repo") or ""))
+        repo = str(row.get("repo") or "")
+        self.attempted_repos.add(repo)
+        self.attempted_counts[repo] = self.attempted_counts.get(repo, 0) + 1
         if draft is not None:
             row["draft"] = draft
             if str(draft.get("status") or "") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}:
-                self.verified_repos.add(str(row.get("repo") or ""))
+                self.verified_repos.add(repo)
         self.drafted_repos.add(str(row.get("repo") or ""))
 
     def should_skip_attempted_repo(self, repo: str) -> bool:
-        """Avoid repeated model calls after one draft attempt in this shift."""
+        """Stop after a small bounded budget, or after a verified draft."""
         name = str(repo or "")
-        return name in self.attempted_repos or name in self.drafted_repos
+        return (
+            name in self.verified_repos
+            or self.attempted_counts.get(name, 0) >= MAX_DRAFT_ATTEMPTS_PER_REPO
+        )
 
     def should_skip_verified_repo(self, repo: str) -> bool:
         """Avoid more model calls after this repo already produced a verified draft."""
@@ -75,7 +84,7 @@ class AutopilotCycleState:
         if name in self.verified_repos:
             reason = "verified draft already produced for this repo during this shift"
         else:
-            reason = "draft attempt already made for this repo during this shift; retry next shift"
+            reason = "bounded draft-attempt budget reached for this repo during this shift; retry next shift"
         return {
             "cycle": self.cycle,
             "repo": repo,
