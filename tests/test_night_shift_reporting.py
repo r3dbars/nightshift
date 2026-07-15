@@ -274,11 +274,23 @@ class ReportingTests(unittest.TestCase):
             rejected["quality_reasons"] = ["cited line does not match the pinned source"]
             self.engine().write_morning(
                 ledger, "quiet", [rejected], 100, "GREEN",
-                {"status": "ok", "recent_files": ["README.md", "bin/night-shift"], "test_commands": ["python3 -m unittest"], "branch": "main", "head": "abc"},
+                {
+                    "status": "ok",
+                    "recent_files": ["README.md", "bin/night-shift"],
+                    "test_commands": ["python3 -m unittest"],
+                    "verification_result": {
+                        "status": "PASS",
+                        "command": "python3 -m unittest",
+                        "proof": "/tmp/verification-proof.json",
+                    },
+                    "branch": "main",
+                    "head": "abc",
+                },
             )
             brief = (ledger / "morning.md").read_text()
             self.assertIn("Recent code/test surface: README.md, bin/night-shift", brief)
             self.assertIn("Detected verification command", brief)
+            self.assertIn("Approved check: PASS", brief)
             self.assertIn("dropped because: cited line does not match the pinned source", brief)
             self.assertIn("What I checked:", brief)
             self.assertNotIn("Three useful choices:", brief)
