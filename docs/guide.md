@@ -237,6 +237,7 @@ Useful files:
 - `work-queue.md` / `work-queue.json`: deduped action choices after worker
   scoring.
 - `token-report.txt`: estimated tokens by lane.
+- `run-summary.json`: exact controller start, elapsed time, cycle count, and stop reason for a portfolio run.
 - `morning.md`: the morning brief.
 
 When you prepare a morning handoff, Night Shift also saves an inspectable,
