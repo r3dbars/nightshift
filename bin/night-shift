@@ -2740,13 +2740,29 @@ def command_run(args) -> int:
     rejection_budget = REJECTION_BUDGET[args.mode]
     prior_rejections = rejection_count(TASK_ATTEMPTS_PATH, repo_name, scan.get("head", ""))
     circuit_bypass_tasks = fresh_explicit_goal_tasks(queue, attempts, guidance, goal_text)
-    circuit_bypassed = prior_rejections >= rejection_budget and bool(circuit_bypass_tasks)
+    recurring_audit_tasks = [item for item in queue if item.get("recurrence") in {"daily", "weekly"}]
+    circuit_bypassed = prior_rejections >= rejection_budget and bool(
+        circuit_bypass_tasks or recurring_audit_tasks
+    )
     if prior_rejections >= rejection_budget:
-        queue = circuit_bypass_tasks
+        # The circuit blocks stale coding ideas, but recurring report-only audits
+        # are deliberately fresh and bounded work for an otherwise quiet repo.
+        queue = []
+        seen_slugs: set[str] = set()
+        for item in [*circuit_bypass_tasks, *recurring_audit_tasks]:
+            slug = str(item.get("slug") or "")
+            if slug and slug not in seen_slugs:
+                seen_slugs.add(slug)
+                queue.append(item)
+        circuit_status = (
+            "BYPASSED_FOR_NEW_EXPLICIT_GOAL" if circuit_bypass_tasks
+            else "BYPASSED_FOR_RECURRING_AUDITS" if recurring_audit_tasks
+            else "OPEN"
+        )
         (ledger / "model-circuit.json").write_text(
             json.dumps(
                 {
-                    "status": "BYPASSED_FOR_NEW_EXPLICIT_GOAL" if circuit_bypassed else "OPEN",
+                    "status": circuit_status,
                     "repo": repo_name,
                     "head": scan.get("head", ""),
                     "rejections": prior_rejections,
