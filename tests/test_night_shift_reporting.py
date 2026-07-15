@@ -250,6 +250,23 @@ class ReportingTests(unittest.TestCase):
             self.assertIn("[REDACTED_SECRET]", brief)
             self.assertNotIn("secret-value-123456", brief)
 
+    def test_morning_makes_code_heavy_summary_friendly_but_keeps_detail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            summary = (
+                "The `morning_items` method in `PortfolioReportEngine` returns a list "
+                "sorted by portfolio rank when given a non-empty dictionary."
+            )
+            self.engine().write_morning(
+                ledger, "quiet", [result(summary=summary)], 100, "GREEN"
+            )
+            brief = (ledger / "morning.md").read_text()
+            self.assertIn(
+                "Possible lead: check `PortfolioReportEngine.morning_items` to make sure this behavior matches what the project expects.",
+                brief,
+            )
+            self.assertIn(f"Technical detail: {summary}", brief)
+
     def test_morning_falls_back_to_factual_scan(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp)
@@ -322,6 +339,30 @@ class PortfolioReportingTests(unittest.TestCase):
                 "owner/first", "owner/tie", "owner/second",
             ])
             self.assertEqual(items[1]["summary"], "Check owner/tie")
+
+    def test_portfolio_brief_makes_code_heavy_summary_friendly_but_keeps_detail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = root / "child"
+            child.mkdir()
+            summary = (
+                "The `morning_items` method in `PortfolioReportEngine` returns a list "
+                "sorted by portfolio rank when given a non-empty dictionary."
+            )
+            (child / "work-queue.json").write_text(json.dumps([{
+                "key": "tests:owner/repo", "labels": ["tests"], "score": "MAYBE",
+                "summary": summary, "evidence": "src/app.py:1",
+            }]))
+            self.engine(root).write_brief(root, [{
+                "repo": "owner/repo", "portfolio_rank": "1", "portfolio_score": 10,
+                "ledger": str(child), "new_tasks": 1, "portfolio_reason": "recent activity",
+            }], "YELLOW")
+            brief = (root / "morning.md").read_text()
+            self.assertIn(
+                "Possible lead: check `PortfolioReportEngine.morning_items` to make sure this behavior matches what the project expects.",
+                brief,
+            )
+            self.assertIn(f"Technical detail: {summary}", brief)
 
     def test_snapshot_preserves_each_cycle_compactly(self):
         with tempfile.TemporaryDirectory() as tmp:
