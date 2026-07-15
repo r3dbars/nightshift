@@ -6,6 +6,8 @@ import shlex
 from pathlib import Path
 from typing import Callable
 
+from night_shift_reporting import friendly_summary
+
 
 class PortfolioReportEngine:
     def __init__(self, task_history_path: Path, task_family: Callable[[str], str]) -> None:
@@ -292,10 +294,13 @@ class PortfolioReportEngine:
             ledger_arg = shlex.quote(str(ledger))
             lines.extend(["", self.morning_choice_heading(morning_items)])
             for item in morning_items[:3]:
+                display_summary = friendly_summary(item["summary"])
                 lines.append(
-                    f"{item['rank']}. {item['repo']}: {item['summary']} "
+                    f"{item['rank']}. {item['repo']}: {display_summary} "
                     f"[{item['score']}] ({item['selection_reason']})"
                 )
+                if display_summary != item["summary"]:
+                    lines.append(f"   Technical detail: {item['summary']}")
                 if item.get("evidence"):
                     lines.append(f"   Evidence: {item['evidence']}")
                 if item.get("files"):

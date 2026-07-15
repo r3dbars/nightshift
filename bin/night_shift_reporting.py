@@ -23,6 +23,31 @@ ACTION_THEMES = (
 )
 
 
+def friendly_summary(text: str) -> str:
+    """Turn common code-review wording into a short first-read sentence.
+
+    Keep the original redacted summary in the brief as technical detail. This
+    helper only improves the first sentence a tired morning reader sees.
+    """
+    cleaned = " ".join(redact(text).split())
+    match = re.fullmatch(
+        r"The `(?P<method>[^`]+)` method in `(?P<owner>[^`]+)` (?P<detail>.+)",
+        cleaned,
+        re.IGNORECASE,
+    )
+    if not match:
+        return cleaned
+    method = match.group("method")
+    owner = match.group("owner")
+    detail = match.group("detail").lower()
+    target = f"`{owner}.{method}`"
+    if "not called by any" in detail or "no unit test" in detail or "not covered" in detail:
+        return f"Possible lead: add a focused test for {target} so this behavior stays covered."
+    if "returns" in detail or "sort" in detail or "handles" in detail:
+        return f"Possible lead: check {target} to make sure this behavior matches what the project expects."
+    return f"Possible lead: review {target}. Night Shift found a specific behavior worth checking."
+
+
 class ReportEngine:
     def __init__(
         self,
@@ -385,7 +410,7 @@ class ReportEngine:
             str((scan or {}).get("repo") or "")
         )
         feedback_quality = self.feedback_quality(str((scan or {}).get("repo") or ""))
-        if work_items: first_action = work_items[0]["primary"]["summary"]
+        if work_items: first_action = friendly_summary(work_items[0]["primary"]["summary"])
         elif results: first_action = factual[0].removeprefix("- ") if factual else "No evidence-backed item survived. Review the deterministic repo scan before another model run."
         elif scan and scan.get("status") == "ok":
             first_action = (
@@ -405,7 +430,10 @@ class ReportEngine:
         if work_items:
             for index, item in enumerate(work_items, 1):
                 row = item["primary"]
-                lines.append(f"{index}. {row['summary']} [{row['score']}]")
+                display_summary = friendly_summary(row["summary"])
+                lines.append(f"{index}. {display_summary} [{row['score']}]")
+                if display_summary != redact(row["summary"]):
+                    lines.append(f"   Technical detail: {redact(row['summary'])}")
                 if row.get("evidence"): lines.append(f"   Evidence: {row['evidence']}")
                 if row.get("files"): lines.append(f"   Files: {', '.join(row['files'][:5])}")
                 if row.get("tests"): lines.append(f"   Verify: `{row['tests']}`")
@@ -453,18 +481,18 @@ class ReportEngine:
         if not totals: lines.append("- none")
         ready = [item for item in all_items if item["primary"]["score"] == "KEEP"]
         lines.extend(["", "Deterministically proven worker findings:"])
-        lines.extend(f"- {item['action_type']}: {item['primary']['summary']} ({len(item['supporting'])} supporting artifact(s))" for item in ready[:5])
+        lines.extend(f"- {item['action_type']}: {friendly_summary(item['primary']['summary'])} ({len(item['supporting'])} supporting artifact(s))" for item in ready[:5])
         if not ready: lines.append("- None.")
         maybe_items = [item for item in all_items if item["primary"]["score"] == "MAYBE"]
         lines.extend(["", "Evidence-backed candidates that still need deterministic proof:"])
-        lines.extend(f"- {item['action_type']}: {item['primary']['summary']} ({len(item['supporting'])} supporting artifact(s))" for item in maybe_items[:5])
+        lines.extend(f"- {item['action_type']}: {friendly_summary(item['primary']['summary'])} ({len(item['supporting'])} supporting artifact(s))" for item in maybe_items[:5])
         if not maybe_items: lines.append("- None.")
         lines.extend(["", "REJECT summary:"])
         rejected = sorted((row for row in results if row["score"] == "REJECT"), key=lambda row: (-row["priority"], row["label"]))
         for row in rejected[:5]:
             reasons = [redact(str(reason)) for reason in row.get("quality_reasons", []) if str(reason).strip()]
             explanation = "; ".join(reasons[:2]) or "the response did not meet the evidence or safety checks"
-            lines.append(f"- {row['label']}: {row['summary']} (dropped because: {explanation})")
+            lines.append(f"- {row['label']}: {friendly_summary(row['summary'])} (dropped because: {explanation})")
         if reject == 0: lines.append("- None.")
         review_intro = (
             "- You do not need to read everything. Start with item 1; worker output is a draft, not the final truth."
