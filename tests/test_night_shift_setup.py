@@ -55,6 +55,7 @@ class SetupPolicyTests(unittest.TestCase):
                     "permission": "draft-prs",
                     "execute_drafts": True,
                     "allow_draft_prs": True,
+                    "run_checks": True,
                     "stop": "8h",
                     "privacy_route": "mac-only",
                     "wake_goal": "draft-prs",
@@ -64,6 +65,7 @@ class SetupPolicyTests(unittest.TestCase):
             MODE_DEFAULTS,
         )
         self.assertIn("test-gated patches in disposable copies", preview)
+        self.assertIn("approved deterministic check", preview)
         self.assertIn("May open test-passed draft PRs; never merges them", preview)
         self.assertIn("stop after 8 hours", preview)
         self.assertIn("Keep repo context on this Mac", preview)

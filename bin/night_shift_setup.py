@@ -104,6 +104,7 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]], mode_defaults:
     execute_drafts = bool(prefs.get("execute_drafts", False)) and permission != "brief"
     allow_draft_prs = bool(prefs.get("allow_draft_prs", False))
     run_e2e = bool(prefs.get("run_e2e", False))
+    run_checks = bool(prefs.get("run_checks", False))
     stop = prefs.get("stop", "morning")
     wake_goal = prefs.get("wake_goal", "brief")
     privacy_route = prefs.get("privacy_route", "mac-only")
@@ -129,9 +130,15 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]], mode_defaults:
         f"- Use {', '.join(tools)}",
         f"- Look for {wake_goal_label(wake_goal).lower()}",
         f"- Use {mode_label(mode).lower()} effort and {stop_label(stop).lower()}",
-        "- Run one already-approved E2E/smoke check per repo in the isolated no-network runner"
-        if run_e2e
-        else "- Notice E2E tests when a repo has them; never run an unapproved browser command",
+        (
+            "- Run one approved deterministic check and one approved E2E/smoke check per repo in isolated no-network runners"
+            if run_checks and run_e2e
+            else "- Run one already-approved deterministic check per repo in the isolated no-network runner"
+            if run_checks
+            else "- Run one already-approved E2E/smoke check per repo in the isolated no-network runner"
+            if run_e2e
+            else "- Notice tests and E2E surfaces; never run an unapproved command"
+        ),
         f"- {patch_plan}",
         "- Leave a short morning brief with proof and next steps",
         "", "Safety:",
@@ -154,7 +161,7 @@ def setup_has_changed(saved: dict, proposed: dict) -> bool:
         preferences = dict(normalized.get("preferences") or {})
         # Missing consent is deliberately equivalent to explicit denial. Adding
         # a new fail-closed flag must not make a repeat launch look like setup.
-        for key in ("allow_cloud_reasoning", "allow_draft_prs", "allow_remote_lan_worker", "execute_drafts", "run_e2e"):
+        for key in ("allow_cloud_reasoning", "allow_draft_prs", "allow_remote_lan_worker", "execute_drafts", "run_e2e", "run_checks"):
             if preferences.get(key) is False:
                 preferences.pop(key)
         if "preferences" in normalized:
