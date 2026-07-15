@@ -611,6 +611,7 @@ def build_repo_work_queue(
         executable: bool = False,
         signal_strength: int = 0,
         semantic_contract: dict | None = None,
+        recurrence: str = "",
     ) -> None:
         if slug in {item["slug"] for item in queue}:
             return
@@ -632,6 +633,7 @@ def build_repo_work_queue(
                 "executable": executable,
                 "signal_strength": signal_strength,
                 "semantic_contract": semantic_contract or {},
+                "recurrence": recurrence,
             }
         )
 
@@ -643,6 +645,9 @@ def build_repo_work_queue(
     docs = scan.get("doc_files") or []
     todos = scan.get("todo_sample") or []
     test_commands = scan.get("test_commands") or []
+    e2e_commands = scan.get("e2e_commands") or []
+    e2e_files = scan.get("e2e_files") or []
+    e2e_frameworks = scan.get("e2e_frameworks") or []
     source_files = scan.get("source_files") or []
     tracked_files = scan.get("tracked_files") or []
     recent_source = [path for path in recent if path in source_files]
@@ -824,6 +829,76 @@ def build_repo_work_queue(
             "Night Shift should hand the user exact verification commands.",
             (tests + recent)[:12],
             ladder="strengthen",
+        )
+    if e2e_files or e2e_commands:
+        framework_text = ", ".join(e2e_frameworks) if e2e_frameworks else "the detected end-to-end setup"
+        command_text = ", ".join(f"`{command}`" for command in e2e_commands[:4]) or "no approved command yet"
+        add(
+            "e2e-smoke-review",
+            "e2e",
+            f"Inspect the {framework_text} setup and decide whether one bounded end-to-end smoke check is ready. The detected commands are {command_text}. Report the exact user journey, required local services, and the safest command to approve. Never claim the browser flow ran unless the supplied proof says it ran.",
+            "This repo has an end-to-end test surface that can catch a real user-facing regression.",
+            e2e_files[:20] + recent[:4],
+            ladder="strengthen",
+            preferred_lane="local",
+            proof_kind="e2e",
+            commands=e2e_commands or ["git status --short"],
+            recurrence="daily",
+        )
+    workflow_files = [path for path in tracked_files if path.startswith(".github/workflows/")]
+    if workflow_files:
+        add(
+            "workflow-health-check",
+            "workflow",
+            "Read the supplied GitHub workflow files and identify one concrete reliability improvement: a missing test step, an unpinned action, an unclear trigger, or a command that disagrees with the repo. Cite the exact YAML lines and do not edit workflow files automatically.",
+            "CI is part of the overnight product: a repo can look healthy locally while its checks quietly drift.",
+            workflow_files[:12] + tests[:4],
+            ladder="understand",
+            preferred_lane="local",
+            proof_kind="source",
+            commands=["git status --short"],
+            recurrence="weekly",
+        )
+    dependency_files = [
+        path for path in tracked_files
+        if Path(path).name in {
+            "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+            "pyproject.toml", "poetry.lock", "requirements.txt", "Cargo.toml",
+            "Cargo.lock", "go.mod", "go.sum", "Gemfile", "Gemfile.lock",
+        }
+    ]
+    if len(dependency_files) >= 1:
+        add(
+            "dependency-health-check",
+            "dependency",
+            "Compare the supplied dependency manifest and lockfile files for an exact, evidence-backed mismatch or reproducibility risk. Do not upgrade packages, rewrite lockfiles, or claim a vulnerability without a named source.",
+            "Dependency drift is useful to notice overnight, but upgrades stay a deliberate daytime decision.",
+            dependency_files[:12],
+            ladder="understand",
+            preferred_lane="local",
+            proof_kind="source",
+            commands=["git status --short"],
+            recurrence="weekly",
+        )
+    release_files = [
+        path for path in tracked_files
+        if Path(path).name.lower() in {
+            "version", "changelog.md", "changes.md", "appcast.xml", "release.yml",
+            "release.yaml", "release.sh", "scripts/release.sh",
+        }
+    ]
+    if release_files:
+        add(
+            "release-readiness-check",
+            "release",
+            "Compare the supplied release and version files for one exact contradiction, missing handoff, or stale command. Report what a maintainer should verify next. Never publish, sign, tag, or change release metadata overnight.",
+            "Release drift is high leverage to find and high risk to change automatically.",
+            release_files[:12],
+            ladder="understand",
+            preferred_lane="local",
+            proof_kind="source",
+            commands=["git status --short"],
+            recurrence="daily",
         )
     if docs:
         add(

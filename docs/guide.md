@@ -152,6 +152,33 @@ night-shift autopilot --repo /path/to/project \
   --stop-after 8h
 ```
 
+### E2E checks
+
+Night Shift finds existing Playwright, Cypress, and `tests/e2e` surfaces and
+adds a small E2E review task to the overnight queue. Discovery is read-only.
+It will not invent `npx` commands or run a browser test until you approve one
+detected script for that repo:
+
+```bash
+night-shift trust-repo --repo /path/to/project --include-e2e
+night-shift autopilot --repo /path/to/project --run-e2e --stop-after 8h
+```
+
+The approved command runs in the same rootless, no-network sandbox as other
+verification. The result is saved in `e2e-proof.json` and is clearly labeled
+`PASS`, `FAIL`, or `SKIPPED`. A failing E2E check is useful evidence, not an
+automatic code change. Night Shift does not start external services, publish
+results, or touch the original checkout.
+
+### What keeps a quiet repo useful
+
+Most one-off tasks are still skipped after they have been attempted at the same
+revision. A few low-risk audits intentionally recur: E2E smoke review and
+release readiness are daily; workflow and dependency health are weekly. Each
+has a fresh time-bucketed fingerprint, exact files, and a report-only prompt.
+This gives idle local AI useful work without asking it to repeat rejected code
+ideas or manufacture bugs.
+
 - `brief`: read-only repo scan, artifacts, and a ranked queue.
 - `draft-local`: exact patch plans, issue candidates, files, tests, and isolated tested drafts when enabled; nothing is pushed.
 - `draft-prs`: review-ready candidates, plus optional isolated patches when

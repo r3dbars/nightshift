@@ -29,6 +29,59 @@ from night_shift_selection import model_ready_tasks
 
 
 class QueueEvidenceTests(unittest.TestCase):
+    def test_queue_adds_recurring_e2e_ci_dependency_and_release_checks(self):
+        scan = {
+            "recent_files": [],
+            "source_files": [],
+            "test_files": ["tests/e2e/login.spec.ts"],
+            "coverage_test_files": ["tests/e2e/login.spec.ts"],
+            "doc_files": [],
+            "todo_sample": [],
+            "test_commands": ["npm run test:unit"],
+            "e2e_commands": ["npm run test:e2e"],
+            "e2e_files": ["playwright.config.ts", "tests/e2e/login.spec.ts"],
+            "e2e_frameworks": ["Playwright"],
+            "tracked_files": [
+                ".github/workflows/ci.yml", "package.json", "package-lock.json",
+                "playwright.config.ts", "tests/e2e/login.spec.ts", "CHANGELOG.md",
+            ],
+        }
+        def run_cmd(argv, cwd=None, timeout=60, env=None, pid_log=None):
+            return SimpleNamespace(rc=0, stdout="", stderr="")
+
+        def detect_test_commands(repo, tracked, source_ref=""):
+            return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = build_repo_work_queue(
+                Path(tmp), scan, "afterburner", "brief",
+                run_cmd=run_cmd, detect_test_commands=detect_test_commands,
+            )
+        by_slug = {item["slug"]: item for item in queue}
+        self.assertEqual(
+            {
+                "e2e-smoke-review", "workflow-health-check", "dependency-health-check",
+                "release-readiness-check",
+            },
+            set(by_slug) & {
+                "e2e-smoke-review", "workflow-health-check", "dependency-health-check",
+                "release-readiness-check",
+            },
+        )
+        self.assertEqual(by_slug["e2e-smoke-review"]["recurrence"], "daily")
+        self.assertEqual(by_slug["workflow-health-check"]["recurrence"], "weekly")
+        self.assertFalse(by_slug["e2e-smoke-review"]["executable"])
+
+    def test_recurring_task_fingerprint_is_distinct_from_one_time_task(self):
+        base = {"slug": "workflow-health-check", "kind": "workflow", "files": [".github/workflows/ci.yml"]}
+        daily = {**base, "recurrence": "daily"}
+        weekly = {**base, "recurrence": "weekly"}
+        one_time = PortfolioEngine.task_fingerprint("owner/repo", "a" * 40, base)
+        daily_fingerprint = PortfolioEngine.task_fingerprint("owner/repo", "a" * 40, daily)
+        weekly_fingerprint = PortfolioEngine.task_fingerprint("owner/repo", "a" * 40, weekly)
+        self.assertNotEqual(one_time, daily_fingerprint)
+        self.assertNotEqual(daily_fingerprint, weekly_fingerprint)
+
     def test_repository_parse_does_not_leak_syntax_warnings(self):
         with warnings.catch_warnings(record=True) as captured:
             warnings.simplefilter("always")

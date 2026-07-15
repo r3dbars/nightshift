@@ -1435,6 +1435,7 @@ def repo_signal_scan(repo: Path | None) -> dict:
     scan["todo_count_sample"] = len(todo_sample)
     scan["todo_sample"] = todo_sample
     scan["test_commands"] = detect_test_commands(repo, tracked)
+    scan.update(detect_e2e_inventory(repo, tracked, scan["test_commands"]))
     scan["github_slug"] = repo_slug(repo)
     if shutil.which("gh"):
         prs = run_cmd(
@@ -1563,6 +1564,87 @@ def detect_test_commands(repo: Path, tracked: list[str], source_ref: str = "") -
     if any(path.endswith((".sln", ".csproj")) for path in names):
         commands.append("dotnet test")
     return list(dict.fromkeys(commands))[:24]
+
+
+def detect_e2e_inventory(repo: Path, tracked: list[str], test_commands: list[str] | None = None) -> dict:
+    """Classify an existing E2E surface without inventing an executable command."""
+    names = set(tracked)
+    e2e_files = [
+        path for path in tracked
+        if Path(path).name.startswith(("playwright.config", "cypress.config"))
+        or Path(path).name == "cypress.json"
+        or path.startswith(("e2e/", "tests/e2e/", "test/e2e/", "cypress/", "playwright/"))
+    ]
+    frameworks: list[str] = []
+    if any(Path(path).name.startswith("playwright.config") for path in e2e_files):
+        frameworks.append("Playwright")
+    if any(Path(path).name.startswith("cypress.config") or Path(path).name == "cypress.json" for path in e2e_files):
+        frameworks.append("Cypress")
+    if any(path.startswith(("e2e/", "tests/e2e/", "test/e2e/")) for path in e2e_files):
+        frameworks.append("repo E2E tests")
+    commands = [
+        command for command in (test_commands or [])
+        if re.search(r"(?:^|\s|:)(?:e2e|smoke|playwright|cypress)(?:$|\s|:)", command, re.IGNORECASE)
+    ]
+    if "package.json" in names:
+        try:
+            package = json.loads((repo / "package.json").read_text(encoding="utf-8"))
+            scripts = package.get("scripts", {})
+            manager = "pnpm run" if "pnpm-lock.yaml" in names else "yarn" if "yarn.lock" in names else "npm run"
+            for script in scripts:
+                if re.search(r"(?:e2e|smoke|playwright|cypress)", script, re.IGNORECASE) and re.fullmatch(r"[A-Za-z0-9:_-]+", script):
+                    commands.append(f"{manager} {script}")
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+    return {
+        "e2e_files": list(dict.fromkeys(e2e_files))[:40],
+        "e2e_frameworks": list(dict.fromkeys(frameworks)),
+        "e2e_commands": list(dict.fromkeys(commands))[:12],
+    }
+
+
+def run_approved_e2e(repo: Path, scan: dict, ledger: Path) -> dict:
+    """Run one explicitly approved E2E command and save a factual proof record."""
+    inventory = scan.get("e2e_commands") or []
+    proof = {
+        "repo": str(repo),
+        "head": str(scan.get("head") or ""),
+        "requested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "status": "SKIPPED",
+        "command": "",
+        "reason": "",
+    }
+    profile, detail = load_repo_profile(repo)
+    approved: list[tuple[str, ...]] = []
+    if profile and profile.may_execute:
+        for command in profile.commands:
+            if command_display(command) in inventory and re.search(r"(?:e2e|smoke|playwright|cypress)", command_display(command), re.IGNORECASE):
+                approved.append(command)
+    if not inventory:
+        proof["reason"] = "no E2E command was detected; Night Shift did not invent one"
+    elif not approved:
+        proof["reason"] = f"no detected E2E command is approved in {PROFILE_NAME}; execution stays off"
+    else:
+        command = approved[0]
+        proof["command"] = command_display(command)
+        sandbox = detect_sandbox(run_cmd)
+        if not sandbox.available:
+            proof["status"] = "BLOCKED"
+            proof["reason"] = sandbox.detail
+        else:
+            result = run_cmd(
+                sandbox_command(repo, command, profile, repo_dependency_source(repo, profile)),
+                cwd=repo,
+                timeout=min(profile.max_seconds, 1800),
+            )
+            proof["status"] = "PASS" if result.rc == 0 else "FAIL"
+            proof["exit_code"] = result.rc
+            proof["timed_out"] = bool(getattr(result, "timed_out", False))
+            proof["output"] = redact((result.stdout or result.stderr or "")[-4000:])
+            proof["reason"] = "approved E2E command completed" if result.rc == 0 else "approved E2E command failed; inspect the captured output"
+    path = ledger / "e2e-proof.json"
+    path.write_text(json.dumps(proof, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return proof
 
 
 def verification_command_priority(command: list[str]) -> tuple[int, str]:
@@ -2260,7 +2342,7 @@ def verification_preflight(result: CmdResult, command: tuple[str, ...] = ()) -> 
     return "BLOCKED", detail
 
 
-def trust_repo_commands(repo: Path, scan: dict) -> list[list[str]]:
+def trust_repo_commands(repo: Path, scan: dict, include_e2e: bool = False) -> list[list[str]]:
     """Prefer an owner's reviewed argv profile over filename heuristics."""
     profile, _ = load_repo_profile(repo)
     configured = getattr(profile, "commands", ()) if profile else ()
@@ -2274,7 +2356,17 @@ def trust_repo_commands(repo: Path, scan: dict) -> list[list[str]]:
             parsed = None
         if parsed:
             commands.append(list(parsed))
-    return sorted(commands, key=verification_command_priority)[:1]
+    selected = sorted(commands, key=verification_command_priority)[:1]
+    if include_e2e:
+        for value in scan.get("e2e_commands") or []:
+            try:
+                parsed = validate_command(shlex.split(value))
+            except ValueError:
+                parsed = None
+            if parsed and list(parsed) not in selected:
+                selected.append(list(parsed))
+                break
+    return selected
 
 
 def command_trust_repo(args) -> int:
@@ -2303,7 +2395,7 @@ def command_trust_repo(args) -> int:
         print("NIGHTSHIFT_TRUST_REPO: RED | the exact GitHub repository identity could not be verified")
         return 1
     scan = repo_signal_scan(repo)
-    commands = trust_repo_commands(repo, scan)
+    commands = trust_repo_commands(repo, scan, getattr(args, "include_e2e", False))
     if not commands:
         print("NIGHTSHIFT_TRUST_REPO: RED | no safe deterministic verification command was detected")
         return 1
@@ -2318,6 +2410,8 @@ def command_trust_repo(args) -> int:
     print(f"- Repo: {slug}")
     print(f"- Remote: {remote}")
     print(f"- Verification: {command_display(commands[0])}")
+    if len(commands) > 1:
+        print(f"- Optional E2E verification: {command_display(commands[1])}")
     print(f"- Writable paths in disposable worktrees only: {', '.join(allowed_paths)}")
     print("- Original checkout: read-only")
     print("- GitHub writes: disabled by this approval")
@@ -2561,6 +2655,7 @@ def command_run(args) -> int:
                 "goal": goal_text,
                 "task_limit": getattr(args, "task_limit", None),
                 "privacy_route": privacy_route,
+                "run_e2e": bool(getattr(args, "run_e2e", False)),
             },
             indent=2,
             sort_keys=True,
@@ -2601,6 +2696,10 @@ def command_run(args) -> int:
     )
     context = repo_context_pack(root if root and root.exists() else None)
     scan = repo_signal_scan(root)
+    if getattr(args, "run_e2e", False):
+        e2e_proof = run_approved_e2e(root, scan, ledger)
+        e2e_proof["proof"] = str(ledger / "e2e-proof.json")
+        scan["e2e_result"] = e2e_proof
     write_repo_scan(ledger, scan)
     discovered_queue = pin_queue_revision(
         build_repo_work_queue(root, scan, args.mode, permission, guidance, goal_text),
@@ -3104,6 +3203,8 @@ def command_autopilot(args) -> int:
         args.windows_model = ""
     if getattr(args, "execute_drafts", None) is None:
         args.execute_drafts = bool(config_value(saved, "execute_drafts", False))
+    if getattr(args, "run_e2e", None) is None:
+        args.run_e2e = bool(config_value(saved, "run_e2e", False))
     args.mode = getattr(args, "mode", None) or config_value(saved, "mode", "night-shift")
     args.scope = getattr(args, "scope", None) or config_value(saved, "scope", "github-recent")
     args.permission = getattr(args, "permission", None) or config_value(saved, "permission", "brief")
@@ -3305,6 +3406,7 @@ def command_autopilot(args) -> int:
                     unattended=False,
                     wake_goal=getattr(args, "wake_goal", "brief"),
                     privacy_route=getattr(args, "privacy_route", "mac-only"),
+                    run_e2e=getattr(args, "run_e2e", False),
                 )
                 rc = command_run(child_args)
                 child_ledger = Path(child_args.result_ledger)
@@ -3532,6 +3634,7 @@ def command_start(args) -> int:
     priority_repos = PortfolioEngine.normalize_priority_repos(config_value(saved, "priority_repos", []))
     quiet_hours = normalize_quiet_hours(config_value(saved, "quiet_hours", ""))
     execute_drafts = bool(getattr(args, "execute_drafts", False) or config_value(saved, "execute_drafts", False))
+    run_e2e = bool(getattr(args, "run_e2e", False) or config_value(saved, "run_e2e", False))
     allow_draft_prs = bool(getattr(args, "allow_draft_prs", False) or config_value(saved, "allow_draft_prs", False))
     if permission != "draft-prs":
         allow_draft_prs = False
@@ -3694,6 +3797,7 @@ def command_start(args) -> int:
             "priority_repos": priority_repos,
             "quiet_hours": quiet_hours,
             "execute_drafts": execute_drafts,
+            "run_e2e": run_e2e,
             "allow_draft_prs": allow_draft_prs,
         },
         "legacy": {
@@ -3792,6 +3896,7 @@ def command_start(args) -> int:
         task_limit=None,
         poll_minutes=None,
         execute_drafts=execute_drafts,
+        run_e2e=run_e2e,
         allow_draft_prs=allow_draft_prs,
         once=getattr(args, "once", False),
         unattended=False,
@@ -4101,6 +4206,7 @@ def command_nightly(args) -> int:
         task_limit=None,
         poll_minutes=None,
         execute_drafts=config_value(config, "execute_drafts", False),
+        run_e2e=config_value(config, "run_e2e", False),
         once=getattr(args, "once", False),
     )
     rc = command_autopilot(run_args)
@@ -4709,6 +4815,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--active-days", type=int, default=None, help="GitHub activity window for portfolio discovery")
     start.add_argument("--max-repos", type=int, default=None, help="maximum recently active repos to work on")
     start.add_argument("--execute-drafts", action="store_true", help="allow isolated, unpushed draft patches when deterministic checks exist")
+    start.add_argument("--run-e2e", action="store_true", help="run one already-approved E2E/smoke check per repo during the shift")
     start.add_argument("--allow-draft-prs", action="store_true", help="save one-time consent to open only tested changes as GitHub draft PRs")
     start.add_argument("--once", action="store_true", help=argparse.SUPPRESS)
     start.add_argument("--local-url", required=False, help="override MAESTRO_LOCAL_BASE_URL")
@@ -4785,6 +4892,11 @@ def build_parser() -> argparse.ArgumentParser:
     trust_repo.add_argument("--apply", action="store_true", help="save approval after review; preview only by default")
     trust_repo.add_argument("--yes", action="store_true", help="confirm non-interactively when --apply is supplied")
     trust_repo.add_argument(
+        "--include-e2e",
+        action="store_true",
+        help="also approve the first detected E2E/smoke command for explicit --run-e2e checks",
+    )
+    trust_repo.add_argument(
         "--prepare-dependencies",
         action="store_true",
         help="prepare runner-native npm dependencies in a disposable networked container before verification",
@@ -4845,6 +4957,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--stop-after", choices=sorted(STOP_SECONDS), default=None, help="stop scheduling new work after this limit")
     run.add_argument("--task-limit", type=int, default=None, help="maximum new unique tasks for this repo batch")
     run.add_argument("--skip-smoke", action="store_true", help="skip the lane smoke check during startup")
+    run.add_argument(
+        "--run-e2e",
+        action="store_true",
+        help="run one already-approved E2E/smoke command in the no-network sandbox and save proof",
+    )
     run.set_defaults(func=command_run)
 
     autopilot = sub.add_parser(
@@ -4899,6 +5016,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="use saved one-time consent to open tested GitHub draft PRs; never merges or deploys",
     )
     autopilot.add_argument("--once", action="store_true", help="run one portfolio cycle and stop")
+    autopilot.add_argument(
+        "--run-e2e",
+        action="store_true",
+        default=None,
+        help="run one already-approved E2E/smoke command per repo in the no-network sandbox",
+    )
     autopilot.set_defaults(func=command_autopilot)
 
     report = sub.add_parser(

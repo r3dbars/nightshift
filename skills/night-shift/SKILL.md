@@ -125,6 +125,7 @@ night-shift start --repo <repo> \
   --privacy <mac-only|mac-and-lan|cloud-ok> \
   --stop-after <2h|6h|8h|10h|morning> \
   [--execute-drafts] \
+  [--run-e2e] \
   --local-url <url> --local-model <model> \
   [--windows-url <url> --windows-model <model>] \
   --yes
@@ -209,10 +210,30 @@ Night Shift must:
 4. Require an exact copied source line; treat model findings as candidates, not proof.
 5. Retry one schema-valid but ungrounded answer with the exact missing fields.
 6. Fingerprint every task and skip it until the repository or live signal changes.
+   Safe health checks may use a daily or weekly fingerprint so a quiet repo
+   still gets a fresh bounded review instead of going silent forever.
 7. Promote a draft only after isolated edits and deterministic checks pass.
 8. Pin failed CI source, commands, validation, and draft worktrees to its exact commit SHA.
 9. Rank verified usefulness above token volume.
 10. Use local useful/not-useful feedback to avoid repeating bad suggestions.
+
+## End-To-End Checks
+
+Night Shift notices Playwright, Cypress, and repo E2E folders during the scan.
+That creates an E2E review task with the exact files and detected scripts; it
+does not invent a browser command or run one automatically.
+
+To approve and run one existing E2E script:
+
+```bash
+night-shift trust-repo --repo /path/to/project --include-e2e
+night-shift autopilot --repo /path/to/project --run-e2e --once
+```
+
+The command must already be in the repo's approved profile. It runs once in the
+rootless, no-network sandbox, saves `e2e-proof.json`, and reports PASS, FAIL, or
+SKIPPED in the morning brief. Night Shift never starts a server, grants network
+access, changes the repo checkout, or treats a skipped check as proof.
 
 Read [`references/worker-prompts.md`](references/worker-prompts.md) when
 changing or manually dispatching worker prompts.

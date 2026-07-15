@@ -380,6 +380,14 @@ class ReportEngine:
         if changed: lines.append(f"- Recent code/test surface: {', '.join(changed)}")
         commands = scan.get("test_commands") or []
         if commands: lines.append(f"- Detected verification command: `{commands[0]}`")
+        e2e = scan.get("e2e_result") or {}
+        if e2e:
+            status = str(e2e.get("status") or "UNKNOWN")
+            command = str(e2e.get("command") or "no approved command")
+            proof = str(e2e.get("proof") or "e2e-proof.json")
+            lines.append(f"- E2E smoke: {status} | `{command}` | proof: `{proof}`")
+        elif scan.get("e2e_commands"):
+            lines.append(f"- E2E surface found: {', '.join(scan.get('e2e_frameworks') or ['configured tests'])}; approval is required before execution")
         branch, head = scan.get("branch"), scan.get("head")
         if branch or head: lines.append(f"- Repository revision: {branch or '(detached)'} at {head or 'unknown'}")
         return lines

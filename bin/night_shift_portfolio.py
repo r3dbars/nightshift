@@ -423,6 +423,12 @@ class PortfolioEngine:
 
     @staticmethod
     def task_fingerprint(repo_name: str, head: str, task: dict) -> str:
+        recurrence = str(task.get("recurrence") or "")
+        recurrence_bucket = ""
+        if recurrence == "daily":
+            recurrence_bucket = datetime.now(timezone.utc).date().isoformat()
+        elif recurrence == "weekly":
+            recurrence_bucket = datetime.now(timezone.utc).strftime("%G-W%V")
         payload = {
             "repo": repo_name,
             "head": head,
@@ -431,6 +437,8 @@ class PortfolioEngine:
             "files": sorted(task.get("files") or []),
             "signal": task.get("signal", ""),
             "source_ref": task.get("source_ref", ""),
+            "recurrence": recurrence,
+            "recurrence_bucket": recurrence_bucket,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
