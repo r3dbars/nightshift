@@ -5818,6 +5818,50 @@ import { helper } from '@/lib/helpers';
         finally:
             night_shift.load_repo_profile = original
 
+    def test_approved_e2e_runs_once_in_the_sandbox_and_writes_pass_proof(self):
+        originals = (
+            night_shift.load_repo_profile,
+            night_shift.detect_sandbox,
+            night_shift.sandbox_command,
+            night_shift.run_cmd,
+        )
+        calls = []
+        try:
+            profile = SimpleNamespace(
+                may_execute=True,
+                commands=(("npm", "run", "test:e2e"),),
+                max_seconds=900,
+                external_approval=False,
+            )
+            night_shift.load_repo_profile = lambda _repo: (profile, "profile loaded")
+            night_shift.detect_sandbox = lambda _run_cmd: SimpleNamespace(available=True, detail="ready")
+            night_shift.sandbox_command = lambda repo, command, loaded, dependency: ["sandbox", *command]
+
+            def runner(argv, **kwargs):
+                calls.append((argv, kwargs))
+                return SimpleNamespace(rc=0, stdout="2 passed", stderr="", timed_out=False)
+
+            night_shift.run_cmd = runner
+            with tempfile.TemporaryDirectory() as tmp:
+                repo = Path(tmp)
+                ledger = repo / "ledger"
+                ledger.mkdir()
+                proof = night_shift.run_approved_e2e(
+                    repo,
+                    {"head": "abc", "e2e_commands": ["npm run test:e2e"]},
+                    ledger,
+                )
+                self.assertEqual(proof["status"], "PASS")
+                self.assertEqual(proof["command"], "npm run test:e2e")
+                self.assertEqual(calls[0][0], ["sandbox", "npm", "run", "test:e2e"])
+        finally:
+            (
+                night_shift.load_repo_profile,
+                night_shift.detect_sandbox,
+                night_shift.sandbox_command,
+                night_shift.run_cmd,
+            ) = originals
+
     def test_verification_prefers_focused_unit_checks(self):
         priority = night_shift.verification_command_priority
         self.assertLess(priority(["npm", "run", "test"]), priority(["npm", "run", "test:unit:vitest"]))
