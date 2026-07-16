@@ -51,6 +51,7 @@ from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
 from night_shift_repo_outcomes import append_repo_outcome, link_review_to_repo_outcome, load_repo_outcomes, outcome_ledger_summary, repo_outcome_adjustment
 from night_shift_autopilot import AutopilotCycleState
+from night_shift_brain import run_brain_intake
 from night_shift_selection import (
     declared_symbols,
     model_ready_tasks,
@@ -2290,6 +2291,63 @@ def command_health(args) -> int:
         state, message = rows_by_name(rows).get(name, ("INFO", "not checked"))
         print(f"- {name}: {state} | {message}")
     return 1 if overall == "RED" else 0
+
+
+def command_brain_intake(args) -> int:
+    """Triage new ClaudeBrain raw files without editing the vault's durable pages."""
+    saved = load_config()
+    local_url = (
+        getattr(args, "local_url", None)
+        or os.environ.get("MAESTRO_LOCAL_BASE_URL")
+        or config_value(saved, "local_url")
+        or DEFAULT_LOCAL_URL
+    )
+    local_model = (
+        getattr(args, "local_model", None)
+        or os.environ.get("MAESTRO_LOCAL_MODEL")
+        or config_value(saved, "local_model")
+        or DEFAULT_LOCAL_MODEL
+    )
+
+    def call_model(prompt: str, model: str) -> str:
+        data = retry_transient(
+            post_url_json,
+            f"{local_url.rstrip('/')}/chat/completions",
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 900,
+                "temperature": 0,
+            },
+            timeout=max(20, getattr(args, "timeout", 90)),
+        )
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            raise RuntimeError("local model returned no message content")
+        return content
+
+    try:
+        result = run_brain_intake(
+            Path(args.vault),
+            state_path=CONFIG_DIR / "claudebrain-raw-state.json",
+            local_model=local_model,
+            max_files=args.max_files,
+            max_chars=args.max_chars,
+            max_bytes=args.max_bytes,
+            include_legacy=args.include_legacy,
+            call_model=call_model,
+        )
+    except ValueError as exc:
+        print(f"NIGHTSHIFT_BRAIN: RED | {exc}")
+        return 2
+    print(
+        f"NIGHTSHIFT_BRAIN: {result['status']} | discovered={result['discovered']} "
+        f"processed={result['processed']} blocked={result['blocked']}"
+    )
+    if result.get("packet"):
+        print(f"Triage packet: {result['packet']}")
+    print(f"State: {result['state']}")
+    return 0 if result["status"] in {"GREEN", "NO_WORK"} else 1
 
 
 def command_sandbox(args) -> int:
@@ -4869,6 +4927,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     health.add_argument("--repo", required=False, help="repo to assess; defaults to saved setup")
     health.set_defaults(func=command_health)
+
+    brain = sub.add_parser(
+        "brain-intake",
+        help="triage new ClaudeBrain raw files with local AI",
+        description="Read new text files from ClaudeBrain's raw/ inbox and write one source-linked triage packet into raw/scraps/. Never edits memory, people, projects, notes, or archive.",
+        epilog="Example: night-shift brain-intake --vault /Users/redbars/Documents/claudebrain",
+    )
+    brain.add_argument(
+        "--vault",
+        default=str(Path.home() / "Documents" / "claudebrain"),
+        help="ClaudeBrain vault containing CLAUDE.md and raw/",
+    )
+    brain.add_argument("--local-url", required=False, help="override the local OpenAI-compatible URL")
+    brain.add_argument("--local-model", required=False, help="override the local model name")
+    brain.add_argument("--max-files", type=int, default=25, help="maximum new raw files to triage")
+    brain.add_argument("--max-chars", type=int, default=12000, help="maximum source characters sent to the local model per file")
+    brain.add_argument("--max-bytes", type=int, default=200_000, help="skip source files larger than this size")
+    brain.add_argument("--include-legacy", action="store_true", help="include raw/_legacy/ files; off by default")
+    brain.add_argument("--timeout", type=int, default=90, help="seconds allowed for each local model call")
+    brain.set_defaults(func=command_brain_intake)
 
     clean = sub.add_parser(
         "clean",

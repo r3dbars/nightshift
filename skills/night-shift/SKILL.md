@@ -41,6 +41,22 @@ On any invocation, if `schedule --status` shows an unread brief, lead with:
 "You have a Night Shift brief from last night - want the summary?" Then handle
 the current request.
 
+## ClaudeBrain Raw Intake
+
+When the user asks Night Shift to help ClaudeBrain, use the local-only raw
+intake lane:
+
+```bash
+night-shift brain-intake --vault /Users/redbars/Documents/claudebrain
+```
+
+It triages new text files from `raw/` and writes one source-linked packet to
+`raw/scraps/`. The ClaudeBrain nightly agent must verify the original source
+before changing `memory.md`, people, projects, notes, or archive state. Night
+Shift never moves raw files or writes those authoritative pages. The default
+batch is bounded and skips audio, images, protected templates, and
+`raw/_legacy/`.
+
 Preserve any repo, mission, mode, or privacy choice the user already supplied.
 Never ask for information a read-only check can detect.
 

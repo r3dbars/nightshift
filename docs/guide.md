@@ -170,6 +170,25 @@ verification. The result is saved in `e2e-proof.json` and is clearly labeled
 automatic code change. Night Shift does not start external services, publish
 results, or touch the original checkout.
 
+### ClaudeBrain raw intake
+
+ClaudeBrain can use Night Shift as a local first-pass reader for its `raw/`
+inbox:
+
+```bash
+night-shift brain-intake --vault /Users/redbars/Documents/claudebrain
+```
+
+Night Shift reads new text files, asks the configured local model for a
+source-linked classification, and writes one triage packet to
+`raw/scraps/night-shift-raw-intake-*.md`. It remembers file hashes so unchanged
+raw files are not sent through the model again. The packet is only a suggestion
+for ClaudeBrain's nightly agent to verify. Night Shift never moves raw files,
+rewrites `memory.md`, edits people/projects/notes, or archives anything.
+
+Audio, images, protected templates, and `raw/_legacy/` are skipped by default.
+Use `--include-legacy` only when you intentionally want a bounded legacy batch.
+
 ### What keeps a quiet repo useful
 
 Most one-off tasks are still skipped after they have been attempted at the same
