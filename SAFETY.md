@@ -111,6 +111,11 @@ Typical files include:
 - `verification-proof.json` when one owner-approved deterministic check was requested.
 - `run-summary.json` for the controller's factual elapsed time and stop reason.
 
+The optional `brain-intake` command may write one local triage packet to a
+ClaudeBrain vault's `raw/scraps/` directory. It does not move or edit source
+files and does not write authoritative memory, people, projects, notes, or
+archive content.
+
 The delegate wrapper also writes proof artifacts under:
 
 ```text
