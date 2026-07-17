@@ -3242,6 +3242,39 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
     PORTFOLIO_REPORTER.write_brief(ledger, cycle_rows, status)
 
 
+def write_autopilot_summary(
+    ledger: Path,
+    controller: AutopilotCycleState,
+    *,
+    started_at: str,
+    started_epoch: float,
+    stop_after: str | None,
+    stop_reason: str,
+) -> None:
+    rows = controller.rows
+    repositories = sorted({str(row.get("repo") or "") for row in rows if row.get("repo")})
+    outcomes = [row.get("outcomes") or {} for row in rows]
+    summary = {
+        "schema_version": 1,
+        "started_at": started_at,
+        "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "elapsed_seconds": round(max(0.0, time.time() - started_epoch), 3),
+        "configured_stop_after": stop_after or "morning",
+        "stop_reason": stop_reason,
+        "status": controller.status,
+        "cycles": controller.cycle,
+        "repositories_visited": len(repositories),
+        "repository_batches": len(rows),
+        "new_tasks": sum(int(row.get("new_tasks") or 0) for row in rows),
+        "model_candidates": sum(int(item.get("candidate_count") or 0) for item in outcomes),
+        "verified_drafts": sum(int(item.get("verified_drafts") or 0) for item in outcomes),
+        "draft_prs_opened": sum(int(item.get("draft_pr_opened") or 0) for item in outcomes),
+    }
+    (ledger / "run-summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
 def enforce_autopilot_privacy(args) -> str | None:
     privacy_route = getattr(args, "privacy_route", None)
     if privacy_route and privacy_route != "mac-and-lan":
@@ -3347,6 +3380,9 @@ def command_autopilot(args) -> int:
         return 1
     if recovery.get("status") == "recovered":
         print(f"Recovered prior crashed shift: {recovery.get('ledger')}")
+    started_epoch = time.time()
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    stop_reason = "unknown"
     try:
         ledger = create_ledger("autopilot")
         setattr(args, "result_ledger", str(ledger))
@@ -3389,9 +3425,20 @@ def command_autopilot(args) -> int:
     prepared_cache: list[tuple[dict, Path]] | None = None
     portfolio_cache: list[dict] = []
     next_portfolio_refresh = 0.0
+
+    def stop_cause() -> str:
+        if deadline is not None and time.time() >= deadline:
+            deadline_reached(deadline, stop_file)
+            return "deadline"
+        if stop_file.exists():
+            return "stop-file"
+        return ""
+
     try:
-        while not stop_file.exists():
-            if deadline_reached(deadline, stop_file):
+        while True:
+            cause = stop_cause()
+            if cause:
+                stop_reason = cause
                 break
             cycle = controller.start_cycle()
             now = time.time()
@@ -3429,10 +3476,13 @@ def command_autopilot(args) -> int:
             write_portfolio_snapshot(ledger, portfolio, cycle)
             if not prepared:
                 controller.no_prepared_repositories()
+                stop_reason = "no-prepared-repositories"
                 break
             per_repo_limit = max(1, task_limit // len(prepared))
             for portfolio_rank, (item, checkout) in enumerate(prepared, start=1):
-                if stop_file.exists() or deadline_reached(deadline, stop_file):
+                cause = stop_cause()
+                if cause:
+                    stop_reason = cause
                     break
                 repo_name = item.get("slug", str(checkout))
                 if controller.should_skip_attempted_repo(repo_name):
@@ -3586,6 +3636,7 @@ def command_autopilot(args) -> int:
                 controller.append(cycle_row)
             portfolio_brief(ledger, controller.rows, controller.status)
             if getattr(args, "once", False):
+                stop_reason = "once"
                 break
             if not controller.cycle_had_work:
                 sleep_for = poll_minutes * 60
@@ -3593,12 +3644,29 @@ def command_autopilot(args) -> int:
                     sleep_for = min(sleep_for, max(0, int(deadline - time.time())))
                 for _ in range(max(0, sleep_for)):
                     if stop_file.exists():
+                        stop_reason = "stop-file"
                         break
                     time.sleep(1)
-            if deadline_reached(deadline, stop_file):
+            cause = stop_cause()
+            if cause:
+                stop_reason = cause
                 break
         portfolio_brief(ledger, controller.rows, controller.status)
+    except Exception:
+        stop_reason = "error"
+        raise
     finally:
+        if stop_reason == "unknown":
+            stop_reason = "stop-file" if stop_file.exists() else "completed"
+        write_autopilot_summary(
+            ledger,
+            controller,
+            started_at=started_at,
+            started_epoch=started_epoch,
+            stop_after=stop_after,
+            stop_reason=stop_reason,
+        )
+        portfolio_brief(ledger, controller.rows, controller.status)
         try:
             active = parse_json_text(AUTOPILOT_STATE_PATH.read_text(encoding="utf-8"), {})
             if active.get("pid") == os.getpid():
@@ -3606,7 +3674,7 @@ def command_autopilot(args) -> int:
         except OSError:
             pass
         lock_context.__exit__(None, None, None)
-    print(f"NIGHTSHIFT_AUTOPILOT: {controller.status} | cycles={controller.cycle} | ledger={ledger}")
+    print(f"NIGHTSHIFT_AUTOPILOT: {controller.status} | cycles={controller.cycle} | stop={stop_reason} | ledger={ledger}")
     print(f"Morning brief: night-shift report --ledger {ledger}")
     action_required = controller.action_required()
     return 0 if controller.status == "GREEN" or not action_required else 1

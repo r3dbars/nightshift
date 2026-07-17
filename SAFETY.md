@@ -108,6 +108,7 @@ Typical files include:
 - `work-queue.md` / `work-queue.json`
 - `morning.md`
 - `token-report.txt`
+- `run-summary.json` for the controller's factual elapsed time and stop reason.
 - `verification-proof.json` when one owner-approved deterministic check was requested.
 
 The delegate wrapper also writes proof artifacts under:

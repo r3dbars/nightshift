@@ -218,6 +218,10 @@ Night Shift must:
 9. Rank verified usefulness above token volume.
 10. Use local useful/not-useful feedback to avoid repeating bad suggestions.
 
+Every portfolio run saves `run-summary.json` with its exact stop reason,
+elapsed time, cycles, and repository count. The morning brief uses that file
+to say whether the run reached its deadline, was stopped, or completed early.
+
 ## Approved Deterministic Checks
 
 Use `--run-checks` when you want Night Shift to run one existing owner-approved

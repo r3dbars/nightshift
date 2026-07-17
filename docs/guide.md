@@ -251,6 +251,7 @@ Useful files:
 - `work-queue.md` / `work-queue.json`: deduped action choices after worker
   scoring.
 - `token-report.txt`: estimated tokens by lane.
+- `run-summary.json`: exact controller start, elapsed time, cycle count, and stop reason for a portfolio run.
 - `verification-proof.json`: result of one explicitly approved deterministic check, when `--run-checks` is enabled.
 - `morning.md`: the morning brief.
 
