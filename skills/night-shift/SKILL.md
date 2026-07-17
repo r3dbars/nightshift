@@ -125,6 +125,7 @@ night-shift start --repo <repo> \
   --privacy <mac-only|mac-and-lan|cloud-ok> \
   --stop-after <2h|6h|8h|10h|morning> \
   [--execute-drafts] \
+  [--run-checks] \
   [--run-e2e] \
   --local-url <url> --local-model <model> \
   [--windows-url <url> --windows-model <model>] \
@@ -220,6 +221,21 @@ Night Shift must:
 Every portfolio run saves `run-summary.json` with its exact stop reason,
 elapsed time, cycles, and repository count. The morning brief uses that file
 to say whether the run reached its deadline, was stopped, or completed early.
+
+## Approved Deterministic Checks
+
+Use `--run-checks` when you want Night Shift to run one existing owner-approved
+unit, test, or verification command per repo in the rootless no-network sandbox:
+
+```bash
+night-shift trust-repo --repo /path/to/project --apply
+night-shift autopilot --repo /path/to/project --run-checks --once
+```
+
+The command must already be in the repo profile. Night Shift saves
+`verification-proof.json` with PASS, FAIL, BLOCKED, or SKIPPED and shows it in
+the morning brief. It never invents a command, starts a service, grants
+network access, or treats a skipped check as proof.
 
 ## End-To-End Checks
 
