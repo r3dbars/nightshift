@@ -42,7 +42,7 @@ class RepoTrustTests(unittest.TestCase):
             self.assertEqual(detail, "external repo approval loaded")
             missing, detail = load_effective_profile(repo, approvals, lambda _: "git@github.com:owner/other.git", lambda *_: True)
             self.assertIsNone(missing)
-            self.assertIn("missing .night-shift.json", detail)
+            self.assertIn("missing external owned-repo approval", detail)
 
     def test_tampered_remote_binding_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -59,15 +59,15 @@ class RepoTrustTests(unittest.TestCase):
             self.assertIsNone(loaded)
             self.assertIn("does not match", detail)
 
-    def test_repo_local_profile_takes_precedence(self):
+    def test_repo_local_profile_cannot_authorize_itself(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
             (repo / ".night-shift.json").write_text(json.dumps(profile()), encoding="utf-8")
             loaded, detail = load_effective_profile(repo, root / "approvals", lambda _: "", lambda *_: False)
-            self.assertTrue(loaded.may_execute)
-            self.assertEqual(detail, "profile loaded")
+            self.assertIsNone(loaded)
+            self.assertIn("proposals only", detail)
 
     def test_spoofed_remote_without_advertised_head_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

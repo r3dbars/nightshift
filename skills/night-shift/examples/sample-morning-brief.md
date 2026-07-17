@@ -1,89 +1,66 @@
 # Fake Sample Morning Brief
 
-This is fake toy output. It is not from a real run and does not include private
-user data, customer data, transcripts, credentials, private repo names, or
-machine-local paths.
+This is fake toy output. It is not from a real run and contains no private user
+data, customer data, transcripts, credentials, private repo names, or local
+machine paths.
 
 ```text
 # Morning Brief
 
-Status: YELLOW
-Mode: night-shift
-Started: 2026-06-23 22:15 UTC
-Stopped: 2026-06-24 06:45 UTC
-Repo: public-demo-repo
-Startup gate: GREEN
+Status: GREEN
+Mode: Normal, hands-on
+Elapsed: 8h 00m
+Repositories visited: 3
 
-Loops:
-- Local: 40 requested, 40 completed
-- Windows: 20 requested, 18 completed, 2 timed out
-- Claude: skipped
+## Review First
 
-Token estimate:
-- Local input/output/total: 418000 / 62000 / 480000
-- Windows input/output/total: 141000 / 31000 / 172000
-- Total local+Windows: 652000
-- Target: 500000
+1. Draft PR opened: add checkout failure coverage
+   - Repo: example/storefront
+   - Intent: E2E strengthening
+   - Changed: tests/e2e/checkout.spec.ts
+   - Baseline: 2 matching passes
+   - Finished patch: 3 matching passes
+   - Draft PR: https://github.com/example/storefront/pull/42
+   - Why first: it protects a real payment failure path with a small test-only diff.
 
-Artifact scorecard:
-- KEEP: 3
-- MAYBE: 6
-- REJECT: 49
+2. Verified local patch: repair stale setup docs
+   - Repo: example/cli-tool
+   - Intent: docs repair
+   - Changed: README.md
+   - Verification: python3 -m unittest, 2 matching passes before and after
+   - Patch: drafts/example-cli-tool/docs-repair/applied.patch
+   - Why local: the shift-wide draft PR cap was already reached.
 
-Best KEEP items:
-1. test-gap-map-local
-   - Found missing deterministic tests around config fallback loading.
-   - Evidence: `src/config.py:84` falls back to defaults; `tests/test_config.py:31` covers only explicit config.
-   - Safe for Codex to attempt: yes
-   - Suggested check: `pytest tests/test_config.py`
-   - Why first: small test-only change with a clear failure mode.
+3. Candidate: config fallback may need a focused unit test
+   - Repo: example/api
+   - Evidence: src/config.py:84 and tests/test_config.py:31
+   - Status: candidate only; no patch was attempted because the approved runner was unavailable.
 
-2. docs-drift-map-windows
-   - Found setup docs that still mention an old command name.
-   - Evidence: `README.md:62` uses a flag absent from `tools/demo_cli.py:19`.
-   - Safe for Codex to attempt: yes
-   - Suggested check: `python3 -m py_compile tools/demo_cli.py`
-   - Why second: low-risk docs fix, but less important than the test gap.
+## Totals
 
-3. proof-audit-local
-   - Found one manual QA claim that should be marked UNKNOWN.
-   - Evidence: `docs/release-checklist.md:44` makes a manual claim with no linked proof.
-   - Safe for Codex to attempt: no, needs human review
-   - Why held: worker cannot prove real install or hardware behavior.
+- Draft PRs opened: 1
+- Verified local patches: 1
+- Source-grounded candidates: 1
+- Rejected or blocked tasks: 7
+- Nothing merged, released, or deployed
 
-Rejected examples:
-- Broad refactor suggestion with no exact files.
-- Release checklist that tried to publish.
-- Worker output that claimed hardware proof without real proof.
-- Output that named a private branch from the prompt context.
+## What Stayed Honest
 
-Draft PRs opened: 0
-Tests run by Codex: none yet
-Manual proof: UNKNOWN
+- One infrastructure failure stayed BLOCKED instead of being called a test failure.
+- One broad refactor was rejected because it exceeded the one-file cleanup policy.
+- Manual install and hardware behavior remain UNKNOWN because nobody tested them.
 
-Next action:
-- Ask Codex to verify KEEP item 1 against the repo. If it is real, make the
-  smallest test-only change and open one draft PR.
+## Best Next Move
 
-Safety:
-- No merges, releases, tags, notarization, deploys, appcast/cask updates,
-  billing, credentials, or user-file cleanup were performed.
-- Local and Windows outputs are drafts, not truth.
-- Manual proof stayed UNKNOWN because no human ran the app.
+Review draft PR #42 first. Then ask your coding agent to inspect the verified
+docs patch and the config-test candidate together.
 
-lanes used: Codex=harvested and scored artifacts; Claude=skipped; Local=40 draft loops; Windows=18 draft loops plus 2 timeouts
+lanes used: Codex=controller and verification; Claude=skipped; Local=18 tasks; Windows=7 tasks
 ```
 
 Teach the next run after review:
 
 ```bash
-night-shift feedback --latest --item 1 --useful
-```
-
-Copy-paste next step:
-
-```text
-Codex, review the latest Night Shift morning brief. Verify KEEP item 1 against the
-repo. If it is real, make the smallest test-only change, run the mapped tests,
-commit, push, and open a draft PR. Do not merge or release.
+night-shift feedback --latest --item 1 --useful --outcome accepted
+night-shift feedback --latest --item 2 --not-useful --note "not worth a separate PR"
 ```

@@ -1,319 +1,192 @@
 ---
 name: night-shift
-description: Run and supervise Night Shift, a bounded local-first overnight repo workbench that uses idle Mac, LM Studio, Ollama, Windows GPU, and optional coding subscriptions to produce evidence-backed repo tasks and a short morning brief. Use for first-time setup, hardware/model detection, "run tonight," "good morning," automatic nightly schedules, snooze/vacation, tuning another computer, or testing the overnight workflow.
+description: Put idle local AI to useful work across recently active repositories overnight. Use for first-time setup, "run Night Shift," bedtime launches, morning reports, stopping a shift, schedules, local or LAN model setup, and ClaudeBrain raw intake.
 ---
 
 # Night Shift
 
-Turn idle AI hardware into useful, compounding repo work while the user sleeps.
-Watch recently active GitHub repos, work down the Repair-to-Index ladder,
-remember completed tasks, reject weak output, and leave a short portfolio brief.
+Night Shift is the bedtime button for useful repo work.
 
-Keep this promise: workers draft; deterministic checks prove; Codex or a human
-reviews. Night Shift never edits the target checkout, merges, releases,
-deploys, changes credentials or billing, changes repository visibility, or
-moves user files. It may push one isolated branch and open a draft PR only
-after the owner saves explicit consent and the fresh patch passes approved
-sandbox checks again.
+The normal experience is:
 
-## Route The Moment
+1. The user says `/night-shift` or asks to run Night Shift.
+2. Detect the current repo, recently active owned GitHub repos, local AI, a
+   configured LAN worker, the sandbox, and power state.
+3. On first use, show one short plan and ask one question: start it?
+4. On later nights, use the saved plan unless the user asks for a change.
+5. In the morning, lead with verified outcomes and draft PRs, not logs.
 
-Check silently:
+Do not turn normal setup into a questionnaire. Never ask for a repo path, model
+name, server URL, GitHub identity, test command, or machine detail that can be
+detected safely.
 
-```bash
-command -v night-shift || ls ~/.codex/bin/night-shift 2>/dev/null
-cat ~/.codex/night-shift/config.json 2>/dev/null
-night-shift schedule --status 2>/dev/null
-```
-
-| User signal | Flow |
-| --- | --- |
-| First use, setup, missing config | First Night |
-| Run tonight, goodnight | Bedtime |
-| Good morning, complete, what happened | Morning |
-| Every night, automatically | Autopilot |
-| Vacation, pause, skip | Snooze |
-| Stop now | Stop |
-| New model, GPU, or computer | Tune-Up |
-| Test or rehearse | Rehearsal |
-
-On any invocation, if `schedule --status` shows an unread brief, lead with:
-"You have a Night Shift brief from last night - want the summary?" Then handle
-the current request.
-
-## ClaudeBrain Raw Intake
-
-When the user asks Night Shift to help ClaudeBrain, use the local-only raw
-intake lane:
+When the user is exploring and has not yet said to start, run this non-writing
+preview first:
 
 ```bash
-night-shift brain-intake --vault /Users/redbars/Documents/claudebrain
+night-shift start --dry-run --yes
 ```
 
-It triages new text files from `raw/` and writes one source-linked packet to
-`raw/scraps/`. The ClaudeBrain nightly agent must verify the original source
-before changing `memory.md`, people, projects, notes, or archive state. Night
-Shift never moves raw files or writes those authoritative pages. The default
-batch is bounded and skips audio, images, protected templates, and
-`raw/_legacy/`.
+Summarize that exact preview and ask `Start the shift?` once. If they say yes,
+run `night-shift start --yes`. If they already said "run it," "goodnight," or
+equivalent, that is the confirmation; do not make them approve the same plan
+twice.
 
-Preserve any repo, mission, mode, or privacy choice the user already supplied.
-Never ask for information a read-only check can detect.
+## Default Night
 
-## First Night
+The first-run default is intentionally useful:
 
-Auto-detect the repo, GitHub login, local model servers, configured LAN worker,
-and safe defaults. Show one plain-English preview and ask only whether to start.
+- recently active owned GitHub repos when GitHub is available, otherwise the
+  current repo;
+- Mac-local AI, plus a previously configured private LAN worker when healthy;
+- Normal mode for eight hours;
+- hands-on autonomy: isolated patches, repeated approved checks, and bounded
+  draft PRs when the repo passes every ownership and safety gate;
+- no cloud model unless the user explicitly allows it.
+
+Say this plainly:
+
+```text
+Welcome to Night Shift. I found your projects and local AI.
+
+Tonight I will look for small work that is actually worth doing: failing tests,
+missing unit or E2E coverage, stale docs, narrow issue fixes, and exact code
+cleanup. I will work in disposable copies, rerun approved checks, and leave a
+short morning brief. I may open a tested draft PR for review, but I will never
+merge, deploy, release, touch secrets, or edit your checkout.
+
+Start the eight-hour shift?
+```
+
+When the user already said "run it," "goodnight," or equivalent, that is the
+start request. Do not ask them to repeat it. Run:
+
+```bash
+night-shift start --yes
+```
+
 Use `night-shift start --advanced` only when the user asks to customize scope,
-privacy, permissions, models, mode, or runtime.
+privacy, autonomy, compute, goals, or stop time.
 
-Open briefly:
+## Useful Work
 
-```text
-Hey - welcome to Night Shift.
+Night Shift should prefer work in this order:
 
-Your AI hardware sits idle every night. Night Shift puts it to work reading
-your recent projects and preparing small, safe, reviewable work. Tomorrow you
-get a few useful outcomes with evidence, exact files, and verification commands.
+1. **Repair:** a pinned failing CI or deterministic test with a real assertion
+   failure.
+2. **Finish:** a source-grounded open issue with a narrow fix and an approved
+   check.
+3. **Strengthen:** a missing unit test or one existing E2E journey.
+4. **Clarify:** a stale setup, test, quickstart, or report command in docs.
+5. **Clean up:** one exact duplicate, dead private helper, or redundant branch
+   in a recently changed source file.
+6. **Understand:** report-only maps and audits when no patch is safe.
 
-Drafts, not deploys. Setup takes about a minute.
-```
+Models do not choose their own authority. The controller assigns a trusted
+intent before dispatch. That intent fixes allowed file types, patch size,
+baseline requirements, verification command, and publication rules.
 
-### 1. Detect Local Hardware
+## Proof Rules
 
-Run the read-only scan in
-[`references/hardware-scan.md`](references/hardware-scan.md). Report what the
-machine can do in plain language. Prefer the strongest downloaded coder or
-instruct model that answers a chat probe; never select an embedding model.
+A model answer is only a candidate. A preserved draft must have:
 
-If a model server is installed but stopped, offer the one-line start command.
-If no model exists, continue with a planning brief instead of treating setup
-as failed.
+- exact repo-relative files from supplied evidence;
+- an exact source commit;
+- a diff within the intent's file and line limits;
+- no new dependencies, workflows, config, generated files, migrations,
+  credentials, network/process/environment access, or release behavior;
+- the same approved no-network sandbox command run twice before editing;
+- the finished patch passing twice, or three times for E2E work.
 
-### 2. Add Another Computer
+Only the same classified assertion failure reproduced twice and then fixed is
+called `PROVEN_REPAIR`. Clean-baseline docs, tests, issue fixes, and cleanup are
+`VERIFIED_DRAFT`. Infrastructure errors, missing tools, skipped checks, and
+flaky results are never proof.
 
-If the user has a Windows or LAN machine, verify its model endpoint. Keep repo
-context on the private network unless the user explicitly chooses cloud.
-Continue Mac-only if the other machine is unavailable.
+## Draft PR Rules
 
-### 3. Detect Optional Tools
+After the user's saved hands-on consent, Night Shift may open a draft PR only
+when all of these are true:
 
-Detect Claude, Codex, and GitHub CLI. Explain only what matters:
+- GitHub proves the signed-in user owns the non-fork repo;
+- an external approval bound to the exact remote exists;
+- the source SHA is on the fetched default branch;
+- host Git hooks, custom filters, and executable diff drivers are absent;
+- `pull_request_target` and external CI configs do not make same-repo
+  publication unsafe;
+- the patch passes fresh repeated sandbox checks again.
 
-- Mac local AI handles private triage and grounded scans.
-- The LAN worker handles longer code and test drafts.
-- GitHub adds live issue, PR, and failed-workflow context.
-- Cloud reasoning is optional and requires explicit permission.
+The commit skips hosted CI and the PR stays draft. Limit publication to one PR
+per repo and three per shift. Additional verified patches stay local for the
+morning. Never merge, force-push, deploy, release, publish, tag, notarize,
+change visibility, or change credentials or billing.
 
-Default to this Mac. Reuse a previously approved private LAN worker when it is
-healthy. Ask about LAN or cloud routing only in advanced setup or when the user
-explicitly requests it.
-
-### 4. Choose Safe Defaults
-
-Detect the current repo and GitHub login. Default to recently active GitHub
-repos when authenticated, ranked chores, local draft plans, Normal mode, and
-an eight-hour stop. Keep context on the Mac unless a configured LAN worker is
-already healthy. Do not ask about these defaults in the normal flow.
-
-A good mission names an outcome and proof:
-
-```text
-Find the highest-value evidence-backed missing test or small bug related to
-recent changes. Name exact files, quote repo evidence, and give exact
-verification commands.
-```
-
-Avoid broad missions such as "find anything" or "improve the app."
-
-### 5. Preview And Launch
-
-Assemble the saved setup:
-
-```bash
-night-shift start --repo <repo> \
-  --scope <current|github-recent> \
-  --mode <quiet|night-shift|afterburner> \
-  --wake-goal <brief|chores|draft-prs> \
-  --guidance <scan|goal|issues> \
-  [--goal "<specific mission>"] \
-  --permission <brief|draft-local|draft-prs> \
-  --privacy <mac-only|mac-and-lan|cloud-ok> \
-  --stop-after <2h|6h|8h|10h|morning> \
-  [--execute-drafts] \
-  [--run-checks] \
-  [--run-e2e] \
-  --local-url <url> --local-model <model> \
-  [--windows-url <url> --windows-model <model>] \
-  --yes
-```
-
-If the user skips, save with `--setup-only` and stop without nagging. Never
-overwrite existing setup unless the user asks to reset it.
-
-First Night ends with a run, followed by one optional Autopilot offer.
-
-## Bedtime
-
-Do not repeat onboarding. Check the schedule. If already armed, say when it
-will run. Otherwise recap one line:
-
-```text
-Same as last night? <repo> - Normal - draft-local - 8 hours - Mac + Windows
-```
-
-On yes, run `night-shift start --yes`. Apply only requested overrides. Before
-Normal or Afterburner, follow the startup gate in
-[`references/operations.md`](references/operations.md).
+If publication is unsafe, keep the verified patch local and explain why. That
+is a useful result, not a failed night.
 
 ## Morning
 
+If a shift is active, stop it only when the user asks or its deadline has
+arrived. Then run:
+
 ```bash
-night-shift stop --latest   # only when still active
 night-shift report --latest
 ```
 
-Lead with the best one to three choices, not logs. For each choice state:
+Lead with:
 
-- the claim;
-- exact repo evidence;
-- files involved;
-- verification command;
-- whether it is KEEP, MAYBE, or REJECT;
-- the proof artifact path.
+1. draft PRs opened;
+2. verified local patches;
+3. the best source-grounded candidate;
+4. blockers that prevented execution.
 
-Keep worker drafts separate from verified truth. Treat hardware, audio,
-telemetry, and manual QA as unknown unless actually checked.
+For each useful result, state the repo, what changed, files, verification,
+proof level, and PR or patch path. Keep candidates separate from verified
+work. End with one recommendation for the user's cloud coding agent or human
+review.
 
-Ask for feedback after review:
+Record feedback when the user gives it:
 
 ```bash
 night-shift feedback --latest --item 1 --useful
 night-shift feedback --latest --item 1 --not-useful --note "too generic"
 ```
 
-Feedback stays local and changes future selection for that repo before model
-calls. Useful families rise; repeated not-useful families are skipped in Normal
-mode. Feedback never bypasses evidence requirements.
-
-For a surviving KEEP/MAYBE item, prepare the bounded coding-agent handoff:
+## Other Commands
 
 ```bash
-night-shift handoff --latest --item 1
-```
-
-This writes a redacted local review pack and sends nothing. Run it with
-`--run` only when cloud reasoning was approved during setup, or after the user
-explicitly asks for the one-time `--allow-cloud` path. The coding agent must
-run read-only and return a validated verdict before implementation begins. Use
-`--agent claude` when the user wants their Claude subscription to do the
-independent read; the default Codex path remains unchanged.
-
-End with one choice: verify and implement the best item, rerun with a narrower
-mission, or stop. Do not turn the brief into homework.
-
-## Quality Contract
-
-Every worker finding must include an exact repo-relative path, supplied
-evidence, why it matters now, a verification command, and an expected result.
-Never invent paths, line numbers, issues, failures, or command output.
-
-Night Shift must:
-
-1. Rank recently active repositories from live pushes, PRs, issues, failed
-   workflows, and the user's mission.
-2. Give workers numbered excerpts and relevant diffs, not filenames alone.
-3. Work down Repair, Finish, Strengthen, Understand, and Index tasks in order.
-4. Require an exact copied source line; treat model findings as candidates, not proof.
-5. Retry one schema-valid but ungrounded answer with the exact missing fields.
-6. Fingerprint every task and skip it until the repository or live signal changes.
-   Safe health checks may use a daily or weekly fingerprint so a quiet repo
-   still gets a fresh bounded review instead of going silent forever.
-7. Promote a draft only after isolated edits and deterministic checks pass.
-8. Pin failed CI source, commands, validation, and draft worktrees to its exact commit SHA.
-9. Rank verified usefulness above token volume.
-10. Use local useful/not-useful feedback to avoid repeating bad suggestions.
-
-## Approved Deterministic Checks
-
-Use `--run-checks` when you want Night Shift to run one existing owner-approved
-unit, test, or verification command per repo in the rootless no-network sandbox:
-
-```bash
-night-shift trust-repo --repo /path/to/project --apply
-night-shift autopilot --repo /path/to/project --run-checks --once
-```
-
-The command must already be in the repo profile. Night Shift saves
-`verification-proof.json` with PASS, FAIL, BLOCKED, or SKIPPED and shows it in
-the morning brief. It never invents a command, starts a service, grants
-network access, or treats a skipped check as proof.
-
-Every portfolio run saves `run-summary.json` with its exact stop reason,
-elapsed time, cycles, and repository count. The morning brief uses that file
-to say whether the run reached its deadline, was stopped, or completed early.
-
-## End-To-End Checks
-
-Night Shift notices Playwright, Cypress, and repo E2E folders during the scan.
-That creates an E2E review task with the exact files and detected scripts; it
-does not invent a browser command or run one automatically.
-
-To approve and run one existing E2E script:
-
-```bash
-night-shift trust-repo --repo /path/to/project --include-e2e
-night-shift autopilot --repo /path/to/project --run-e2e --once
-```
-
-The command must already be in the repo's approved profile. It runs once in the
-rootless, no-network sandbox, saves `e2e-proof.json`, and reports PASS, FAIL, or
-SKIPPED in the morning brief. Night Shift never starts a server, grants network
-access, changes the repo checkout, or treats a skipped check as proof.
-
-Read [`references/worker-prompts.md`](references/worker-prompts.md) when
-changing or manually dispatching worker prompts.
-
-## Autopilot And Snooze
-
-Ask for a bedtime, then show exactly what was armed:
-
-```bash
+night-shift health
+night-shift stop --latest
 night-shift schedule --nightly 23:30
 night-shift schedule --status
+night-shift snooze --days 7
+night-shift trust-repo --repo /path --apply
 ```
 
-Explain once: it pauses after three unread briefs, drops to quiet on battery,
-and stops with `schedule --off`. Use `night-shift snooze --days 7`,
-`--until YYYY-MM-DD`, or `--off` for vacations.
+`trust-repo` is normally prepared automatically after the user's one hands-on
+consent. Use it directly to preview or repair one repo's approval.
 
-Offer `deliver --latest --github-issue` only with explicit consent. It updates
-one digest issue and never writes code.
+## ClaudeBrain Raw Intake
 
-## Rehearsal, Tune-Up, And Stop
+For ClaudeBrain, keep all content local:
 
-- Rehearsal: follow the two-lane no-edit test in
-  [`references/operations.md`](references/operations.md). Call it GREEN only
-  when both outputs obey the evidence schema.
-- Tune-Up: verify only the changed model or machine, then persist with
-  `start --yes --setup-only`. Use `--reset` only on request.
-- Stop: run `night-shift stop --latest`, then report any partial artifacts.
+```bash
+night-shift brain-intake --vault /Users/redbars/Documents/claudebrain
+```
 
-## Safety
+It reads new text files under `raw/`, writes one source-linked suggestion packet
+under `raw/scraps/`, and remembers hashes. It never moves raw files or edits
+authoritative memory, people, projects, notes, or archive pages.
 
-- No direct push to a user's branches. After explicit consent and passing checks,
-  it may push one isolated branch to open a draft PR; it never merges, releases,
-  deploys, publishes, tags, notarizes, or changes a cask.
-- No credentials, billing, visibility changes, destructive cleanup, or user
-  file reorganization.
-- No private user data, raw transcripts, or secrets in worker prompts.
-- Only deduped KEEP items may become implementation candidates, and Codex or a
-  human must independently verify them in an isolated worktree.
+## Hard Lines
 
-Read [`SAFETY.md`](SAFETY.md) for the full boundary.
+- Never edit the user's checkout.
+- Never trust an in-repo profile to authorize its own execution.
+- Never run discovered repository commands on the host.
+- Never send private repo or personal content to cloud lanes without consent.
+- Never claim hardware, install, audio, telemetry, hosted, or manual proof that
+  was not actually collected.
+- Never merge or perform a release/deploy action.
 
-## References
-
-- Hardware and LAN setup: [`references/hardware-scan.md`](references/hardware-scan.md)
-- Modes, startup gate, rehearsal, and stop: [`references/operations.md`](references/operations.md)
-- Worker schemas and scoring: [`references/worker-prompts.md`](references/worker-prompts.md)
+Read the package `SAFETY.md` for the complete boundary and
+`references/operations.md` only when debugging or changing the controller.

@@ -2,6 +2,17 @@ from __future__ import annotations
 
 
 DEFAULT_MODE = "night-shift"
+DEFAULT_PERMISSION = "draft-prs"
+
+
+def autonomy_flags(permission: str) -> dict[str, bool]:
+    """Collapse three implementation flags into one user-facing choice."""
+    return {
+        "execute_drafts": permission in {"draft-local", "draft-prs"},
+        "run_checks": permission in {"draft-local", "draft-prs"},
+        "run_e2e": permission == "draft-prs",
+        "allow_draft_prs": permission == "draft-prs",
+    }
 
 
 def rows_by_name(rows: list[tuple[str, str, str]]) -> dict[str, tuple[str, str]]:
@@ -47,16 +58,16 @@ def privacy_route_label(route: str) -> str:
 def permission_label(permission: str) -> str:
     return {
         "brief": "Read only and make a morning brief",
-        "draft-local": "Draft local patch plans and issue candidates, but do not push",
-        "draft-prs": "Open tested draft PRs only when you allow it; never merge",
+        "draft-local": "Make tested changes in disposable copies, but keep them local",
+        "draft-prs": "Open tested draft PRs for review; never merge",
     }.get(permission, permission)
 
 
 def autonomy_copy(permission: str) -> str:
     return {
         "brief": "Read-only. Make a brief and a ranked queue.",
-        "draft-local": "More helpful. Draft exact local patch plans, tests, and issue candidates.",
-        "draft-prs": "Most autonomous. Open only tested draft PRs after you allow it and the repo sandbox is ready.",
+        "draft-local": "Hands-on. Make small tested changes in disposable copies and keep them local.",
+        "draft-prs": "Autopilot. Make small tested changes and open draft PRs for review; never merge.",
     }.get(permission, "Read-only. Make a brief and a ranked queue.")
 
 
@@ -108,43 +119,65 @@ def start_preview(config: dict, rows: list[tuple[str, str, str]], mode_defaults:
     stop = prefs.get("stop", "morning")
     wake_goal = prefs.get("wake_goal", "brief")
     privacy_route = prefs.get("privacy_route", "mac-only")
-    tools = detected_tools(rows, privacy_route) or ["no worker AI found yet; planning brief only"]
+    by_name = rows_by_name(rows)
+    local_worker_ready = (
+        by_name.get("local-models", ("", ""))[0] == "GREEN"
+        and by_name.get("local-chat", ("", ""))[0] == "GREEN"
+    )
+    windows_worker_ready = (
+        privacy_route == "mac-and-lan"
+        and by_name.get("windows-worker", ("", ""))[0] == "GREEN"
+    )
+    worker_ready = local_worker_ready or windows_worker_ready
+    tools = detected_tools(rows, privacy_route)
     scope = prefs.get("scope", "github-recent")
     priority_repos = [str(item) for item in (prefs.get("priority_repos") or []) if str(item).strip()]
     quiet_hours = str(prefs.get("quiet_hours") or "").strip()
     patch_plan = (
-        "Make test-gated patches in disposable copies"
+        "Make small test-gated code, test, E2E, docs, and cleanup changes in disposable copies"
+        if execute_drafts and worker_ready
+        else "Make a planning brief tonight; hands-on work starts when worker AI is reachable"
         if execute_drafts
         else "Prepare reviewable plans without changing code"
     )
     publication = (
-        "May open test-passed draft PRs; never merges them"
+        "Open only test-passed draft PRs for review; never merge them"
+        if allow_draft_prs and worker_ready
+        else "No draft PR will be opened tonight because worker AI is unavailable"
         if allow_draft_prs
         else "Keeps all work local; does not push"
+    )
+    verification = (
+        "- Keep approved checks ready; no check or patch starts until worker AI is reachable"
+        if not worker_ready
+        else "- Run one approved deterministic check and one approved E2E/smoke check per repo in isolated no-network runners"
+        if run_checks and run_e2e
+        else "- Run one already-approved deterministic check per repo in the isolated no-network runner"
+        if run_checks
+        else "- Run one already-approved E2E/smoke check per repo in the isolated no-network runner"
+        if run_e2e
+        else "- Notice tests and E2E surfaces; never run an unapproved command"
+    )
+    tool_line = (
+        f"- Use {', '.join(tools)}"
+        if tools
+        else "- Worker AI is not reachable yet"
     )
     lines = [
         "Night Shift preview", "", f"Project: {repo}", "", "Tonight:",
         "- Scan your recently active GitHub repos" if scope == "github-recent" else "- Scan this project",
         *([f"- Prioritize: {', '.join(priority_repos)}"] if priority_repos else []),
         *([f"- Stay quiet during {quiet_hours}"] if quiet_hours else []),
-        f"- Use {', '.join(tools)}",
+        tool_line,
         f"- Look for {wake_goal_label(wake_goal).lower()}",
         f"- Use {mode_label(mode).lower()} effort and {stop_label(stop).lower()}",
-        (
-            "- Run one approved deterministic check and one approved E2E/smoke check per repo in isolated no-network runners"
-            if run_checks and run_e2e
-            else "- Run one already-approved deterministic check per repo in the isolated no-network runner"
-            if run_checks
-            else "- Run one already-approved E2E/smoke check per repo in the isolated no-network runner"
-            if run_e2e
-            else "- Notice tests and E2E surfaces; never run an unapproved command"
-        ),
+        verification,
         f"- {patch_plan}",
         "- Leave a short morning brief with proof and next steps",
         "", "Safety:",
         f"- {publication}",
-        "- Never edits this checkout, merges, releases, deploys, or changes credentials",
-        "- Never deletes or reorganizes your files, changes billing, or changes repo visibility",
+        "- Will never edit this checkout, merge, release, deploy, or change credentials",
+        "- Will never delete or reorganize your files, change billing, or change repo visibility",
         f"- {privacy_route_label(privacy_route)}",
         "", "Change these choices anytime with `night-shift start --advanced`.",
         f"If setup fails, run `night-shift doctor --repo {repo}`.",

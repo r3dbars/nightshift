@@ -11,17 +11,19 @@ it at one repo or your recently active GitHub projects, point it at the compute
 you already have, and wake up to new repository knowledge, tested local drafts,
 and a short portfolio brief.
 
-It does the useful night work: read, sort, map, draft, and report. It does not
+It does the useful night work: find, patch, test, draft, and report. It does not
 merge, release, deploy, or pretend a worker draft is proof.
 
 It is for developers who keep thinking, "I have a laptop, maybe a desktop GPU,
 maybe Claude, and definitely a pile of repo chores. Why are all of them asleep
 at the same time?"
 
-It is not an autonomous release bot. Local and Windows models can think, sort,
-review, and draft. Optional code drafts happen only in disposable worktrees;
-the original checkout is untouched. Codex or a human still reviews, commits,
-pushes, and opens any PRs.
+It is not an autonomous release bot. Local and Windows models can repair a
+failing check, strengthen focused unit or E2E coverage, correct stale docs, fix
+a narrow issue, or clean one exact redundancy. Work happens only in disposable
+worktrees; the original checkout is untouched. With saved hands-on consent,
+Night Shift may open bounded tested draft PRs. A human still decides what
+merges.
 
 For the safety and privacy boundary, including what worker lanes can see and
 what gets written to disk, read [SAFETY.md](SAFETY.md).
@@ -37,6 +39,10 @@ It turns idle compute into bounded, reviewable repo work:
   test commands
 - cross-night task fingerprints so unchanged work never repeats
 - test-gap maps
+- focused unit and E2E test patches
+- reproducible failing-check repairs and narrow issue fixes
+- stale setup, test, quickstart, and command documentation repairs
+- one-file redundancy cleanup
 - stale PR reviews
 - TODO and risk clustering
 - release-readiness notes
@@ -66,8 +72,8 @@ ranked, source-backed brief, proof paths, token totals, and a clear first move."
 git clone https://github.com/r3dbars/nightshift.git
 cd nightshift
 ./install.sh
-night-shift start
-night-shift report --latest
+~/.codex/bin/night-shift start
+~/.codex/bin/night-shift report --latest
 ```
 
 If `night-shift` is not on your `PATH`, run it directly:
@@ -81,7 +87,7 @@ owned GitHub repo, checks available AI tools, chooses safe defaults, shows a
 clear preview, asks once, and starts. Use `--advanced` for custom choices.
 
 When an AI assistant drives setup from chat (using the bundled `SKILL.md`), it
-runs the same read-only detection and shows the same safe preview. The assistant
+runs the same detection and shows the same preview. The assistant
 then saves everything with `night-shift start --yes`, so no keyboard wizard or
 knowledge of model URLs is needed. See
 `SKILL.md` and `references/hardware-scan.md` in this folder.
@@ -105,12 +111,15 @@ Normal setup starts like a tiny decision brief:
 ```text
 Welcome to Night Shift.
 
-First time here, so I checked the basics for you.
-I found your project, GitHub account, local AI, and optional LAN worker.
-The safe default watches recent work for eight hours and keeps code local.
+I found your projects and local AI.
 
-Safe default: local, read-only, no pushes, no merges, no releases. Advanced
-setup can separately authorize test-passed GitHub draft PRs for review.
+Tonight I will look for small work that is actually worth doing: failing tests,
+missing unit or E2E coverage, stale docs, narrow issue fixes, and exact code
+cleanup. I will work in disposable copies and rerun approved checks. I may open
+a tested draft PR for review, but I will never merge, deploy, release, touch
+secrets, or edit your checkout.
+
+Start the eight-hour shift?
 ```
 
 Normal setup asks only whether to start. `night-shift start --advanced` exposes
@@ -131,24 +140,20 @@ Then it shows a summary before launching:
 Night Shift preview
 
 Project: /path/to/project
-Tonight it WILL:
+Tonight:
 - Watch recently active GitHub repos
 - Use: local Mac AI
-- Aim for: Ranked repo chores and test ideas
-- Run in Normal mode
-- Read only and make a morning brief
-- Autonomy: Read-only. Make a brief and a ranked queue.
-- Stop after 6 hours
-- Save a repo scan, deduped work queue, morning brief, and artifacts
+- Look for ranked repo chores and test ideas
+- Use normal effort and stop after 8 hours
+- Run approved deterministic and E2E checks in isolated no-network runners
+- Make small test-gated code, test, E2E, docs, and cleanup changes in disposable copies
+- Open only test-passed draft PRs for review; never merge them
+- Leave a short morning brief with proof and next steps
 
-Tonight it WILL NOT:
-- Push commits
-- Open PRs without a separate Codex or human review step
-- Merge PRs
-- Release, deploy, publish, tag, or notarize
-- Delete or reorganize user files
-- Change credentials, billing, or repo visibility
-- Edit this checkout directly
+Safety:
+- Never edit this checkout, merge, release, deploy, or change credentials
+- Never delete or reorganize files, change billing, or change repo visibility
+- Keep repo context on this Mac
 ```
 
 The wizard also writes a setup lab under `~/.codex/maestro/overnight/`.
@@ -175,10 +180,10 @@ night-shift autopilot --repo /path/to/project \
 Autonomy levels:
 
 - `brief`: read-only repo scan, artifacts, and a ranked queue.
-- `draft-local`: exact patch plans, issue candidates, files, and tests.
-- `draft-prs`: review-ready candidates and optional isolated patches. Saved
-  draft-PR consent allows only test-passed draft branches; Night Shift never
-  merges, releases, or deploys.
+- `draft-local`: small tested changes in disposable copies; nothing is pushed.
+- `draft-prs`: the new-install default. It may open bounded test-passed draft
+  PRs after fresh repeated verification; Night Shift never merges, releases,
+  or deploys.
 
 ```mermaid
 flowchart LR

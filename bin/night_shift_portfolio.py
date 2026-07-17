@@ -434,6 +434,7 @@ class PortfolioEngine:
             "head": head,
             "slug": task.get("slug", ""),
             "kind": task.get("kind", ""),
+            "draft_intent": task.get("draft_intent", ""),
             "files": sorted(task.get("files") or []),
             "signal": task.get("signal", ""),
             "source_ref": task.get("source_ref", ""),

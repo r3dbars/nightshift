@@ -32,7 +32,14 @@ if str(SCRIPT_DIR) not in sys.path:
 from night_shift_portfolio import PortfolioEngine, parse_json_text
 from night_shift_drafts import DraftEngine, VERIFIED_DRAFT_STATUSES, draft_proof_status, remaining_draft_timeout
 from night_shift_publish import PublishEngine
-from night_shift_policy import PROFILE_NAME, PROTECTED_PATHS, command_display, parse_repo_profile, validate_command
+from night_shift_policy import (
+    PROFILE_NAME,
+    PROTECTED_PATHS,
+    command_display,
+    load_repo_profile as load_repo_profile_proposal,
+    parse_repo_profile,
+    validate_command,
+)
 from night_shift_sandbox import (
     build_runner_image,
     dependency_cache_path,
@@ -51,6 +58,7 @@ from night_shift_reporting import ReportEngine
 from night_shift_portfolio_reporting import PortfolioReportEngine
 from night_shift_repo_outcomes import append_repo_outcome, link_review_to_repo_outcome, load_repo_outcomes, outcome_ledger_summary, repo_outcome_adjustment
 from night_shift_autopilot import AutopilotCycleState
+from night_shift_autonomy import select_approved_verification, test_failure_signature, verification_outcome
 from night_shift_brain import run_brain_intake
 from night_shift_selection import (
     declared_symbols,
@@ -78,6 +86,8 @@ from night_shift_dispatch import (
     should_retry_local_output,
 )
 from night_shift_setup import (
+    DEFAULT_PERMISSION,
+    autonomy_flags,
     autonomy_copy,
     detected_tools,
     mode_label,
@@ -321,6 +331,8 @@ def config_value(config: dict, key: str, default=None):
         "priority_repos",
         "quiet_hours",
         "execute_drafts",
+        "run_checks",
+        "run_e2e",
         "allow_cloud_reasoning",
         "allow_remote_lan_worker",
         "allow_draft_prs",
@@ -438,7 +450,7 @@ def print_first_run_intro() -> None:
     print("This is your first time here, so I will check this project and the AI already available on your machines.")
     print("Then I will show one safe plan. You only need to decide whether to start it.")
     print("")
-    print("Safe default: eight hours, local-first, no pushes, merges, releases, or deploys.")
+    print("Safe default: eight hours, local-first, tested draft PRs for review, and never a merge, release, or deploy.")
     print("If an AI worker is unavailable, I will save setup and make a planning brief instead.")
     print("Use `night-shift start --advanced` whenever you want to customize the plan.")
 
@@ -447,10 +459,16 @@ def recommended_start_preferences(saved: dict, rows: list[tuple[str, str, str]])
     """Choose safe, useful defaults so the normal setup needs one consent."""
     by_name = rows_by_name(rows)
     github_ready = by_name.get("gh-auth", ("", ""))[0] == "GREEN"
+    saved_privacy = config_value(saved, "privacy_route", "")
+    privacy_route = saved_privacy or (
+        "mac-and-lan"
+        if by_name.get("windows-worker", ("", ""))[0] == "GREEN"
+        else "mac-only"
+    )
     return {
         "wake_goal": config_value(saved, "wake_goal", "chores"),
-        "privacy_route": config_value(saved, "privacy_route", "mac-only"),
-        "permission": config_value(saved, "permission", "draft-local"),
+        "privacy_route": privacy_route,
+        "permission": config_value(saved, "permission", DEFAULT_PERMISSION),
         "mode": config_value(saved, "mode", "night-shift"),
         "stop": config_value(saved, "stop", "8h"),
         "scope": configured_scope(saved) if saved else ("github-recent" if github_ready else "current"),
@@ -2422,33 +2440,11 @@ def command_sandbox(args) -> int:
 
 def verification_preflight(result: CmdResult, command: tuple[str, ...] = ()) -> tuple[str, str]:
     output = (result.stdout + "\n" + result.stderr).strip()
-    low = output.lower()
-    infrastructure_markers = (
-        "command not found",
-        "executable file not found",
-        "cannot stat '/source/.'",
-        "source mount is empty",
-        "permission denied",
-        "no such image",
-    )
-    if result.rc == 0:
+    outcome = verification_outcome(result.rc, output)
+    if outcome == "PASS":
         return "PASS", "verification passed in the isolated runner"
     detail = redact(output or f"runner exited {result.rc}")[:500]
-    if result.rc in {125, 126, 127, 137} or any(marker in low for marker in infrastructure_markers):
-        return "BLOCKED", detail
-    known_runner = bool(command) and (
-        command[0] in {"pytest", "cargo", "go", "swift", "npm", "pnpm", "yarn"}
-        or command[:3] == ("python3", "-m", "unittest")
-        or command[:3] == ("python", "-m", "unittest")
-        or command[:3] == ("python3", "-m", "pytest")
-        or command[:3] == ("python", "-m", "pytest")
-    )
-    test_failure = bool(re.search(
-        r"\b(?:assertionerror|[1-9]\d*\s+(?:tests?\s+)?failed|failures?=[1-9]\d*|[1-9]\d*\s+failing)\b|^FAIL:|^FAILED ",
-        output,
-        re.IGNORECASE | re.MULTILINE,
-    ))
-    if result.rc == 1 and (known_runner or test_failure):
+    if outcome == "FAILING":
         return "FAILING", detail
     return "BLOCKED", detail
 
@@ -2510,8 +2506,17 @@ def command_trust_repo(args) -> int:
     if not commands:
         print("NIGHTSHIFT_TRUST_REPO: RED | no safe deterministic verification command was detected")
         return 1
-    candidate_paths = [*scan.get("source_files", []), *scan.get("test_files", [])]
-    allowed_paths = list(dict.fromkeys(path.split("/", 1)[0] for path in candidate_paths if "/" in path))[:12]
+    candidate_paths = [
+        *scan.get("source_files", []),
+        *scan.get("test_files", []),
+        *scan.get("e2e_files", []),
+        *scan.get("doc_files", []),
+    ]
+    allowed_paths = list(dict.fromkeys(
+        path.split("/", 1)[0] if "/" in path else path
+        for path in candidate_paths
+        if path
+    ))[:20]
     if not allowed_paths:
         allowed_paths = [
             path for path in ("src", "lib", "app", "tests", "test", "Sources", "Tests")
@@ -2578,6 +2583,29 @@ def command_trust_repo(args) -> int:
         print(f"NIGHTSHIFT_TRUST_REPO: YELLOW | verification cannot run in the isolated runner: {preflight_detail}")
         print("Nothing was saved. Night Shift stays analysis-only for this repo.")
         return 1
+    repeated = run_cmd(
+        sandbox_command(repo, tuple(commands[0]), parsed_profile, dependency_source),
+        cwd=repo,
+        timeout=parsed_profile.max_seconds,
+    )
+    repeated_state, repeated_detail = verification_preflight(repeated, tuple(commands[0]))
+    if repeated_state == "BLOCKED":
+        print(f"NIGHTSHIFT_TRUST_REPO: YELLOW | repeated verification was blocked: {repeated_detail}")
+        print("Nothing was saved. Night Shift stays analysis-only for this repo.")
+        return 1
+    if repeated_state != preflight_state:
+        print("NIGHTSHIFT_TRUST_REPO: YELLOW | verification changed result across two isolated runs")
+        print("Nothing was saved. Night Shift stays analysis-only for this repo.")
+        return 1
+    if preflight_state == "FAILING":
+        signatures = [
+            test_failure_signature(result.stdout + "\n" + result.stderr)
+            for result in (preflight, repeated)
+        ]
+        if not all(signatures) or len(set(signatures)) != 1:
+            print("NIGHTSHIFT_TRUST_REPO: YELLOW | the same identifiable test failure did not reproduce twice")
+            print("Nothing was saved. Night Shift stays analysis-only for this repo.")
+            return 1
     try:
         path = save_approval(REPO_APPROVALS_ROOT, remote, slug, profile)
     except OSError as exc:
@@ -2588,9 +2616,26 @@ def command_trust_repo(args) -> int:
         path.unlink(missing_ok=True)
         print(f"NIGHTSHIFT_TRUST_REPO: RED | saved approval failed validation: {detail}")
         return 1
-    suffix = "verification passed" if preflight_state == "PASS" else f"reproducible verification failure detected (rc={preflight.rc})"
+    suffix = (
+        "verification passed twice"
+        if preflight_state == "PASS"
+        else f"the same verification failure reproduced twice (rc={preflight.rc})"
+    )
     print(f"NIGHTSHIFT_TRUST_REPO: GREEN | approval saved outside the repo at {path}; {suffix}")
     return 0
+
+
+def ensure_repo_autonomy(repo: Path, include_e2e: bool) -> tuple[bool, str]:
+    """Prepare an owned repo after the user chose hands-on execution once."""
+    profile, detail = load_repo_profile(repo)
+    if profile and profile.may_execute:
+        return True, detail
+    rc = command_trust_repo(argparse.Namespace(
+        repo=str(repo), include_e2e=include_e2e, prepare_dependencies=True,
+        apply=True, yes=True,
+    ))
+    profile, detail = load_repo_profile(repo)
+    return bool(rc == 0 and profile and profile.may_execute), detail
 
 
 def command_clean(args) -> int:
@@ -2704,6 +2749,33 @@ def command_plan(args) -> int:
     (ledger / "context-pack.txt").write_text(context, encoding="utf-8")
     (ledger / "mode.json").write_text(json.dumps({"mode": args.mode, **MODE_DEFAULTS[args.mode]}, indent=2) + "\n", encoding="utf-8")
     (ledger / "startup-gate.md").write_text("# Startup Gate\n\nStatus: NOT_RUN\n\nRun `night-shift doctor --repo <repo>` before a real night.\n", encoding="utf-8")
+    (ledger / "token-report.txt").write_text(
+        "No model calls ran. Worker AI was unavailable or this was an explicit planning pass.\n",
+        encoding="utf-8",
+    )
+    planned = []
+    for index, item in enumerate(safe_queue[:3], 1):
+        raw = str(item.get("prompt") or item.get("reason") or item.get("slug") or "Repo task")
+        planned.append(f"{index}. {' '.join(redact(raw).split())[:180]}")
+    if not planned:
+        planned = ["1. No grounded task was ready yet. Try again after the repo changes."]
+    morning = [
+        "# Morning Brief", "", "Status: YELLOW", "",
+        "Good morning - Night Shift completed a planning-only pass.", "",
+        "Start here:",
+        "- Start your local model server, then run `night-shift start` again to unlock tested patches.", "",
+        "Useful work found:", *planned, "",
+        "Run totals:",
+        "- Model calls: 0",
+        "- Draft PRs opened: 0",
+        "- Verified local patches: 0",
+        "- Nothing merged, released, or deployed", "",
+        "Proof files:",
+        f"- Repo scan: {ledger / 'repo-scan.md'}",
+        f"- Planned queue: {ledger / 'planned-work-queue.json'}",
+        f"- Startup gate: {ledger / 'startup-gate.md'}",
+    ]
+    (ledger / "morning.md").write_text("\n".join(morning) + "\n", encoding="utf-8")
     print(f"NIGHTSHIFT_PLAN: GREEN | mode={args.mode} | ledger={ledger}")
     print(f"Next: night-shift run --repo {root} --mode {args.mode}")
     print(f"Preview: night-shift report --ledger {ledger}")
@@ -2972,6 +3044,7 @@ def command_run(args) -> int:
                 item.get("kind") == "issue",
                 item.get("kind", ""),
                 item.get("semantic_contract", {}),
+                item.get("draft_intent", ""),
             )
         )
         lane_counts[lane] += 1
@@ -3008,6 +3081,7 @@ def command_run(args) -> int:
                 pinned_issue,
                 kind,
                 semantic_contract,
+                draft_intent,
             ) = item
             if lane_running[lane] >= lane_limits[lane]:
                 continue
@@ -3044,6 +3118,7 @@ def command_run(args) -> int:
                 "verification_commands": verification_commands,
                 "evidence_sources": evidence_sources,
                 "semantic_contract": semantic_contract,
+                "draft_intent": draft_intent,
             }
             remaining.remove(item)
             submitted += 1
@@ -3082,6 +3157,7 @@ def command_run(args) -> int:
                     result["verification_commands"] = pending_item["verification_commands"]
                     result["evidence_sources"] = sanitize_evidence_sources(pending_item["evidence_sources"])
                     result["semantic_contract"] = pending_item["semantic_contract"]
+                    result["draft_intent"] = pending_item["draft_intent"]
                     results.append(result)
                     if result.get("score") == "REJECT":
                         circuit["rejections"] += 1
@@ -3115,6 +3191,7 @@ def command_run(args) -> int:
                             "verification_commands": pending_item["verification_commands"],
                             "evidence_sources": sanitize_evidence_sources(pending_item["evidence_sources"]),
                             "semantic_contract": pending_item["semantic_contract"],
+                            "draft_intent": pending_item["draft_intent"],
                         }
                     )
                     circuit["rejections"] += 1
@@ -3256,15 +3333,20 @@ def run_isolated_draft(
     sandbox = detect_sandbox(run_cmd)
     if not sandbox.available:
         return {"status": "REJECT", "reason": sandbox.detail, "proof_level": "not executed"}
-    candidate = {**candidate, "verification_argv": list(profile.commands[0])}
+    verification_argv = select_approved_verification(candidate, profile.commands)
+    candidate = {**candidate, "verification_argv": list(verification_argv)}
     if not candidate["verification_argv"]:
         return {
             "status": "REJECT",
             "reason": f"candidate has no approved argv verification from {PROFILE_NAME}",
             "proof_level": "not executed",
         }
-    local_strengthening = candidate.get("draft_intent") == "test-strengthening" and local_url and local_model
-    patch_lane = "local" if local_strengthening or not (windows_url and windows_model) else "windows"
+    local_intents = {
+        "test-strengthening", "explicit-test-mission", "e2e-strengthening",
+        "docs-repair", "safe-refactor",
+    }
+    prefer_local = candidate.get("draft_intent") in local_intents and local_url and local_model
+    patch_lane = "local" if prefer_local or not (windows_url and windows_model) else "windows"
     patch_url = windows_url if patch_lane == "windows" else local_url
     patch_model = windows_model if patch_lane == "windows" else local_model
     if not patch_url or not patch_model:
@@ -3524,6 +3606,12 @@ def command_autopilot(args) -> int:
                     item["checkout_status"] = checkout_status
                     item["checkout"] = str(checkout) if checkout else ""
                     if checkout:
+                        if getattr(args, "execute_drafts", False):
+                            ready, readiness = ensure_repo_autonomy(
+                                checkout, bool(getattr(args, "run_e2e", False))
+                            )
+                            item["autonomy_ready"] = ready
+                            item["autonomy_status"] = readiness
                         prepared.append((item, checkout))
                 prepared_cache = prepared
                 portfolio_cache = portfolio
@@ -3644,7 +3732,8 @@ def command_autopilot(args) -> int:
                             stop_file,
                         )
                         controller.finish_draft_attempt(cycle_row, draft)
-                        if controller.may_publish(
+                        if controller.may_publish_now(
+                            cycle_row["repo"],
                             args.permission,
                             getattr(args, "allow_draft_prs", False),
                             str(draft.get("status") or ""),
@@ -3795,7 +3884,16 @@ def command_start(args) -> int:
     print("")
     print("Give me a second to check what is ready on this computer...")
     overall, rows = doctor_checks(repo_text, run_smoke=False, allow_fetch=False)
-    requested_privacy = args.privacy or config_value(saved, "privacy_route", "mac-only")
+    configured_windows = (
+        args.windows_url
+        or os.environ.get("WINDOWS_WORKER_BASE_URL")
+        or config_value(saved, "windows_url", "")
+    )
+    requested_privacy = (
+        args.privacy
+        or config_value(saved, "privacy_route", "")
+        or ("mac-and-lan" if configured_windows else "mac-only")
+    )
     shown = set()
     for name, state, message in rows:
         if name in ("local-models", "local-chat", "windows-worker", "claude", "gh-auth", "repo", "power"):
@@ -3837,10 +3935,23 @@ def command_start(args) -> int:
     max_repos = args.max_repos or config_value(saved, "max_repos", AUTOPILOT_DEFAULTS[mode]["repo_limit"])
     priority_repos = PortfolioEngine.normalize_priority_repos(config_value(saved, "priority_repos", []))
     quiet_hours = normalize_quiet_hours(config_value(saved, "quiet_hours", ""))
-    execute_drafts = bool(getattr(args, "execute_drafts", False) or config_value(saved, "execute_drafts", False))
-    run_e2e = bool(getattr(args, "run_e2e", False) or config_value(saved, "run_e2e", False))
-    run_checks = bool(getattr(args, "run_checks", False) or config_value(saved, "run_checks", False))
-    allow_draft_prs = bool(getattr(args, "allow_draft_prs", False) or config_value(saved, "allow_draft_prs", False))
+    preset = autonomy_flags(permission) if first_run or args.permission is not None else {}
+    execute_drafts = bool(
+        getattr(args, "execute_drafts", False)
+        or config_value(saved, "execute_drafts", preset.get("execute_drafts", False))
+    )
+    run_e2e = bool(
+        getattr(args, "run_e2e", False)
+        or config_value(saved, "run_e2e", preset.get("run_e2e", False))
+    )
+    run_checks = bool(
+        getattr(args, "run_checks", False)
+        or config_value(saved, "run_checks", preset.get("run_checks", False))
+    )
+    allow_draft_prs = bool(
+        getattr(args, "allow_draft_prs", False)
+        or config_value(saved, "allow_draft_prs", preset.get("allow_draft_prs", False))
+    )
     if permission != "draft-prs":
         allow_draft_prs = False
     if permission == "brief":
@@ -3870,7 +3981,7 @@ def command_start(args) -> int:
             [
                 ("brief", "A calm morning brief: what happened, what matters, what to do first"),
                 ("chores", "A ranked hit list: bugs, tests, docs, and small safe chores"),
-                ("draft-prs", "Draft PR candidates: still no pushing or merging from Night Shift"),
+                ("draft-prs", "Tested draft PRs ready for review; Night Shift never merges"),
             ],
             wake_goal if wake_goal in {"brief", "chores", "draft-prs"} else "brief",
         )
@@ -3938,31 +4049,19 @@ def command_start(args) -> int:
                     windows_model = ask_text("Other computer model name", windows_model)
 
         permission = ask_choice(
-            "What is Night Shift allowed to prepare?",
+            "How hands-on should Night Shift be?",
             [
                 ("brief", "Read-only: make a morning brief"),
-                ("draft-local", "Draft plans and artifacts locally, but do not push"),
-                ("draft-prs", "Prepare draft PR candidates for me to review"),
+                ("draft-local", "Work locally: make tested changes in disposable copies"),
+                ("draft-prs", "Autopilot: make tested changes and open draft PRs for review"),
             ],
-            permission if permission in {"brief", "draft-local", "draft-prs"} else "brief",
+            permission if permission in {"brief", "draft-local", "draft-prs"} else DEFAULT_PERMISSION,
         )
-        if permission == "brief":
-            execute_drafts = False
-        else:
-            execute_drafts = ask_yes_no(
-                "If a task has a safe sandbox, may Night Shift try a disposable, test-gated patch? It will not touch this checkout.",
-                default=execute_drafts,
-            )
-        run_checks = ask_yes_no(
-            "May Night Shift run one owner-approved unit or test check per repo in a no-network sandbox?",
-            default=run_checks,
-        )
-        if permission == "draft-prs":
-            print(f"Patch execution starts off. Add {PROFILE_NAME} to a repo and set up the rootless sandbox after morning review.")
-            allow_draft_prs = ask_yes_no(
-                "After a patch passes isolated tests, may Night Shift open it as a GitHub draft PR for review?",
-                default=False,
-            )
+        selected_autonomy = autonomy_flags(permission)
+        execute_drafts = selected_autonomy["execute_drafts"]
+        run_checks = selected_autonomy["run_checks"]
+        run_e2e = selected_autonomy["run_e2e"]
+        allow_draft_prs = selected_autonomy["allow_draft_prs"]
         mode = ask_choice(
             "How much energy should it use?",
             [
@@ -4037,13 +4136,39 @@ def command_start(args) -> int:
 
     setup_changed = setup_has_changed(saved, config)
     setup_ledger = None
-    if setup_changed:
+
+    def persist_setup() -> None:
+        nonlocal setup_ledger
+        if not setup_changed:
+            return
         save_config(config)
         setup_ledger = create_ledger("setup")
         write_startup_gate(setup_ledger, overall, rows)
         write_lab_files(setup_ledger, config, rows)
+
     print(start_preview(config, rows))
     print("")
+
+    if args.setup_only:
+        persist_setup()
+        if setup_changed:
+            print(f"Saved setup: {CONFIG_PATH}")
+            print(f"Setup lab: {setup_ledger / 'lab'}")
+            print("All set. I saved setup and did not start a run.")
+            print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
+        else:
+            print(f"Reusing saved setup unchanged: {CONFIG_PATH}")
+            print("All set. Your existing setup is ready; no run was started.")
+            print("NIGHTSHIFT_START: GREEN | setup unchanged | no run started")
+        return 0
+
+    if not args.yes and is_interactive():
+        if not ask_yes_no("Start Night Shift now?", default=True):
+            print("Nothing new was saved or started.")
+            print("NIGHTSHIFT_START: GREEN | start declined | no changes saved")
+            return 0
+
+    persist_setup()
     if setup_changed:
         print(f"Saved setup: {CONFIG_PATH}")
         print(f"Setup lab: {setup_ledger / 'lab'}")
@@ -4052,26 +4177,15 @@ def command_start(args) -> int:
     if privacy_route == "cloud-ok":
         print("Cloud note: Night Shift will still store credentials outside config and will not send secrets on purpose.")
 
-    if args.setup_only:
-        if setup_changed:
-            print("All set. I saved setup and did not start a run.")
-            print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
-        else:
-            print("All set. Your existing setup is ready; no run was started.")
-            print("NIGHTSHIFT_START: GREEN | setup unchanged | no run started")
-        return 0
-
-    if not args.yes and is_interactive():
-        if not ask_yes_no("Start Night Shift now?", default=True):
-            print("NIGHTSHIFT_START: GREEN | setup saved | no run started")
-            return 0
-
     by_name = rows_by_name(rows)
     local_ready = (
         by_name.get("local-models", ("", ""))[0] == "GREEN"
         and by_name.get("local-chat", ("", ""))[0] == "GREEN"
     )
-    windows_ready = by_name.get("windows-worker", ("", ""))[0] == "GREEN"
+    windows_ready = (
+        privacy_route == "mac-and-lan"
+        and by_name.get("windows-worker", ("", ""))[0] == "GREEN"
+    )
 
     if not local_ready and not windows_ready:
         print("")
@@ -5020,7 +5134,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--permission",
         choices=["brief", "draft-local", "draft-prs"],
         default=None,
-        help="skip the autonomy question; pushing a tested draft still needs separate saved consent",
+        help="skip the autonomy question; publishing still requires an ownership-bound repo approval",
     )
     start.add_argument("--stop-after", choices=sorted(STOP_SECONDS), default=None, help="skip the stop question")
     start.add_argument("--scope", choices=["current", "github-recent"], default=None, help="watch one repo or recently active GitHub repos")

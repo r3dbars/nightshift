@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from night_shift_setup import autonomy_copy, detected_tools, mode_counts, permission_label, setup_has_changed, start_preview
+from night_shift_setup import autonomy_copy, autonomy_flags, detected_tools, mode_counts, permission_label, setup_has_changed, start_preview
 
 
 MODE_DEFAULTS = {
@@ -61,18 +61,22 @@ class SetupPolicyTests(unittest.TestCase):
                     "wake_goal": "draft-prs",
                 },
             },
-            [("windows-worker", "GREEN", "ready")],
+            [
+                ("local-models", "GREEN", "ready"),
+                ("local-chat", "GREEN", "ready"),
+                ("windows-worker", "GREEN", "ready"),
+            ],
             MODE_DEFAULTS,
         )
-        self.assertIn("test-gated patches in disposable copies", preview)
+        self.assertIn("test-gated code, test, E2E, docs, and cleanup changes", preview)
         self.assertIn("approved deterministic check", preview)
-        self.assertIn("May open test-passed draft PRs; never merges them", preview)
+        self.assertIn("Open only test-passed draft PRs for review; never merge them", preview)
         self.assertIn("stop after 8 hours", preview)
         self.assertIn("Keep repo context on this Mac", preview)
         self.assertNotIn("Use: another computer", preview)
-        self.assertIn("Never edits this checkout, merges, releases, deploys", preview)
-        self.assertIn("Never deletes or reorganizes your files", preview)
-        self.assertIn("changes billing, or changes repo visibility", preview)
+        self.assertIn("Will never edit this checkout, merge, release, deploy", preview)
+        self.assertIn("Will never delete or reorganize your files", preview)
+        self.assertIn("change billing, or change repo visibility", preview)
         self.assertIn("night-shift doctor --repo /repo", preview)
         self.assertLessEqual(len(preview.splitlines()), 21)
 
@@ -86,6 +90,25 @@ class SetupPolicyTests(unittest.TestCase):
             MODE_DEFAULTS,
         )
         self.assertIn("Prioritize: owner/important", preview)
+
+    def test_unreachable_worker_preview_describes_the_real_fallback(self):
+        preview = start_preview(
+            {
+                "project": {"repo": "/repo"},
+                "preferences": {
+                    "permission": "draft-prs",
+                    "execute_drafts": True,
+                    "allow_draft_prs": True,
+                    "run_checks": True,
+                },
+            },
+            [],
+            MODE_DEFAULTS,
+        )
+        self.assertIn("Make a planning brief tonight", preview)
+        self.assertIn("no check or patch starts", preview)
+        self.assertIn("No draft PR will be opened tonight", preview)
+        self.assertNotIn("Open only test-passed draft PRs", preview)
 
     def test_preview_shows_quiet_hours_without_claiming_worker_shutdown(self):
         preview = start_preview(
@@ -101,7 +124,19 @@ class SetupPolicyTests(unittest.TestCase):
     def test_draft_pr_copy_matches_the_actual_permission_boundary(self):
         self.assertIn("Open tested draft PRs", permission_label("draft-prs"))
         self.assertIn("never merge", permission_label("draft-prs"))
-        self.assertIn("after you allow it", autonomy_copy("draft-prs"))
+        self.assertIn("open draft PRs for review", autonomy_copy("draft-prs"))
+
+    def test_one_autonomy_choice_controls_internal_capabilities(self):
+        self.assertEqual(
+            autonomy_flags("draft-prs"),
+            {
+                "execute_drafts": True,
+                "run_checks": True,
+                "run_e2e": True,
+                "allow_draft_prs": True,
+            },
+        )
+        self.assertFalse(any(autonomy_flags("brief").values()))
 
     def test_read_only_preview_cannot_claim_patch_execution(self):
         preview = start_preview(

@@ -70,7 +70,10 @@ class QueueEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(by_slug["e2e-smoke-review"]["recurrence"], "daily")
         self.assertEqual(by_slug["workflow-health-check"]["recurrence"], "weekly")
-        self.assertFalse(by_slug["e2e-smoke-review"]["executable"])
+        self.assertTrue(by_slug["e2e-smoke-review"]["executable"])
+        self.assertEqual(by_slug["e2e-smoke-review"]["proof_kind"], "e2e")
+        self.assertEqual(by_slug["e2e-smoke-review"]["draft_intent"], "e2e-strengthening")
+        self.assertEqual(by_slug["e2e-smoke-review"]["files"][0], "tests/e2e/login.spec.ts")
 
     def test_recurring_task_fingerprint_is_distinct_from_one_time_task(self):
         base = {"slug": "workflow-health-check", "kind": "workflow", "files": [".github/workflows/ci.yml"]}
@@ -176,6 +179,7 @@ class QueueEvidenceTests(unittest.TestCase):
             evidence = "\n".join(task["evidence_sources"].values())
             self.assertIn("scan_complete=false", evidence)
             self.assertFalse(task["executable"])
+            self.assertEqual(task["draft_intent"], "test-strengthening")
 
     def test_js_ts_addressability_excludes_private_top_level_helpers(self):
         source = (
@@ -480,6 +484,135 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
         for item in queue:
             self.assertIn(item["ladder"], TASK_LADDER)
             self.assertEqual(item["ladder_priority"], TASK_LADDER[item["ladder"]])
+            self.assertIn("draft_intent", item)
+
+    def test_normal_mode_admits_grounded_docs_e2e_and_cleanup_work(self):
+        scan = {
+            "recent_files": ["src/app.py"],
+            "source_files": ["src/app.py"],
+            "test_files": ["tests/test_app.py"],
+            "coverage_test_files": ["tests/test_app.py"],
+            "doc_files": ["README.md"],
+            "todo_sample": [],
+            "test_commands": ["python -m pytest"],
+            "e2e_commands": ["npm run test:e2e"],
+            "e2e_files": ["playwright.config.ts", "tests/e2e/smoke.spec.ts"],
+            "e2e_frameworks": ["Playwright"],
+            "tracked_files": [
+                "src/app.py", "tests/test_app.py", "README.md",
+                "playwright.config.ts", "tests/e2e/smoke.spec.ts",
+            ],
+        }
+        queue = build_repo_work_queue(
+            None, scan, "night-shift", "draft-local",
+            run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+        )
+        by_slug = {item["slug"]: item for item in queue}
+
+        docs = by_slug["docs-command-drift"]
+        self.assertEqual(docs["kind"], "documentation")
+        self.assertEqual(docs["proof_kind"], "docs")
+        self.assertEqual(docs["draft_intent"], "docs-repair")
+        self.assertTrue(docs["executable"])
+
+        e2e = by_slug["e2e-smoke-review"]
+        self.assertEqual(e2e["proof_kind"], "e2e")
+        self.assertEqual(e2e["draft_intent"], "e2e-strengthening")
+        self.assertTrue(e2e["executable"])
+        self.assertEqual(e2e["files"][0], "tests/e2e/smoke.spec.ts")
+
+        cleanup = by_slug["recent-safe-cleanup"]
+        self.assertEqual(cleanup["kind"], "cleanup")
+        self.assertEqual(cleanup["proof_kind"], "test")
+        self.assertEqual(cleanup["draft_intent"], "safe-refactor")
+        self.assertTrue(cleanup["executable"])
+        self.assertEqual(cleanup["files"], ["src/app.py"])
+        self.assertIn("Do not change a public API", cleanup["prompt"])
+
+        ready, skipped = model_ready_tasks(queue, "night-shift", permission="draft-local")
+        ready_slugs = {item["slug"] for item in ready}
+        self.assertTrue({
+            "docs-command-drift", "e2e-smoke-review", "recent-safe-cleanup",
+        }.issubset(ready_slugs))
+        self.assertIn("docs-command-check-01-readme-md", {
+            item["slug"] for item in skipped
+        })
+
+    def test_executable_task_preconditions_require_files_and_commands(self):
+        scan = {
+            "recent_files": ["src/app.py"],
+            "source_files": ["src/app.py"],
+            "test_files": [],
+            "doc_files": ["README.md"],
+            "todo_sample": [],
+            "test_commands": [],
+            "e2e_commands": [],
+            "e2e_files": ["tests/e2e/smoke.spec.ts"],
+            "tracked_files": ["src/app.py", "README.md", "tests/e2e/smoke.spec.ts"],
+        }
+        queue = build_repo_work_queue(
+            None, scan, "night-shift", "draft-local",
+            run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+        )
+        by_slug = {item["slug"]: item for item in queue}
+        self.assertFalse(by_slug["docs-command-drift"]["executable"])
+        self.assertFalse(by_slug["e2e-smoke-review"]["executable"])
+        self.assertNotIn("recent-safe-cleanup", by_slug)
+
+        command_only = {**scan, "e2e_commands": ["npm run test:e2e"], "e2e_files": []}
+        command_only_queue = build_repo_work_queue(
+            None, command_only, "night-shift", "draft-local",
+            run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+        )
+        command_only_e2e = next(
+            item for item in command_only_queue if item["slug"] == "e2e-smoke-review"
+        )
+        self.assertFalse(command_only_e2e["executable"])
+        self.assertEqual(command_only_e2e["files"], [])
+
+    def test_grounded_issue_with_tests_becomes_executable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "src").mkdir()
+            (repo / "src" / "app.py").write_text(
+                "def normalize_login(value):\n    return value.strip()\n", encoding="utf-8"
+            )
+            scan = {
+                "recent_files": ["src/app.py"],
+                "source_files": ["src/app.py"],
+                "test_files": ["tests/test_app.py"],
+                "doc_files": [],
+                "todo_sample": [],
+                "test_commands": ["python -m pytest"],
+                "tracked_files": ["src/app.py", "tests/test_app.py"],
+                "github_open_issues_raw": json.dumps([
+                    {
+                        "number": 7,
+                        "title": "Handle empty login values",
+                        "body": "`src/app.py` should handle empty login input.",
+                    },
+                    {
+                        "number": 8,
+                        "title": "Investigate a mysterious request",
+                        "body": "Needs more evidence before implementation.",
+                    },
+                ]),
+            }
+            queue = build_repo_work_queue(
+                repo, scan, "night-shift", "draft-local",
+                run_cmd=self._run_cmd, detect_test_commands=self._detect_test_commands,
+            )
+
+        by_slug = {item["slug"]: item for item in queue}
+        grounded = by_slug["issue-7-next-action"]
+        self.assertEqual(grounded["files"], ["src/app.py"])
+        self.assertEqual(grounded["proof_kind"], "test")
+        self.assertEqual(grounded["draft_intent"], "issue-fix")
+        self.assertTrue(grounded["executable"])
+        self.assertFalse(by_slug["issue-8-next-action"]["executable"])
+
+        ready, _ = model_ready_tasks(queue, "night-shift", permission="draft-local")
+        self.assertIn("issue-7-next-action", {item["slug"] for item in ready})
 
     def test_slugs_are_deduped_and_insertion_order_preserved_within_ties(self):
         scan = {
@@ -784,6 +917,7 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
             )
             task = next(item for item in queue if item["slug"].startswith("changed-file-proof-"))
             self.assertTrue(task["executable"])
+            self.assertEqual(task["draft_intent"], "test-strengthening")
             self.assertIn("tests/unit/lib/analytics-metrics.test.ts", task["files"])
             self.assertIn("analysis=typescript-regex", "\n".join(task["evidence_sources"].values()))
             self.assertIn("Use only the copy-ready goal-source citation", task["prompt"])
@@ -935,6 +1069,7 @@ class BuildRepoWorkQueueTests(unittest.TestCase):
         failed_ci = next(item for item in queue if item["slug"] == "failed-ci-42")
         self.assertEqual(failed_ci["verification_commands"], ["custom test command"])
         self.assertEqual(failed_ci["source_ref"], source_ref)
+        self.assertEqual(failed_ci["draft_intent"], "repair")
         self.assertTrue(detect_calls)
         self.assertTrue(any(argv[:3] == ["git", "ls-tree", "-r"] for argv in calls))
 

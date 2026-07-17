@@ -24,16 +24,15 @@ def load_effective_profile(
     remote_revision_verifier: Callable[[Path, str], bool],
 ) -> tuple[RepoProfile | None, str]:
     local, detail = load_repo_profile(repo)
-    if local is not None:
-        return local, detail
     remote = remote_reader(repo).strip()
     if not remote:
-        return None, detail
+        return None, "repo-local profiles are proposals only; an external owned-repo approval is required"
     path = approval_path(approvals_root, remote)
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
-        return None, detail
+        proposal = " A repo-local profile was found, but it cannot authorize itself." if local else ""
+        return None, f"missing external owned-repo approval.{proposal}".strip()
     if record.get("remote") != remote or not isinstance(record.get("profile"), dict):
         return None, "saved repo approval does not match the current Git remote"
     if not remote_revision_verifier(repo, remote):
