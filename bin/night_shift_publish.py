@@ -11,8 +11,14 @@ from pathlib import Path
 from typing import Callable
 
 from night_shift_patch_protocol import validate_patch
+from night_shift_autonomy import patch_limits, policy_accepts_files, policy_for_candidate
 from night_shift_policy import RepoProfile
 from night_shift_sandbox import sandbox_command
+from night_shift_host_git import (
+    checkout_safety_reasons,
+    publication_ci_reasons,
+    safe_git_env,
+)
 
 
 PUBLISHABLE_STATUSES = {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
@@ -215,8 +221,13 @@ class PublishEngine:
         return rows
 
     def _cleanup(self, repo: Path, worktree: Path) -> bool:
-        removed = self.run_cmd(["git", "worktree", "remove", "--force", worktree], cwd=repo, timeout=120)
-        self.run_cmd(["git", "worktree", "prune"], cwd=repo, timeout=60)
+        removed = self.run_cmd(
+            ["git", "worktree", "remove", "--force", worktree],
+            cwd=repo,
+            timeout=120,
+            env=safe_git_env(),
+        )
+        self.run_cmd(["git", "worktree", "prune"], cwd=repo, timeout=60, env=safe_git_env())
         return removed.rc == 0
 
     def _remote_branch_sha(self, worktree: Path, branch: str) -> tuple[str, str]:
@@ -236,7 +247,12 @@ class PublishEngine:
             return "unknown"
         if remote_sha != expected_sha:
             return "foreign"
-        removed = self.run_cmd(["git", "push", "origin", "--delete", branch], cwd=worktree, timeout=120)
+        removed = self.run_cmd(
+            ["git", "push", "origin", "--delete", branch],
+            cwd=worktree,
+            timeout=120,
+            env=safe_git_env(),
+        )
         if removed.rc != 0:
             return "unknown"
         checked, _ = self._remote_branch_sha(worktree, branch)
@@ -297,8 +313,11 @@ class PublishEngine:
     ) -> dict:
         proof_dir.mkdir(parents=True, exist_ok=True)
         result_path = proof_dir / "publish.json"
+        last_result: dict | None = None
 
         def finish(result: dict) -> dict:
+            nonlocal last_result
+            last_result = result
             result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             return result
 
@@ -310,12 +329,23 @@ class PublishEngine:
         patch_path = Path(str(proof.get("patch") or ""))
         allowed_files = [str(path) for path in proof.get("files") or []]
         verification_argv = tuple(proof.get("verification_argv") or ())
+        policy = policy_for_candidate(proof)
         if not re.fullmatch(r"[0-9a-f]{40}", source_ref):
             return finish({"status": "REJECT", "reason": "publication requires an exact 40-character source SHA"})
         if not patch_path.is_file() or not allowed_files or verification_argv not in profile.commands:
             return finish({"status": "REJECT", "reason": "proof is missing its validated patch, files, or approved verification"})
+        if not policy_accepts_files(policy, allowed_files):
+            return finish({"status": "REJECT", "reason": f"proof files violate the {policy.name} policy"})
         patch = patch_path.read_text(encoding="utf-8")
-        validated = validate_patch(patch, allowed_files, profile)
+        max_files, max_changed_lines = patch_limits(proof)
+        validated = validate_patch(
+            patch,
+            allowed_files,
+            profile,
+            max_changed_lines=max_changed_lines,
+            max_files=max_files,
+            candidate=proof,
+        )
         if not validated.valid:
             return finish({"status": "REJECT", "reason": "; ".join(validated.reasons)})
 
@@ -349,6 +379,16 @@ class PublishEngine:
                 "status": "REJECT",
                 "reason": "source commit is not on the fetched default branch; PR-head repairs stay local",
             })
+        host_reasons = checkout_safety_reasons(self.run_cmd, repo, source_ref)
+        if host_reasons:
+            return finish({"status": "REJECT", "reason": "; ".join(host_reasons)})
+        ci_reasons = publication_ci_reasons(self.run_cmd, repo, source_ref)
+        if ci_reasons:
+            return finish({
+                "status": "VERIFIED_LOCAL_ONLY",
+                "reason": "; ".join(ci_reasons),
+                "next_step": "review the verified local patch before publishing it from a secret-free fork",
+            })
 
         fingerprint = hashlib.sha256((repo_name + source_ref + patch).encode("utf-8")).hexdigest()[:12]
         if self._already_published(fingerprint):
@@ -370,7 +410,12 @@ class PublishEngine:
             })
         worktree = self.worktree_root / re.sub(r"[^A-Za-z0-9._-]+", "--", repo_name) / branch.replace("/", "-")
         worktree.parent.mkdir(parents=True, exist_ok=True)
-        added = self.run_cmd(["git", "worktree", "add", "--detach", worktree, source_ref], cwd=repo, timeout=120)
+        added = self.run_cmd(
+            ["git", "worktree", "add", "--detach", worktree, source_ref],
+            cwd=repo,
+            timeout=120,
+            env=safe_git_env(),
+        )
         if added.rc != 0:
             return finish({"status": "REJECT", "reason": "could not create pinned publication worktree"})
 
@@ -385,26 +430,42 @@ class PublishEngine:
             paths = [line for line in changed.stdout.splitlines() if line]
             if set(paths) != set(validated.paths):
                 return finish({"status": "REJECT", "reason": "fresh worktree changed a different file set"})
-            verified = self.run_cmd(
-                sandbox_command(worktree, verification_argv, profile, dependency_source or repo / "node_modules"),
-                cwd=worktree,
-                timeout=profile.max_seconds,
-            )
+            if not policy_accepts_files(policy, paths):
+                return finish({"status": "REJECT", "reason": f"fresh worktree violates the {policy.name} file policy"})
+            publish_runs = []
+            required_publish_passes = 3 if policy.name == "e2e-strengthening" else 2
+            for _ in range(required_publish_passes):
+                publish_runs.append(self.run_cmd(
+                    sandbox_command(worktree, verification_argv, profile, dependency_source or repo / "node_modules"),
+                    cwd=worktree,
+                    timeout=profile.max_seconds,
+                ))
+            verified = publish_runs[-1]
             (proof_dir / "publish-verification.txt").write_text(
-                (verified.stdout + "\n" + verified.stderr).strip() + "\n", encoding="utf-8"
+                "\n\n".join(
+                    f"RUN {index}\n{(run.stdout + chr(10) + run.stderr).strip()}"
+                    for index, run in enumerate(publish_runs, 1)
+                ) + "\n",
+                encoding="utf-8",
             )
-            if verified.rc != 0:
-                return finish({"status": "REJECT", "reason": "fresh publication verification failed"})
-            staged = self.run_cmd(["git", "add", "--", *validated.paths], cwd=worktree, timeout=30)
+            if any(run.rc != 0 for run in publish_runs):
+                return finish({"status": "REJECT", "reason": "repeated fresh publication verification failed"})
+            staged = self.run_cmd(
+                ["git", "add", "--", *validated.paths],
+                cwd=worktree,
+                timeout=30,
+                env=safe_git_env(),
+            )
             committed = self.run_cmd(
                 [
                     "git", "-c", "user.name=Night Shift", "-c",
                     "user.email=night-shift@users.noreply.github.com",
                     "-c", "commit.gpgSign=false",
-                    "commit", "-m", f"Night Shift: {str(proof.get('summary') or 'verified repair')[:60]}",
+                    "commit", "-m", f"Night Shift: {str(proof.get('summary') or 'verified repair')[:50]} [skip ci]",
                 ],
                 cwd=worktree,
                 timeout=60,
+                env=safe_git_env(),
             ) if staged.rc == 0 else staged
             if committed.rc != 0:
                 return finish({"status": "REJECT", "reason": "could not commit the approved patch"})
@@ -418,7 +479,12 @@ class PublishEngine:
                     "status": "REJECT",
                     "reason": "draft branch name is already in use" if branch_state == "present" else "could not prove the draft branch name is unused",
                 })
-            pushed_result = self.run_cmd(["git", "push", "origin", f"HEAD:refs/heads/{branch}"], cwd=worktree, timeout=120)
+            pushed_result = self.run_cmd(
+                ["git", "push", "origin", f"HEAD:refs/heads/{branch}"],
+                cwd=worktree,
+                timeout=120,
+                env=safe_git_env(),
+            )
             if pushed_result.rc != 0:
                 cleanup = self._cleanup_owned_remote_branch(worktree, branch, local_sha)
                 pushed = cleanup == "unknown"
@@ -432,8 +498,10 @@ class PublishEngine:
             body = (
                 "Night Shift prepared this small change in isolation.\n\n"
                 f"Proof: {proof.get('proof_level', 'verified')}\n"
+                f"Intent: {policy.name}\n"
                 f"Verification: `{' '.join(verification_argv)}`\n"
                 f"Files: {', '.join(validated.paths)}\n\n"
+                "Hosted CI was intentionally skipped for this autonomous same-repo branch. "
                 "This is a draft for human or cloud-agent review. Night Shift never merges it."
             )
             created = self.run_cmd(
@@ -485,8 +553,10 @@ class PublishEngine:
             })
         finally:
             removed = self._cleanup(repo, worktree)
-            if result_path.exists():
-                saved = json.loads(result_path.read_text(encoding="utf-8"))
-                saved["worktree_removed"] = removed
-                saved["remote_branch_created"] = pushed
-                result_path.write_text(json.dumps(saved, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            if last_result is not None:
+                last_result["worktree_removed"] = removed
+                last_result["remote_branch_created"] = pushed
+                result_path.write_text(
+                    json.dumps(last_result, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )

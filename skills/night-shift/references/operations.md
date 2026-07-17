@@ -118,8 +118,8 @@ In `Local Heavy`, the goal is to keep local compute busy on bounded, novel work:
 - Mac local models: use for repeated classification, clustering, review notes,
   TODO mining, log triage, issue drafting, analytics/Sentry summarization, test
   gap discovery, and duplicate/stale PR analysis.
-- Windows worker: use for longer draft reviews and narrow Aider-backed patches
-  in disposable worktrees when deterministic checks are available.
+- Windows worker: use for longer draft reviews and narrow structured patches in
+  disposable worktrees when deterministic checks are available.
 - Deterministic controller: run real repo commands, enforce approved files and
   diff limits, and reject any patch whose checks fail.
 - Codex: review proven patches and make PR or merge decisions after the night.
@@ -331,12 +331,12 @@ Best Tokenmaxx workloads:
   boundaries, and rank by payoff/risk.
 - Release readiness briefs: summarize what changed, what blocks release, what
   manual QA remains, and what proof is deterministic vs manual.
-- Tiny PR idea generation: propose many small fixes; Codex opens only the best
-  few after live repo verification.
+- Tiny PR execution: rank many grounded ideas, attempt only the best bounded
+  fixes, and publish only those that pass fresh repeated verification.
 
 Do not use Tokenmaxx for:
 
-- branch pushes from `run`, release cuts, merges, tags, notarization,
+- unverified branch pushes, release cuts, merges, tags, notarization,
   appcast/cask updates, repository visibility changes, or deploys
 - real hardware/audio/manual-proof claims
 - broad refactors without human approval

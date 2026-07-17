@@ -68,25 +68,69 @@ class PortfolioReportEngine:
                 ledger / "portfolio-snapshots.jsonl", compact
             )
 
-    def morning_items(self, latest_by_repo: dict[str, dict]) -> list[dict]:
+    def morning_items(self, rows_by_repo: dict[str, dict] | list[dict]) -> list[dict]:
+        """Materialize exact queued tasks without attaching proof to a different task."""
         items: list[dict] = []
+        if isinstance(rows_by_repo, dict):
+            rows = [
+                {**row, "repo": row.get("repo") or repo_name}
+                for repo_name, row in rows_by_repo.items()
+            ]
+        else:
+            rows = [row for row in rows_by_repo if isinstance(row, dict)]
         ordered = sorted(
-            latest_by_repo.items(),
-            key=lambda pair: (
-                int(pair[1].get("portfolio_rank") or 999999),
-                -int(pair[1].get("portfolio_score") or 0),
-                pair[0],
+            rows,
+            key=lambda row: (
+                0
+                if (row.get("draft") or {}).get("status") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
+                else 1,
+                int(row.get("portfolio_rank") or 999999),
+                -int(row.get("portfolio_score") or 0),
+                str(row.get("repo") or "unknown"),
+                int(row.get("cycle") or 0),
             ),
         )
-        for repo_name, row in ordered:
-            child = Path(row.get("ledger", ""))
+        seen: set[tuple[str, str, str, str]] = set()
+        for row in ordered:
+            repo_name = str(row.get("repo") or "unknown")
+            child_path = str(row.get("ledger") or "")
+            if not child_path:
+                continue
+            child = Path(child_path)
             try:
                 child_items = json.loads((child / "work-queue.json").read_text(encoding="utf-8"))
             except (OSError, ValueError, TypeError):
                 child_items = []
-            if not child_items or not isinstance(child_items[0], dict):
+            child_items = [item for item in child_items if isinstance(item, dict)]
+            if not child_items:
                 continue
-            item = child_items[0]
+            draft = row.get("draft") or {}
+            candidate_key = str(draft.get("candidate_key") or "")
+            fingerprint = str(draft.get("fingerprint") or "")
+            if draft and candidate_key:
+                matches = [item for item in child_items if str(item.get("key") or "") == candidate_key]
+            elif draft and fingerprint:
+                matches = [
+                    item for item in child_items
+                    if str(item.get("fingerprint") or item.get("key") or "") == fingerprint
+                ]
+            elif draft:
+                matches = child_items if len(child_items) == 1 else []
+            else:
+                matches = child_items[:1]
+            if len(matches) != 1:
+                continue
+            item = matches[0]
+            publish = row.get("publish") or {}
+            identity = (
+                repo_name,
+                str(item.get("key") or ""),
+                str(draft.get("proof") or draft.get("patch") or ""),
+                str(publish.get("pr_url") or ""),
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
             labels = item.get("labels") or []
             repo_path = row.get("repo_path") or row.get("checkout") or ""
             items.append({
@@ -103,10 +147,14 @@ class PortfolioReportEngine:
                 "summary": item.get("summary", ""),
                 "score": item.get("score", ""),
                 "evidence": item.get("evidence", ""),
-                "files": item.get("files") or [],
-                "verification": item.get("tests") or item.get("verification_commands") or "",
-                "proof": item.get("proof") or item.get("primary_artifact", ""),
-                "outcome_status": str((row.get("draft") or {}).get("status") or ""),
+                "files": draft.get("files") or item.get("files") or [],
+                "verification": draft.get("verification") or item.get("tests") or item.get("verification_commands") or "",
+                "proof": draft.get("proof") or item.get("proof") or item.get("primary_artifact", ""),
+                "patch": draft.get("patch") or "",
+                "outcome_status": str(draft.get("status") or ""),
+                "pr_url": publish.get("pr_url") or "",
+                "publish_status": publish.get("status") or "",
+                "hosted_checks_state": str((publish.get("hosted_checks") or {}).get("state") or ""),
                 "selection_reason": row.get("portfolio_reason") or "recent activity",
             })
         return items
@@ -225,7 +273,12 @@ class PortfolioReportEngine:
         latest_by_repo: dict[str, dict] = {}
         for row in cycle_rows:
             repo_name = row.get("repo", "unknown")
-            if repo_name not in latest_by_repo or row.get("new_tasks") or row.get("draft"):
+            if (
+                repo_name not in latest_by_repo
+                or row.get("new_tasks")
+                or row.get("draft")
+                or row.get("publish")
+            ):
                 latest_by_repo[repo_name] = row
         proven = any(
             (row.get("draft") or {}).get("status") in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}
@@ -235,7 +288,15 @@ class PortfolioReportEngine:
         display_status = status
         if status == "GREEN":
             display_status = "GREEN" if proven or not new_candidates else "YELLOW"
-        morning_items = self.morning_items(latest_by_repo)
+        publication_needs_attention = any(
+            (row.get("publish") or {}).get("status") == "REMOTE_CLEANUP_REQUIRED"
+            or str(((row.get("publish") or {}).get("hosted_checks") or {}).get("state") or "")
+            in {"failed", "pending", "unknown"}
+            for row in cycle_rows
+        )
+        if publication_needs_attention and display_status == "GREEN":
+            display_status = "YELLOW"
+        morning_items = self.morning_items(cycle_rows)
         candidate_count = 0
         verified_drafts = 0
         verified_tokens = 0
@@ -314,21 +375,43 @@ class PortfolioReportEngine:
                 )
                 if draft_status in {"PROVEN_REPAIR", "VERIFIED_DRAFT"}:
                     lines.append("  Next: review the patch above; Night Shift did not change your checkout.")
-            publish = row.get("publish") or {}
-            if publish:
+        publication_rows = [row for row in cycle_rows if row.get("publish")]
+        if publication_rows:
+            lines.extend(["", "Draft PRs and GitHub checks:"])
+            seen_publications: set[tuple[str, str, str, str]] = set()
+            for row in publication_rows:
+                publish = row.get("publish") or {}
+                repo_name = str(row.get("repo") or "unknown")
+                identity = (
+                    repo_name,
+                    str(publish.get("pr_url") or ""),
+                    str(publish.get("branch") or ""),
+                    str(publish.get("status") or ""),
+                )
+                if identity in seen_publications:
+                    continue
+                seen_publications.add(identity)
+                destination = publish.get("pr_url") or publish.get("reason") or "no URL recorded"
                 lines.append(
-                    f"  Draft PR: {publish.get('pr_url') or publish.get('reason', 'not opened')}"
+                    f"- {repo_name}: {destination} [{publish.get('status') or 'unknown'}]"
                 )
                 hosted = publish.get("hosted_checks") or {}
+                hosted_state = str(hosted.get("state") or "")
                 if hosted:
                     lines.append(
-                        f"  GitHub checks: {hosted.get('state', 'unknown')}"
+                        f"  GitHub checks: {hosted_state or 'unknown'}"
                         f" ({hosted.get('check_count', 0)} reported)"
                     )
                 if publish.get("status") == "REMOTE_CLEANUP_REQUIRED":
                     lines.append(
-                        "  ACTION REQUIRED: check GitHub and close/delete the reported draft PR or branch."
+                        "  ACTION REQUIRED: check GitHub and close or delete the reported draft PR or branch."
                     )
+                elif hosted_state == "failed":
+                    lines.append("  ACTION REQUIRED: review the failing GitHub checks before using this draft.")
+                elif hosted_state == "pending":
+                    lines.append("  ACTION REQUIRED: wait for GitHub checks to finish before using this draft.")
+                elif hosted_state == "unknown":
+                    lines.append("  ACTION REQUIRED: GitHub check status could not be confirmed.")
         if morning_items:
             ledger_arg = shlex.quote(str(ledger))
             lines.extend(["", self.morning_choice_heading(morning_items)])

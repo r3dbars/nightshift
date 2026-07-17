@@ -10,10 +10,22 @@ from pathlib import Path
 from typing import Callable
 
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
+from night_shift_autonomy import (
+    candidate_score_allowed,
+    clean_baseline_allowed,
+    patch_limits,
+    policy_accepts_files,
+    policy_for_candidate,
+    select_approved_verification,
+    test_failure_signature,
+    verification_outcome,
+)
+from night_shift_host_git import checkout_safety_reasons, safe_git_env
 from night_shift_redaction import redact
 from night_shift_models import output_token_budget
 from night_shift_sandbox import (
     patch_input_directory,
+    read_sandbox_artifact,
     sandbox_artifacts_directory,
     sandbox_command,
     sandbox_patch_command,
@@ -39,10 +51,17 @@ MAX_VERIFICATION_REPAIRS = 2
 VERIFIED_DRAFT_STATUSES = frozenset({"PROVEN_REPAIR", "VERIFIED_DRAFT"})
 
 
-def draft_proof_status(baseline_rc: int, after_rc: int, guards: list[str]) -> tuple[str, str]:
+def draft_proof_status(
+    baseline_rc: int,
+    after_rc: int,
+    guards: list[str],
+    baseline_outcome: str | None = None,
+) -> tuple[str, str]:
     if guards:
         return "REJECT", "not proven"
-    if baseline_rc != 0 and after_rc == 0:
+    if after_rc == 0 and (
+        baseline_outcome == "FAILING" or (baseline_outcome is None and baseline_rc != 0)
+    ):
         return "PROVEN_REPAIR", "failing-before and passing-after"
     return "VERIFIED_DRAFT", "passing repository check after a bounded patch"
 
@@ -274,9 +293,9 @@ class DraftEngine:
         default_commands = repo_signal_scan(repo).get("test_commands") or []
         items.sort(key=lambda item: (-task_ladder.get(item.get("ladder", "strengthen"), 0), item.get("rank", 999)))
         for item in items:
-            if not item.get("executable") or item.get("proof_kind") != "test":
+            if not item.get("executable"):
                 continue
-            if item.get("score") not in {"KEEP", "MAYBE"}:
+            if not candidate_score_allowed(item):
                 continue
             if item.get("action_type") not in {"patch-plan", "draft-pr-candidate"}:
                 continue
@@ -290,7 +309,14 @@ class DraftEngine:
             else:
                 files = [path for path in item.get("files") or [] if (repo / path).is_file()]
             known_commands = item.get("verification_commands") or default_commands
-            verification = next((command for command in known_commands if command in (item.get("tests") or "")), "")
+            verification_argv = select_approved_verification(
+                {
+                    "verification": item.get("tests"),
+                    "verification_argv": item.get("verification_argv"),
+                },
+                known_commands,
+            )
+            verification = " ".join(verification_argv)
             explicit_mission = bool(
                 item.get("kind") == "mission"
                 and item.get("proof_kind") == "test"
@@ -330,20 +356,31 @@ class DraftEngine:
                     "strengthening_contract": contract,
                     "context_files": [source_file, *test_files],
                 }
-            if files and verification:
-                return {**item, "files": files[:6], "verification": verification}
+            policy = policy_for_candidate(item)
+            if files and verification and policy_accepts_files(policy, files):
+                return {
+                    **item,
+                    "files": files[:policy.max_files],
+                    "verification": verification,
+                    "verification_argv": list(verification_argv),
+                }
         return None
 
     def guard_reasons(
-        self, worktree: Path, allowed_files: list[str], profile: RepoProfile | None = None
+        self,
+        worktree: Path,
+        allowed_files: list[str],
+        profile: RepoProfile | None = None,
+        candidate: dict | None = None,
     ) -> list[str]:
         changed = self.run_cmd(["git", "diff", "--name-only"], cwd=worktree, timeout=30)
         paths = [line.strip() for line in changed.stdout.splitlines() if line.strip()]
         reasons: list[str] = []
         if not paths:
             return ["no patch was produced"]
-        if len(paths) > 6:
-            reasons.append("patch touched more than 6 files")
+        max_files, max_changed_lines = patch_limits(candidate or {})
+        if len(paths) > max_files:
+            reasons.append(f"patch touched more than {max_files} approved file(s)")
         if any(path not in set(allowed_files) for path in paths):
             reasons.append("patch touched a file outside the approved candidate set")
         if profile and any(path_is_protected(path, profile.protected_paths) for path in paths):
@@ -367,8 +404,8 @@ class DraftEngine:
             parts = line.split("\t")
             if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
                 changed_lines += int(parts[0]) + int(parts[1])
-        if changed_lines > 500:
-            reasons.append("patch exceeded the 500-line overnight limit")
+        if changed_lines > max_changed_lines:
+            reasons.append(f"patch exceeded the {max_changed_lines}-line intent limit")
         diff = self.run_cmd(["git", "diff", "--unified=0"], cwd=worktree, timeout=30).stdout
         additions = "\n".join(line[1:] for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++"))
         if re.search(r"(?i)(api[_-]?key|secret|password|private[_-]?key)\s*[:=]\s*['\"][^'\"]+", additions):
@@ -384,8 +421,13 @@ class DraftEngine:
         return reasons
 
     def cleanup(self, repo: Path, worktree: Path) -> bool:
-        removed = self.run_cmd(["git", "worktree", "remove", "--force", worktree], cwd=repo, timeout=120)
-        self.run_cmd(["git", "worktree", "prune"], cwd=repo, timeout=60)
+        removed = self.run_cmd(
+            ["git", "worktree", "remove", "--force", worktree],
+            cwd=repo,
+            timeout=120,
+            env=safe_git_env(),
+        )
+        self.run_cmd(["git", "worktree", "prune"], cwd=repo, timeout=60, env=safe_git_env())
         return removed.rc == 0
 
     def source_excerpt(
@@ -441,7 +483,7 @@ class DraftEngine:
         focus_symbol = ".".join(
             value for value in (str(contract.get("owner") or ""), str(contract.get("symbol") or "")) if value
         )
-        source = self.source_excerpt(repo, source_ref, context_files, focus_symbol)
+        source = redact(self.source_excerpt(repo, source_ref, context_files, focus_symbol))
         if correction:
             # Keep bounded repair calls below small local model context limits.
             source = source[:10000]
@@ -501,6 +543,27 @@ class DraftEngine:
             proof_path.parent.mkdir(parents=True, exist_ok=True)
             proof_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
             return result
+        policy = policy_for_candidate(candidate)
+        if not policy_accepts_files(policy, candidate.get("files") or []):
+            result = {
+                "status": "REJECT",
+                "reason": f"candidate files do not satisfy the {policy.name} policy",
+                "proof_level": "not executed",
+            }
+            proof_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+            return result
+        max_files, max_changed_lines = patch_limits(candidate)
+
+        def validate_candidate_patch(output: str):
+            return validate_patch(
+                output,
+                candidate["files"],
+                profile,
+                max_changed_lines=max_changed_lines,
+                max_files=max_files,
+                candidate=candidate,
+            )
+
         dependency_source = dependency_source or repo / "node_modules"
         worktree.parent.mkdir(parents=True, exist_ok=True)
         source_ref = str(candidate.get("source_ref") or "HEAD")
@@ -512,10 +575,21 @@ class DraftEngine:
                 return result
             source_ref = resolved.stdout.strip()
         record_state(lifecycle_path, fingerprint, "DISCOVERED", repo=repo_name, source_ref=source_ref, reason="draft candidate selected")
+        checkout_reasons = checkout_safety_reasons(self.run_cmd, repo, source_ref)
+        if checkout_reasons:
+            result = {
+                "status": "REJECT",
+                "reason": "; ".join(checkout_reasons),
+                "source_ref": source_ref,
+                "proof_level": "not executed",
+            }
+            proof_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+            return result
         added = self.run_cmd(
             ["git", "worktree", "add", "--detach", worktree, source_ref],
             cwd=repo,
             timeout=min(initial_timeout, 120),
+            env=safe_git_env(),
             pid_log=parent_ledger / "processes.tsv",
         )
         if added.rc != 0:
@@ -531,6 +605,9 @@ class DraftEngine:
             return result
 
         def finish(result: dict) -> dict:
+            result.setdefault("candidate_key", candidate.get("key", ""))
+            result.setdefault("fingerprint", fingerprint)
+            result.setdefault("draft_intent", policy.name)
             result["worktree_removed"] = self.cleanup(repo, worktree)
             proof_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             return result
@@ -552,10 +629,17 @@ class DraftEngine:
                     pid_log=parent_ledger / "processes.tsv",
                 )
             finally:
-                for name in ("changed-paths.txt", "applied.patch", "verification.txt", "verification.rc"):
+                artifact_limits = {
+                    "changed-paths.txt": 32_000,
+                    "applied.patch": 180_000,
+                    "verification.txt": 2_000_000,
+                    "verification.rc": 64,
+                }
+                for name, max_bytes in artifact_limits.items():
                     output = shared_artifacts / name
-                    if output.is_file():
-                        shutil.copyfile(output, sandbox_dir / name)
+                    data = read_sandbox_artifact(output, max_bytes)
+                    if data is not None:
+                        (sandbox_dir / name).write_bytes(data)
                 shutil.rmtree(shared_artifacts, ignore_errors=True)
                 shutil.rmtree(patch_input, ignore_errors=True)
 
@@ -563,19 +647,53 @@ class DraftEngine:
         if verification_argv not in profile.commands:
             return finish({"status": "REJECT", "reason": "verification is not approved by the repo profile"})
         verification = " ".join(verification_argv)
-        baseline_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
-        if baseline_timeout <= 0:
-            return finish({"status": "REJECT", "reason": "stop limit reached before baseline verification"})
-        baseline = self.run_cmd(
-            sandbox_command(worktree, verification_argv, profile, dependency_source),
-            cwd=worktree,
-            timeout=min(baseline_timeout, profile.max_seconds),
-            pid_log=parent_ledger / "processes.tsv",
-        )
+        baseline_results = []
+        for attempt in range(1, 3):
+            baseline_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
+            if baseline_timeout <= 0:
+                return finish({"status": "REJECT", "reason": "stop limit reached before baseline verification"})
+            baseline_results.append(self.run_cmd(
+                sandbox_command(worktree, verification_argv, profile, dependency_source),
+                cwd=worktree,
+                timeout=min(baseline_timeout, profile.max_seconds),
+                pid_log=parent_ledger / "processes.tsv",
+            ))
+        baseline = baseline_results[-1]
+        baseline_outcomes = [
+            verification_outcome(result.rc, result.stdout + "\n" + result.stderr)
+            for result in baseline_results
+        ]
         (proof_dir / f"{safe_task}.baseline.txt").write_text(
-            (baseline.stdout + "\n" + baseline.stderr).strip() + "\n",
+            "\n\n".join(
+                f"RUN {index}\n{(result.stdout + chr(10) + result.stderr).strip()}"
+                for index, result in enumerate(baseline_results, 1)
+            ) + "\n",
             encoding="utf-8",
         )
+        if len(set(baseline_outcomes)) != 1:
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason="baseline check was inconsistent")
+            return finish({
+                "status": "REJECT",
+                "reason": "approved baseline check was inconsistent across two isolated runs",
+                "baseline_rcs": [result.rc for result in baseline_results],
+                "baseline_outcomes": baseline_outcomes,
+                "proof_level": "flaky baseline",
+            })
+        baseline_state = baseline_outcomes[0]
+        if baseline_state == "FAILING":
+            failure_signatures = [
+                test_failure_signature(result.stdout + "\n" + result.stderr)
+                for result in baseline_results
+            ]
+            if not all(failure_signatures) or len(set(failure_signatures)) != 1:
+                record_state(lifecycle_path, fingerprint, "REJECTED", reason="baseline failure changed")
+                return finish({
+                    "status": "REJECT",
+                    "reason": "approved baseline did not reproduce the same identifiable test failure twice",
+                    "baseline_rcs": [result.rc for result in baseline_results],
+                    "baseline_outcomes": baseline_outcomes,
+                    "proof_level": "flaky baseline",
+                })
         baseline_dirty = self.run_cmd(["git", "status", "--porcelain"], cwd=worktree, timeout=30)
         if baseline_dirty.stdout.strip():
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="baseline modified worktree")
@@ -593,15 +711,32 @@ class DraftEngine:
             strengthening
             or (candidate.get("strengthening_contract") if explicit_test_mission else None)
         )
-        if baseline.rc == 0 and not strengthening and not explicit_test_mission:
+        if candidate.get("draft_intent") == "test-strengthening" and not strengthening:
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason="test-strengthening proof did not revalidate")
+            return finish({
+                "status": "REJECT",
+                "reason": "test-strengthening proof did not revalidate in the pinned worktree",
+                "baseline_rc": baseline.rc,
+                "proof_level": "not executed",
+            })
+        if not clean_baseline_allowed(candidate) and baseline_state != "FAILING":
             record_state(lifecycle_path, fingerprint, "REJECTED", reason="baseline did not reproduce a failure")
             return finish({
                 "status": "REJECT",
-                "reason": "baseline verification passed; Night Shift only patches reproduced failures",
+                "reason": "repair baseline did not reproduce a classified test assertion failure twice",
                 "baseline_rc": baseline.rc,
-                "proof_level": "baseline clean",
+                "baseline_outcome": baseline_state,
+                "proof_level": "baseline not proven",
             })
-        if baseline.rc == 0:
+        if clean_baseline_allowed(candidate) and baseline_state != "PASS":
+            record_state(lifecycle_path, fingerprint, "REJECTED", reason="clean-baseline task started from a failing check")
+            return finish({
+                "status": "REJECT",
+                "reason": f"{policy.name} requires its approved baseline check to pass before editing",
+                "baseline_rc": baseline.rc,
+                "proof_level": "baseline failing",
+            })
+        if baseline_state == "PASS":
             record_state(
                 lifecycle_path, fingerprint, "GAP_CONFIRMED", baseline_rc=baseline.rc,
                 verification=verification,
@@ -667,7 +802,7 @@ class DraftEngine:
             if test_contract and test_contract.get("analysis") == "typescript-regex"
             else model.stdout
         )
-        proposed = validate_patch(proposed_output, candidate["files"], profile)
+        proposed = validate_candidate_patch(proposed_output)
         apply_reason = ""
         patch_recovered = False
         if proposed.valid:
@@ -712,7 +847,7 @@ class DraftEngine:
                     if test_contract and test_contract.get("analysis") == "typescript-regex"
                     else model.stdout
                 )
-                proposed = validate_patch(proposed_output, candidate["files"], profile)
+                proposed = validate_candidate_patch(proposed_output)
                 apply_reason = ""
                 if proposed.valid:
                     patch_path.write_text(proposed.patch, encoding="utf-8")
@@ -726,7 +861,7 @@ class DraftEngine:
                 )
                 if not recovered:
                     continue
-                recovered_check = validate_patch(recovered, candidate["files"], profile)
+                recovered_check = validate_candidate_patch(recovered)
                 patch_path.write_text(recovered, encoding="utf-8")
                 applies = self.run_cmd(["git", "apply", "--check", patch_path], cwd=worktree, timeout=30)
                 if recovered_check.valid and applies.rc == 0:
@@ -789,7 +924,7 @@ class DraftEngine:
                     if test_contract and test_contract.get("analysis") == "typescript-regex"
                     else repair.stdout
                 )
-                repaired = validate_patch(repaired_output, candidate["files"], profile)
+                repaired = validate_candidate_patch(repaired_output)
                 repaired_patch = repaired.patch
                 repair_applies = False
                 if repaired.valid:
@@ -805,7 +940,7 @@ class DraftEngine:
                     repaired_patch = materialize_strengthening_output(
                         repair.stdout, original_test, candidate["files"][0], test_contract,
                     )
-                    repaired = validate_patch(repaired_patch, candidate["files"], profile)
+                    repaired = validate_candidate_patch(repaired_patch)
                     if repaired.valid:
                         patch_path.write_text(repaired_patch, encoding="utf-8")
                         repair_applies = self.run_cmd(
@@ -832,9 +967,11 @@ class DraftEngine:
         verification_rc = sandbox_dir / "verification.rc"
         paths = changed_path.read_text(encoding="utf-8").splitlines() if changed_path.exists() else []
         applied = applied_path.read_text(encoding="utf-8") if applied_path.exists() else ""
-        applied_check = validate_patch(applied, candidate["files"], profile)
+        applied_check = validate_candidate_patch(applied)
         after_rc = int(verification_rc.read_text(encoding="utf-8").strip()) if verification_rc.exists() else -1
         guards = list(applied_check.reasons)
+        if paths and not policy_accepts_files(policy, paths):
+            guards.append(f"isolated patch violates the {policy.name} file policy")
         if not paths:
             guards.append("isolated runner did not report changed paths")
         if set(paths) != set(proposed.paths):
@@ -894,7 +1031,35 @@ class DraftEngine:
                             patched_texts, candidate["semantic_contract"],
                             test_contract["owner"], test_contract["symbol"],
                         ))
-        status, proof_level = draft_proof_status(baseline.rc, after_rc, guards)
+        required_passes = 3 if policy.name == "e2e-strengthening" else 2
+        verification_passes = 1 if verified.rc == 0 and after_rc == 0 and not guards else 0
+        for repeat in range(2, required_passes + 1):
+            if guards:
+                break
+            repeat_timeout = remaining_draft_timeout(timeout, deadline, stop_file)
+            if repeat_timeout <= 0:
+                guards.append("stop limit reached before repeated isolated verification")
+                break
+            repeat_dir = proof_dir / f"{safe_task}-repeat-{repeat}"
+            repeat_dir.mkdir(parents=True, exist_ok=True)
+            repeated = run_isolated_patch(repeat_dir, repeat_timeout)
+            repeat_paths_path = repeat_dir / "changed-paths.txt"
+            repeat_patch_path = repeat_dir / "applied.patch"
+            repeat_rc_path = repeat_dir / "verification.rc"
+            repeat_paths = repeat_paths_path.read_text(encoding="utf-8").splitlines() if repeat_paths_path.exists() else []
+            repeat_patch = repeat_patch_path.read_text(encoding="utf-8") if repeat_patch_path.exists() else ""
+            repeat_check = validate_candidate_patch(repeat_patch)
+            repeat_rc = int(repeat_rc_path.read_text(encoding="utf-8").strip()) if repeat_rc_path.exists() else -1
+            if (
+                repeated.rc != 0 or repeat_rc != 0 or repeat_check.reasons
+                or set(repeat_paths) != set(proposed.paths)
+            ):
+                guards.append(f"isolated verification was not stable on pass {repeat}")
+                break
+            verification_passes += 1
+        status, proof_level = draft_proof_status(
+            baseline.rc, after_rc, guards, baseline_outcome=baseline_state
+        )
         record_state(
             lifecycle_path, fingerprint, "VERIFIED" if status != "REJECT" else "REJECTED",
             patch=str(applied_path if applied_path.exists() else patch_path), after_rc=after_rc, guards=guards,
@@ -903,11 +1068,15 @@ class DraftEngine:
         return finish({
             "status": status,
             "repo": repo_name,
+            "candidate_key": candidate.get("key", ""),
+            "fingerprint": fingerprint,
             "source_ref": source_ref,
             "summary": candidate.get("summary", ""),
             "patch": str(applied_path if applied_path.exists() else patch_path),
             "verification": verification,
             "baseline_rc": baseline.rc,
+            "baseline_rcs": [result.rc for result in baseline_results],
+            "baseline_outcome": baseline_state,
             "after_rc": after_rc,
             "proof_level": proof_level,
             "patch_worker_rc": model.rc,
@@ -915,8 +1084,12 @@ class DraftEngine:
             "files": list(proposed.paths),
             "verification_argv": list(verification_argv),
             "sandbox_rc": verified.rc,
+            "verification_passes": verification_passes,
+            "verification_passes_required": required_passes,
             "sandbox_output": str(sandbox_dir / "runner.txt"),
             "guard_reasons": guards,
             "semantic_contract": candidate.get("semantic_contract") or {},
+            "draft_intent": policy.name,
+            "policy_limits": {"max_files": max_files, "max_changed_lines": max_changed_lines},
             "proof": str(proof_path),
         })

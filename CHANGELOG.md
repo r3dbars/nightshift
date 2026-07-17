@@ -7,6 +7,21 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Make the beginner path genuinely hands-on: one `night-shift start`
+  confirmation now enables isolated checks, bounded useful patches, and tested
+  draft PRs for owned repos while preserving existing saved permissions.
+- Add controller-owned execution intents for failing-check repair, focused unit
+  tests, one existing E2E journey, stale docs, narrow issue fixes, and one-file
+  redundancy cleanup. Models can narrow a task but cannot widen its authority.
+- Require repeated baseline and finished-patch verification, distinguish real
+  assertion failures from infrastructure failures, and rerun E2E work three
+  times before preserving it.
+- Harden unattended publication against self-authorizing repo profiles, unsafe
+  Git hooks and filters, symlinked artifacts, privileged CI triggers, unsafe
+  source behavior, remote-head movement, and duplicate PR churn.
+- Cap publication at one draft PR per repo and three per shift; unsafe or extra
+  verified patches stay local for morning review. Night Shift still never
+  merges, releases, or deploys.
 - Apply explicit morning feedback before model dispatch: useful task families
   are prioritized, one negative downranks, and two negatives suppress that
   family in Normal mode for the same repo. Afterburner may still inspect it,
@@ -29,7 +44,7 @@ commands, ledger formats, and packaging details.
   the repository revision or GitHub signal changes.
 - Treat worker prose as an unproven candidate and require an exact copied
   source line; only deterministic execution may promote a draft as proven.
-- Add optional Aider/Ollama patch execution in disposable worktrees with
+- Add local-model patch execution in disposable worktrees with
   approved-file, diff-size, secret, release-action, test, and diff checks.
 - Pin failed GitHub Actions evidence, source files, package commands, and
   draft worktrees to the exact run commit.
@@ -56,8 +71,8 @@ commands, ledger formats, and packaging details.
 - Add `night-shift snooze` (--days/--until/--off) as the vacation switch for
   the standing shift.
 - Add `night-shift deliver --github-issue`: keep exactly one digest issue per
-  repo updated with the latest morning brief via the gh CLI — the only repo
-  write Night Shift is ever allowed, opt-in only.
+  repo updated with the latest morning brief via the gh CLI. It remains opt-in
+  and separate from authorized, test-passed draft PR publication.
 - Mark briefs as reviewed when read via `night-shift report`, powering the
   attention-aware pause.
 - Recenter the skill and README on the founding problem: idle AI hardware is

@@ -464,6 +464,71 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertIn("--clarity clear", morning)
             self.assertIn("--effort quick", morning)
 
+    def test_brief_matches_draft_proof_to_the_selected_queue_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = root / "child"
+            child.mkdir()
+            (child / "work-queue.json").write_text(json.dumps([
+                {
+                    "key": "first", "fingerprint": "first-fp", "labels": ["docs"],
+                    "score": "MAYBE", "summary": "First candidate", "files": ["README.md"],
+                },
+                {
+                    "key": "second", "fingerprint": "second-fp", "labels": ["tests"],
+                    "score": "KEEP", "summary": "Selected second candidate",
+                    "files": ["tests/test_app.py"],
+                },
+            ]), encoding="utf-8")
+            self.engine(root).write_brief(root, [{
+                "repo": "owner/repo", "ledger": str(child), "new_tasks": 2,
+                "draft": {
+                    "status": "VERIFIED_DRAFT", "candidate_key": "second",
+                    "fingerprint": "second-fp", "proof": "/tmp/second-proof.json",
+                },
+            }], "GREEN")
+            items = json.loads((root / "morning-items.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["key"], "second")
+            self.assertEqual(items[0]["summary"], "Selected second candidate")
+            self.assertEqual(items[0]["proof"], "/tmp/second-proof.json")
+
+    def test_brief_keeps_every_draft_pr_and_surfaces_hosted_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = root / "child"
+            child.mkdir()
+            (child / "work-queue.json").write_text(json.dumps([
+                {"key": "first", "labels": ["tests"], "score": "KEEP", "summary": "First"},
+                {"key": "second", "labels": ["docs"], "score": "KEEP", "summary": "Second"},
+            ]), encoding="utf-8")
+            rows = [
+                {
+                    "cycle": 1, "repo": "owner/repo", "ledger": str(child), "new_tasks": 1,
+                    "draft": {"status": "VERIFIED_DRAFT", "candidate_key": "first"},
+                    "publish": {
+                        "status": "DRAFT_PR_OPENED", "pr_url": "https://example.test/pr/1",
+                        "hosted_checks": {"state": "passed", "check_count": 2},
+                    },
+                },
+                {
+                    "cycle": 2, "repo": "owner/repo", "ledger": str(child), "new_tasks": 1,
+                    "draft": {"status": "VERIFIED_DRAFT", "candidate_key": "second"},
+                    "publish": {
+                        "status": "DRAFT_PR_OPENED", "pr_url": "https://example.test/pr/2",
+                        "hosted_checks": {"state": "failed", "check_count": 1},
+                    },
+                },
+            ]
+            self.engine(root).write_brief(root, rows, "GREEN")
+            morning = (root / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("Status: YELLOW", morning)
+            self.assertIn("https://example.test/pr/1", morning)
+            self.assertIn("https://example.test/pr/2", morning)
+            self.assertIn("review the failing GitHub checks", morning)
+            items = json.loads((root / "morning-items.json").read_text(encoding="utf-8"))
+            self.assertEqual([item["key"] for item in items], ["first", "second"])
+
     def test_brief_uses_singular_honest_heading_for_one_unverified_item(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

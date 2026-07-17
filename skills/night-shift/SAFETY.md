@@ -1,165 +1,100 @@
 # Safety And Privacy
 
-Night Shift is a bounded overnight work launcher. It is designed to
-produce drafts, audits, maps, and morning briefs. It is not an autonomous
-release, deploy, cleanup, or credential-management system.
+Night Shift may do useful repository work overnight: focused tests, one
+existing E2E journey, stale docs, narrow issue fixes, reproducible failing-check
+repairs, and exact one-file cleanup. With saved hands-on consent, a verified
+patch may become a GitHub draft PR. Night Shift never merges, releases, deploys,
+or edits the checkout you are using.
 
-The safety promise is simple: overnight lanes may produce artifacts, but they
-do not get to ship. With `draft-prs --execute-drafts`, Night Shift may make one
-uncommitted patch in a disposable worktree, but only approved files, diff
-limits, and passing repository checks can preserve it as a verified draft.
-Only failing-before and passing-after is called a proven repair. A human or
-Codex still reviews, commits, pushes, and opens any PR.
+## The Controller Is In Charge
 
-## What It Never Does By Itself
+Models do not choose their own permissions. Before dispatch, the controller
+assigns a trusted intent that fixes the allowed file types, file and line limit,
+exact verification command, baseline requirement, and publication policy.
 
-- Merges pull requests.
-- Pushes commits or branches from `night-shift run`.
-- Edits the user's original checkout; optional patches live under
-  `~/.codex/night-shift/worktrees/`.
-- Cuts releases, publishes, tags, notarizes, deploys, updates appcasts, or
-  updates casks.
-- Changes credentials, secrets, billing, or account settings.
-- Makes repositories public or changes repository visibility.
-- Moves, deletes, or reorganizes user files.
-- Claims real hardware, audio, Bluetooth, camera, screen-share, install, or
-  manual QA proof.
+Repository text and model output are untrusted. Night Shift never runs a
+repository or model-proposed command on the host. Approved checks run only from
+an external owner approval, as exact argv without shell operators, in a
+rootless Docker or Podman sandbox with no network, a read-only source mount, no
+host credentials, and resource and time limits.
 
-Codex or a human must review worker output before it becomes a real code
-change, PR, merge, release, or public claim.
+The same check runs twice before editing. The finished patch must pass twice,
+or three times for E2E work. A repair is proven only when the same assertion
+failure reproduces twice and the patch fixes it. Missing tools, timeouts,
+infrastructure errors, skipped checks, and flaky outcomes are not proof.
 
-`night-shift handoff` prepares one redacted KEEP/MAYBE item locally. It sends
-nothing unless the user previously approved cloud reasoning or supplies a
-one-time `--allow-cloud` consent with `--run`. The Codex handoff is ephemeral,
-read-only, cannot edit or push, treats candidate text as untrusted data, and is
-accepted only with one structured verdict, a current source citation, and an
-explicit implementation-readiness decision.
+## Draft PR Boundary
 
-## Manual Approval Boundaries
+A draft PR requires every gate below:
 
-Require explicit approval after the morning review before any of these actions:
+- GitHub proves the signed-in user owns the non-fork repo.
+- A separate approval outside the repo is bound to its exact remote.
+- The source SHA is on the freshly fetched default branch.
+- The diff stays inside the intent's files and size limit.
+- The patch adds no dependency, workflow, config, generated, migration,
+  secret, network, process, environment, dynamic-code, or release behavior.
+- Host Git hooks, custom filters, and executable diff drivers are absent.
+- The patch passes fresh repeated sandbox checks again.
 
-- Merge a PR or close a release blocker as done.
-- Publish a release, deploy, tag, notarize, update an appcast, or update a cask.
-- Change secrets, credentials, billing, account settings, or repository
-  visibility.
-- Send prompts or artifacts containing private data to non-local lanes.
-- Claim manual proof, hardware proof, install proof, audio proof, or real-user
-  validation.
+Repos with `pull_request_target` or external CI configuration keep the patch
+local because publication may trigger privileged automation. Published commits
+include `[skip ci]`, PRs remain draft, and publication is capped at one PR per
+repo and three per shift. Webhooks are outside Night Shift's control, so review
+repo integrations before enabling hands-on mode.
 
-Green checks mean the automation ran. They do not prove manual, hardware, or
-public-surface behavior.
+## Hard Stops
 
-## What Lanes Can See
+Night Shift never:
 
-- Codex lane: can read and edit the repo when you ask it to do execution work.
-- Local lane: sends prompts to the local OpenAI-compatible server at
-  `http://localhost:1234` by default. The local model sees the prompt text.
-- Windows lane: sends prompts to `WINDOWS_WORKER_BASE_URL` when configured.
-  That machine sees the prompt text.
-- Claude lane: sends prompts to the configured Claude CLI. Use it only for work
-  that is safe to send outside your local machines.
+- merges, approves, force-pushes, releases, deploys, publishes, or tags;
+- edits the original checkout or reuses an existing branch;
+- changes credentials, secrets, billing, settings, or repo visibility;
+- changes workflows, manifests, lockfiles, generated files, migrations, or its
+  own approval;
+- moves, deletes, or reorganizes user files;
+- sends private content to cloud lanes without explicit consent;
+- claims hardware, audio, install, hosted, telemetry, or manual proof that was
+  not collected.
 
-Do not use non-local lanes for private notes, customer data, raw transcripts,
-audio, secrets, credentials, payment details, personal contact details, raw
-URLs, raw file paths, or unreleased sensitive plans.
+An in-repo `.night-shift.json` is only a proposal and cannot authorize itself.
+Forks, collaborator repos, and unknown ownership remain analysis-only. A human
+or trusted coding agent decides what merges.
 
-Public information can go to any configured lane. Private information should
-stay local. Sensitive information should not be pasted at all unless the task
-explicitly requires it and the lane is trusted for that data.
+## Lane Privacy
 
-## What Gets Written To Disk
+- Local prompts go to the configured local model server.
+- Windows prompts go to `WINDOWS_WORKER_BASE_URL`.
+- Claude prompts leave the machine through the configured CLI.
+- Codex coordinates and performs explicit user-requested work.
 
-Night Shift writes run ledgers under:
+Keep private notes, customer data, raw transcripts, audio, credentials,
+payment details, personal data, and unreleased plans on a trusted local lane.
+Never paste secrets into prompts.
+
+## Local Artifacts
+
+Runs write ledgers under:
 
 ```text
 ~/.codex/maestro/overnight/night-shift-<timestamp>/
 ```
 
-Typical files include:
+These contain scans, queues, worker output, verification proofs, draft records,
+token estimates, stop reasons, and the morning brief. Worktrees live under
+`~/.codex/night-shift/worktrees/`. Delegate proofs live under
+`~/.codex/maestro/runs/` and may repeat prompt content.
 
-- `startup-gate.md`
-- `repo-scan.md` / `repo-scan.json`
-- `board.md`
-- `planned-work-queue.json`
-- `context-pack.txt`
-- `artifacts/`
-- `harvest.md`
-- `work-queue.md` / `work-queue.json`
-- `morning.md`
-- `token-report.txt`
+ClaudeBrain `brain-intake` writes only a source-linked suggestion packet under
+`raw/scraps/`. It does not move raw files or edit authoritative memory.
 
-The delegate wrapper also writes proof artifacts under:
+## Scheduled Runs
 
-```text
-~/.codex/maestro/runs/<timestamp>-<label>-<lane>/
-```
+Scheduled nights use the same saved boundaries, drop to quiet mode on battery,
+honor stop and failure limits, and pause after three unread briefs. Hands-on
+mode may open tested draft PRs under the rules above, but never merges them.
 
-Those proof directories store prompt hashes, lane output, stderr, and metadata.
-They do not store the raw prompt in `prompt.sha256`, but worker outputs can still
-repeat prompt content. Treat the run directories as sensitive if your prompts
-contained sensitive material.
-
-Token accounting events are appended to:
-
-```text
-~/.codex/maestro-sidecar/events.jsonl
-```
-
-Those events contain lane names, model names, output paths, return codes,
-durations, and estimated token counts.
-
-## What Not To Paste
-
-Do not paste:
-
-- API keys, tokens, passwords, or private keys.
-- Customer data or private repo content that should not leave the selected lane.
-- Raw transcripts, audio snippets, meeting titles, speaker names, emails, phone
-  numbers, personal addresses, billing details, or payment identifiers.
-- Sensitive URLs, private file paths, device identifiers, app titles, or window
-  titles.
-
-For sensitive work, use only local lanes and keep prompts coarse.
-
-## Public Launch Blocker
-
-Do not change this repository from private to public as a routine docs or
-release step. Even if the current branch is clean, old closed PR refs, branch
-refs, review comments, fork refs, and cached GitHub objects can expose old
-history.
-
-The safest public-launch path is a fresh clean repository created from an
-audited export. The alternate path is a GitHub-supported purge of old refs, PR
-refs, cached objects, and forks before changing visibility. Until one of those
-paths is complete, keep this repository private.
-
-## Network And Auth Defaults
-
-After you configure `WINDOWS_WORKER_BASE_URL`, the Windows worker API key
-defaults to `Authorization: Bearer ollama`. That is a convenience default for a
-trusted local network, not a production security boundary. Override
-`WINDOWS_WORKER_API_KEY`, `WINDOWS_WORKER_BASE_URL`, and
-`WINDOWS_WORKER_MODEL` for your own environment.
-
-Example:
-
-```bash
-export WINDOWS_WORKER_BASE_URL=http://windows-host.local:11434/v1
-export WINDOWS_WORKER_MODEL=qwen3-coder:30b
-```
-
-## How To Stop It
-
-Request a graceful stop for the latest run:
+Stop gracefully with:
 
 ```bash
 night-shift stop --latest
 ```
-
-The command writes a `STOP` file into the latest ledger, signals recorded
-delegate process groups, and prevents new workers from starting for that run.
-
-If you need an immediate stop, terminate the relevant `night-shift`,
-`maestro-delegate`, `maestro-local`, `maestro-windows`, `maestro-claude`,
-`curl`, or model-server processes from your shell or process manager.

@@ -33,11 +33,12 @@ class AutopilotCycleStateTests(unittest.TestCase):
             self.assertTrue(state.may_draft("owner/repo", True, "draft-local"))
             self.assertTrue(state.may_draft("owner/repo", True, "draft-prs"))
             state.finish_draft_attempt(row, {"status": "VERIFIED_DRAFT"})
+            self.assertTrue(state.may_draft("owner/repo", True, "draft-prs"))
+            state.finish_draft_attempt(row, {"status": "VERIFIED_DRAFT"})
             self.assertFalse(state.may_draft("owner/repo", True, "draft-prs"))
             self.assertTrue(state.should_skip_attempted_repo("owner/repo"))
-            self.assertTrue(state.should_skip_verified_repo("owner/repo"))
             skipped = state.record_attempted_skip(repo="owner/repo", checkout=Path(tmp))
-            self.assertIn("verified draft", skipped["skip_reason"])
+            self.assertIn("verified draft limit", skipped["skip_reason"])
             state.attach_publish(row, {"status": "REMOTE_CLEANUP_REQUIRED"})
             state.append(row)
             self.assertEqual(state.status, "YELLOW")
@@ -57,6 +58,46 @@ class AutopilotCycleStateTests(unittest.TestCase):
         self.assertFalse(AutopilotCycleState.may_publish("draft-prs", False, "VERIFIED_DRAFT"))
         self.assertFalse(AutopilotCycleState.may_publish("draft-prs", True, "REJECT"))
         self.assertTrue(AutopilotCycleState.may_publish("draft-prs", True, "VERIFIED_DRAFT"))
+
+    def test_publish_budget_is_one_per_repo_and_three_per_shift(self):
+        state = AutopilotCycleState(Path("."))
+        self.assertTrue(state.may_publish_now("owner/a", "draft-prs", True, "VERIFIED_DRAFT"))
+        row = {"repo": "owner/a"}
+        state.attach_publish(row, {"status": "DRAFT_PR_OPENED", "pr_url": "https://example.test/1"})
+        self.assertFalse(state.may_publish_now("owner/a", "draft-prs", True, "VERIFIED_DRAFT"))
+        for index, repo in enumerate(("owner/b", "owner/c"), 2):
+            next_row = {"repo": repo}
+            state.attach_publish(next_row, {
+                "status": "DRAFT_PR_OPENED", "pr_url": f"https://example.test/{index}",
+            })
+        self.assertFalse(state.may_publish_now("owner/d", "draft-prs", True, "VERIFIED_DRAFT"))
+
+    def test_ambiguous_remote_without_pr_url_consumes_publish_budget(self):
+        state = AutopilotCycleState(Path("."))
+        row = {"repo": "owner/repo"}
+        state.attach_publish(row, {
+            "status": "REMOTE_CLEANUP_REQUIRED",
+            "reason": "remote branch existence is uncertain",
+        })
+        self.assertFalse(
+            state.may_publish_now("owner/repo", "draft-prs", True, "VERIFIED_DRAFT")
+        )
+        self.assertEqual(state.published_total, 1)
+        self.assertEqual(state.status, "YELLOW")
+
+    def test_unresolved_hosted_checks_require_attention(self):
+        for hosted_state in ("failed", "pending", "unknown"):
+            with self.subTest(hosted_state=hosted_state), tempfile.TemporaryDirectory() as tmp:
+                state = AutopilotCycleState(Path(tmp))
+                row = {"repo": "owner/repo", "rc": 0}
+                state.attach_publish(row, {
+                    "status": "DRAFT_PR_OPENED",
+                    "pr_url": "https://example.test/1",
+                    "hosted_checks": {"state": hosted_state},
+                })
+                state.rows.append(row)
+                self.assertEqual(state.status, "YELLOW")
+                self.assertTrue(state.action_required())
 
     def test_new_cycle_resets_work_signal_and_draft_gate_requires_local_draft_permission(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,6 +120,8 @@ class AutopilotCycleStateTests(unittest.TestCase):
             self.assertTrue(state.may_draft("owner/repo", True, "draft-local"))
             self.assertFalse(state.should_skip_attempted_repo("owner/repo"))
             state.finish_draft_attempt(row, {"status": "REJECT", "reason": "no proof"})
+            state.finish_draft_attempt(row, {"status": "REJECT", "reason": "bad patch"})
+            self.assertTrue(state.may_draft("owner/repo", True, "draft-local"))
             state.finish_draft_attempt(row, {"status": "REJECT", "reason": "no patch"})
             self.assertFalse(state.may_draft("owner/repo", True, "draft-local"))
             self.assertTrue(state.should_skip_attempted_repo("owner/repo"))

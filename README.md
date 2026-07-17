@@ -22,18 +22,16 @@ isolated branch. Drafts, not deploys. Free and open source under the [MIT Licens
 
 ## Execution Safety
 
-The normal overnight mode is analysis and planning. It never runs a repository's
-`package.json`, Makefile, or shell script just because it discovered one.
+The normal overnight mode does real work. It can strengthen unit and E2E tests,
+repair stale docs, implement a narrow grounded issue, clean up one exact
+redundancy, or repair a reproduced test failure. Models return diffs only. The
+controller decides the allowed files and patch size before a model runs.
 
-Optional sandboxed verification is deliberately a separate owner action. Preview
-the exact policy with `night-shift trust-repo --repo /path/to/project`, then save
-it with one explicit consent using `--apply`. The approval lives in Night Shift's
-private config, is bound to the exact Git remote, and never modifies the repo.
-Advanced users can instead supply a reviewed [`.night-shift.json.example`](.night-shift.json.example)
-profile. Both paths require an `owned` trust class, a pinned runner image, explicit
-argv command arrays, allowed paths, protected verifier files, and resource limits. Night Shift also requires Docker
-in rootless mode or Podman's rootless local engine and uses a read-only, no-network container. Without every one
-of those checks, it stays in planning mode.
+Execution happens in disposable copies with a pinned rootless runner, no
+network, no credentials, and bounded resources. An in-repo profile cannot
+authorize itself; ownership-bound approval lives in Night Shift's private
+config. Every baseline runs twice. Finished patches pass twice, or three times
+for E2E work. Unsafe repos fall back to analysis instead of weakening checks.
 
 ## What You Wake Up To
 
@@ -43,7 +41,7 @@ Portfolio brief — status: GREEN
 BetterFeedback
   PROVEN_REPAIR: focused route regression test
   Verify: npm test -- route.test.ts
-  Patch: ~/.codex/night-shift/.../route-regression.patch
+  Draft PR: https://github.com/example/BetterFeedback/pull/42
 
 Transcripted
   CANDIDATE: recent import path needs deterministic proof
@@ -53,7 +51,7 @@ Night Shift
   INDEXED: CLI tests mapped to their command handlers
 
 Repositories visited: 3 · New unique tasks: 18 · Repeated tasks skipped: 42
-Nothing pushed or merged.
+Draft PRs opened: 1 · Verified local patches: 1 · Nothing merged or deployed.
 ```
 
 Model findings are candidates, never proof. A failing-before/passing-after fix
@@ -67,7 +65,7 @@ until the code or GitHub signal changes.
 git clone https://github.com/r3dbars/nightshift.git
 cd nightshift
 ./install.sh
-night-shift start        # friendly guided setup, then the overnight run
+~/.codex/bin/night-shift start   # works immediately, even before opening a new shell
 ```
 
 Normal setup detects the current project, GitHub, local AI, and a configured
@@ -97,17 +95,17 @@ It shows whether the controller is live, whether both AI lanes answer, whether
 the selected repo is analysis-only or sandbox-ready, the latest outcome totals,
 and how much local ledger storage Night Shift is using.
 
-When you are ready to enable sandboxed verification:
+To preview or repair one repository's saved execution approval:
 
 ```bash
 night-shift trust-repo --repo /path/to/project          # preview only
 night-shift trust-repo --repo /path/to/project --apply  # one consent, saved outside the repo
 ```
 
-This proves GitHub ownership, detects a safe verification command, builds the
-reviewed immutable runner, and runs that exact command once in the isolated
-environment before saving approval. Missing runner tooling keeps the repo
-analysis-only. GitHub writes remain disabled.
+Normal first-run setup does this automatically after the one hands-on consent.
+It proves GitHub ownership, detects an exact verification command, builds the
+pinned runner, and checks the command twice before saving approval outside the
+repo. Missing tooling keeps that repo analysis-only.
 
 Every selected task also has a durable lifecycle: `DISCOVERED`, `REPRODUCED`,
 `DIAGNOSED`, `PATCHED`, `VERIFIED`, then human-only `REVIEWED` and `PROMOTED`.
@@ -147,9 +145,9 @@ night-shift snooze --days 7            # vacation switch
 The standing shift looks after itself: it **pauses when three morning briefs
 pile up unread** (no zombie automation making reports nobody reads — reading
 one resumes it), drops to quiet mode on battery, and turns off with one
-command. Optionally, `night-shift deliver --latest --github-issue` keeps a
-single digest issue in your repo updated with each morning's brief — the only
-thing Night Shift ever writes to a repo, and never code. The full design:
+command. Optionally, `night-shift deliver --latest --github-issue` keeps one
+digest issue updated. Hands-on mode may also open bounded tested draft PRs; it
+never merges them. The full design:
 [docs/autopilot.md](docs/autopilot.md).
 
 ## How It Works
@@ -167,8 +165,8 @@ thing Night Shift ever writes to a repo, and never code. The full design:
 4. **Ground** every task with numbered source, relevant diffs, and real repo commands.
    Failed CI work pins the exact GitHub `headSha`, including its files and package scripts.
 5. **Remember** task fingerprints across nights so unchanged work never repeats.
-6. **Draft safely** in disposable worktrees when that option is enabled.
-7. **Prove** drafts with tests, diff limits, and forbidden-file checks.
+6. **Draft safely** in disposable worktrees using a task-specific policy.
+7. **Prove** baselines and finished patches repeatedly in the no-network sandbox.
 8. **Stay on duty** until morning, rescanning GitHub only after new work is exhausted.
 
 Teach it what matters after you review a choice:
@@ -184,9 +182,9 @@ You choose how much it may prepare:
 
 | Autonomy | What you get |
 | --- | --- |
-| `brief` (default) | read-only repo scan, ranked work queue, morning brief |
+| `brief` | read-only repo scan, ranked work queue, morning brief |
 | `draft-local` | + exact patch plans, issue candidates, test ideas, and isolated tested drafts when enabled |
-| `draft-prs` | + local patch candidates and, after explicit consent, tested GitHub draft PRs; never merge |
+| `draft-prs` (default) | + tested GitHub draft PRs after one saved consent; never merge |
 
 And how hard it runs:
 
@@ -198,16 +196,16 @@ And how hard it runs:
 
 ## What It Will Never Do
 
-- Push commits to your branches or merge PRs from an overnight run.
+- Push to your existing branches or merge PRs from an overnight run.
 - Release, deploy, publish, tag, or notarize.
 - Touch credentials, billing, or repository visibility.
 - Move or delete your files.
 - Pretend an unverified draft is the truth.
 
-Night Shift may prepare an uncommitted patch only when `draft-prs` and
-`--execute-drafts` are both enabled. It uses an isolated worktree, limits the
-files and diff size, and preserves test output. A human or Codex still reviews,
-commits, pushes, and opens the PR. The full boundary lives in
+With saved hands-on consent, Night Shift may push one unique isolated branch
+per repo and open a draft PR, capped at three PRs per shift. It skips hosted CI
+for autonomous branches and leaves every PR unmerged for human or cloud-agent
+review. The full boundary lives in
 [SAFETY.md](SAFETY.md).
 
 ## Learn More

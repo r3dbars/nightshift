@@ -608,6 +608,7 @@ def build_repo_work_queue(
         evidence_sources: dict[str, str] | None = None,
         source_ref: str = "",
         commands: list[str] | None = None,
+        draft_intent: str = "",
         executable: bool = False,
         signal_strength: int = 0,
         semantic_contract: dict | None = None,
@@ -630,6 +631,7 @@ def build_repo_work_queue(
                 "signal": signal,
                 "evidence_sources": evidence_sources or {},
                 "source_ref": source_ref,
+                "draft_intent": draft_intent,
                 "executable": executable,
                 "signal_strength": signal_strength,
                 "semantic_contract": semantic_contract or {},
@@ -819,7 +821,9 @@ def build_repo_work_queue(
             [gap_path] + relevant_tests_for_source(gap_path, tests, read_current_text)[:4],
             ladder="strengthen",
             preferred_lane="local",
+            proof_kind="test",
             evidence_sources=gap_evidence,
+            draft_intent="test-strengthening",
         )
     if test_commands:
         add(
@@ -833,16 +837,31 @@ def build_repo_work_queue(
     if e2e_files or e2e_commands:
         framework_text = ", ".join(e2e_frameworks) if e2e_frameworks else "the detected end-to-end setup"
         command_text = ", ".join(f"`{command}`" for command in e2e_commands[:4]) or "no approved command yet"
+        e2e_executable = bool(e2e_files and e2e_commands)
+        e2e_test_files = [path for path in e2e_files if is_test_path(path)]
+        e2e_prompt = (
+            f"Strengthen one existing {framework_text} smoke path in the supplied E2E files. "
+            f"Use one of the detected commands: {command_text}. Keep the change to one bounded user journey, "
+            "reuse the existing framework and fixtures, and name required local services. Return ACTION_TYPE: "
+            "draft-pr-candidate only when the existing files support the change; otherwise reject. Never claim "
+            "the browser flow ran unless the supplied proof says it ran."
+            if e2e_executable else
+            f"Inspect the {framework_text} setup and decide whether one bounded end-to-end smoke check is ready. "
+            f"The detected commands are {command_text}. Report the exact user journey, required local services, "
+            "and the safest command to approve. Never claim the browser flow ran unless the supplied proof says it ran."
+        )
         add(
             "e2e-smoke-review",
             "e2e",
-            f"Inspect the {framework_text} setup and decide whether one bounded end-to-end smoke check is ready. The detected commands are {command_text}. Report the exact user journey, required local services, and the safest command to approve. Never claim the browser flow ran unless the supplied proof says it ran.",
+            e2e_prompt,
             "This repo has an end-to-end test surface that can catch a real user-facing regression.",
-            e2e_files[:20] + recent[:4],
+            (e2e_test_files or e2e_files)[:20],
             ladder="strengthen",
             preferred_lane="local",
             proof_kind="e2e",
             commands=e2e_commands or ["git status --short"],
+            draft_intent="e2e-strengthening",
+            executable=e2e_executable,
             recurrence="daily",
         )
     workflow_files = [path for path in tracked_files if path.startswith(".github/workflows/")]
@@ -901,13 +920,23 @@ def build_repo_work_queue(
             recurrence="daily",
         )
     if docs:
+        docs_executable = bool(test_commands)
         add(
             "docs-command-drift",
-            "docs",
-            "Find one stale or confusing setup command, quickstart step, or report command in the docs. Prefer beginner-facing fixes.",
+            "documentation" if docs_executable else "docs",
+            (
+                "Repair one stale or confusing setup, quickstart, test, or report command in the supplied docs. "
+                "Compare it with the detected test commands and tracked repo files, keep the patch documentation-only, "
+                "and return ACTION_TYPE: draft-pr-candidate only for an exact contradiction; otherwise reject."
+                if docs_executable else
+                "Find one stale or confusing setup command, quickstart step, or report command in the docs. Prefer beginner-facing fixes."
+            ),
             "Docs are safe overnight work and make the project easier to run.",
             docs[:20],
             ladder="strengthen",
+            proof_kind="docs",
+            draft_intent="docs-repair",
+            executable=docs_executable,
         )
     if todos:
         add(
@@ -958,6 +987,7 @@ def build_repo_work_queue(
             evidence_sources={log_evidence_path: log_text} if log_text else {},
             source_ref=source_ref,
             commands=branch_commands,
+            draft_intent="repair",
             executable=True,
         )
     issue_rows = []
@@ -975,13 +1005,29 @@ def build_repo_work_queue(
         add(
             f"issue-{number}-next-action",
             "issue",
-            f"Map GitHub issue #{number} to supplied source and propose the smallest verifiable next action. Reject it if the issue is stale or the source does not support it.",
+            f"Implement the smallest source-grounded fix for GitHub issue #{number} in the supplied files and prove it with the detected test command. Keep the change to the issue's exact behavior and return ACTION_TYPE: draft-pr-candidate only when the issue and source support one bounded fix; otherwise reject.",
             "Open issues describe work a maintainer has already chosen to track.",
             issue_files,
             ladder="finish",
             preferred_lane="windows",
+            proof_kind="test",
             signal=json.dumps(issue, sort_keys=True),
+            draft_intent="issue-fix",
+            executable=bool(issue_files and test_commands),
             signal_strength=matched_terms,
+        )
+    if recent_source and test_commands:
+        add(
+            "recent-safe-cleanup",
+            "cleanup",
+            "Inspect only the supplied recent source files and make one behavior-preserving cleanup: remove an exact duplicate, remove one dead private helper, or simplify one redundant branch. Do not change a public API, rename public symbols, add dependencies, or perform a broad rewrite. Return ACTION_TYPE: draft-pr-candidate only when the redundancy is exact and the detected test command proves the patch; otherwise reject.",
+            "A recent, source-grounded cleanup can reduce maintenance cost without widening the overnight change.",
+            recent_source,
+            ladder="strengthen",
+            preferred_lane="local",
+            proof_kind="test",
+            draft_intent="safe-refactor",
+            executable=True,
         )
     for pr in pull_requests[:5]:
         number = pr.get("number") or "unknown"
@@ -1058,6 +1104,7 @@ def build_repo_work_queue(
             ladder="strengthen",
             preferred_lane="local",
             proof_kind="test",
+            draft_intent="test-strengthening",
             executable=bool(test_commands and draftable_gap),
             evidence_sources=gap_evidence,
             semantic_contract={"minimum_target_invocations": 1} if has_supported_gap else {},

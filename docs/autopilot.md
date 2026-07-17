@@ -106,25 +106,27 @@ An unattended run must be a considerate house guest:
   date, `--off` to resume early. A snoozed night logs itself as skipped so
   status never lies about what happened.
 
-### 5. Isolated, test-gated drafts
+### 5. Isolated, test-gated work
 
-With `draft-prs --execute-drafts`, Night Shift may use the Windows Ollama coder
-through Aider inside a disposable Git worktree. The original checkout remains
-untouched. The controller limits approved files and diff size, blocks secrets,
-lock-file changes, and release actions, and reruns an exact detected test
-command. Failed drafts remain rejected artifacts. A failing-before and
-passing-after change is a `PROVEN_REPAIR`; an otherwise clean bounded patch is
-a `VERIFIED_DRAFT`. Both remain local and uncommitted for morning review.
-If the isolated check cannot run, the morning brief includes the short redacted
-runner cause, such as a missing test executable, so the next setup step is clear.
+Hands-on mode sends one tightly bounded task to the cheapest capable local
+coder, then applies the returned patch inside a disposable Git worktree. The
+original checkout remains untouched. The controller, not the model, chooses the
+intent, files, line limit, exact verification command, and publication policy.
+It blocks workflows, dependencies, lockfiles, generated files, migrations,
+secrets, network/process access, release behavior, and broad refactors.
 
-Night Shift makes at most one draft attempt per repository during a shift. A
-verified draft is skipped because the repo already produced useful work. A
-rejected or unavailable attempt is also skipped, with a clear retry-next-shift
-note, so a temporary failure cannot turn into repeated model calls. The next
-shift can try that repository again.
+The approved check must agree twice before editing. It must pass twice after a
+normal patch and three times after an E2E patch. Only the same assertion failure
+reproduced twice and then fixed becomes a `PROVEN_REPAIR`; other clean-baseline
+patches become `VERIFIED_DRAFT`. Infrastructure failures and flaky outcomes are
+blocked, not mislabeled as code failures.
 
-For failed GitHub Actions runs, source, package scripts, evidence validation,
+One repository may produce up to two verified local drafts during a shift, with
+bounded failed attempts so one bad model response cannot loop forever.
+Publication is capped at one draft PR per repo and three per shift. Additional
+verified work stays local for morning review.
+
+For failed GitHub Actions runs, source, approved commands, evidence validation,
 and the disposable worktree all use the run's exact `headSha`. A PR-only file
 is never analyzed or edited as though it came from the default branch.
 

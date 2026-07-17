@@ -7,6 +7,8 @@ import os
 import platform
 import re
 import shutil
+import stat
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -235,7 +237,10 @@ def dependency_cache_ready(cache_dir: Path, remote: str, image: str, lockfile: P
     """Accept only a cache created by Night Shift for this exact input set."""
     node_modules = cache_dir / "node_modules"
     marker = cache_dir / "READY.json"
-    if cache_dir.is_symlink() or node_modules.is_symlink() or not node_modules.is_dir() or not marker.is_file():
+    if (
+        cache_dir.is_symlink() or node_modules.is_symlink() or marker.is_symlink()
+        or not node_modules.is_dir() or not marker.is_file()
+    ):
         return None
     try:
         metadata = json.loads(marker.read_text(encoding="utf-8"))
@@ -279,7 +284,6 @@ def dependency_prepare_command(repo: Path, cache_dir: Path, image: str) -> list[
         "set -eu; rm -rf /deps/node_modules /deps/READY.json; "
         "rsync -a --exclude=node_modules --exclude=.git --exclude=.npmrc /source/ /work/; "
         "cd /work; npm ci --ignore-scripts --no-audit --no-fund; "
-        "if [ -f prisma/schema.prisma ] && [ -x node_modules/.bin/prisma ]; then node_modules/.bin/prisma generate --schema prisma/schema.prisma; fi; "
         "mv /work/node_modules /deps/node_modules; test -d /deps/node_modules"
     )
     return [
@@ -322,19 +326,76 @@ def prepare_node_dependencies(
         return False, detail[:600]
     try:
         marker = cache_dir / "READY.json"
-        marker.write_text(
-            json.dumps({
+        marker.unlink(missing_ok=True)
+        body = json.dumps({
                 "remote": remote,
                 "image": image,
                 "lock_digest": hashlib.sha256(lockfile.read_bytes()).hexdigest(),
                 "prepared_at": int(time.time()),
-            }, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        marker.chmod(0o600)
+            }, sort_keys=True) + "\n"
+        fd, temporary = tempfile.mkstemp(prefix=".ready-", dir=cache_dir)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(body)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, marker)
+        finally:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
     except OSError as exc:
         return False, f"dependency setup completed but its readiness marker could not be saved: {exc}"
     return True, str(cache_dir / "node_modules")
+
+
+def read_sandbox_artifact(path: Path, max_bytes: int) -> bytes | None:
+    """Read one bounded regular artifact without following container-made links."""
+    try:
+        before = os.lstat(path)
+    except OSError:
+        return None
+    if not stat.S_ISREG(before.st_mode) or before.st_size > max_bytes or before.st_nlink != 1:
+        return None
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        after = os.fstat(fd)
+        if (
+            not stat.S_ISREG(after.st_mode)
+            or after.st_ino != before.st_ino
+            or after.st_dev != before.st_dev
+            or after.st_size > max_bytes
+            or after.st_nlink != 1
+        ):
+            return None
+        chunks: list[bytes] = []
+        total = 0
+        while total <= max_bytes:
+            chunk = os.read(fd, min(64 * 1024, max_bytes + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        final = os.fstat(fd)
+        data = b"".join(chunks)
+        if (
+            len(data) > max_bytes
+            or final.st_ino != after.st_ino
+            or final.st_dev != after.st_dev
+            or final.st_size != after.st_size
+            or final.st_nlink != 1
+            or len(data) != final.st_size
+        ):
+            return None
+        return data
+    finally:
+        os.close(fd)
 
 
 def patch_input_directory(source: Path, artifacts: Path) -> Path:

@@ -150,6 +150,7 @@ class PublishTests(unittest.TestCase):
     def proof(self, patch_path):
         return {
             "status": "PROVEN_REPAIR",
+            "draft_intent": "repair",
             "source_ref": "b" * 40,
             "patch": str(patch_path),
             "files": ["src/app.py"],
@@ -194,6 +195,11 @@ class PublishTests(unittest.TestCase):
             )
             self.assertEqual(published["status"], "DRAFT_PR_OPENED")
             self.assertEqual(published["hosted_checks"]["state"], "passed")
+            self.assertTrue(published["worktree_removed"])
+            self.assertTrue(published["remote_branch_created"])
+            saved = json.loads((root / "proof" / "publish.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["worktree_removed"], published["worktree_removed"])
+            self.assertEqual(saved["remote_branch_created"], published["remote_branch_created"])
             push_index = next(i for i, args in enumerate(calls) if args[:2] == ["git", "push"])
             sandbox_index = next(
                 i for i, args in enumerate(calls)
@@ -212,6 +218,39 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(duplicate["status"], "REJECT")
             self.assertIn("already published", duplicate["reason"])
             self.assertEqual(sum(args[:2] == ["git", "push"] for args in calls), push_count)
+
+    def test_privileged_ci_keeps_verified_patch_local(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            patch_path = root / "repair.patch"
+            patch_path.write_text(PATCH, encoding="utf-8")
+            calls = []
+
+            def fake(command, **kwargs):
+                args = [str(item) for item in command]
+                calls.append(args)
+                if args[:3] == ["gh", "api", "user"]:
+                    return result(stdout="owner\n")
+                if args[:3] == ["gh", "repo", "view"]:
+                    return result(stdout=json.dumps({
+                        "nameWithOwner": "owner/repo", "isFork": False,
+                        "defaultBranchRef": {"name": "main"},
+                    }))
+                if args[:4] == ["git", "config", "--local", "--get-regexp"]:
+                    return result(rc=1)
+                if args[:3] == ["git", "ls-tree", "-r"]:
+                    return result(stdout=".github/workflows/ci.yml\nsrc/app.py\n")
+                if args[:2] == ["git", "show"]:
+                    return result(stdout="on:\n  pull_request_target:\n")
+                return result()
+
+            published = PublishEngine(fake, root / "worktrees", lambda: "now").publish(
+                root, "owner/repo", self.proof(patch_path), profile(), root / "proof"
+            )
+            self.assertEqual(published["status"], "VERIFIED_LOCAL_ONLY")
+            self.assertIn("pull_request_target", published["reason"])
+            self.assertFalse(any(args[:3] == ["git", "worktree", "add"] for args in calls))
+            self.assertFalse(any(args[:2] == ["git", "push"] for args in calls))
 
     def test_published_draft_is_reconcilable_from_recorded_ledger(self):
         with tempfile.TemporaryDirectory() as tmp:

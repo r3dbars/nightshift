@@ -563,9 +563,9 @@ RISK: low
         ]
         defaults = night_shift.recommended_start_preferences({}, rows)
         self.assertEqual(defaults["scope"], "github-recent")
-        self.assertEqual(defaults["privacy_route"], "mac-only")
+        self.assertEqual(defaults["privacy_route"], "mac-and-lan")
         self.assertEqual(defaults["wake_goal"], "chores")
-        self.assertEqual(defaults["permission"], "draft-local")
+        self.assertEqual(defaults["permission"], "draft-prs")
         self.assertEqual(defaults["mode"], "night-shift")
         self.assertEqual(defaults["stop"], "8h")
 
@@ -736,7 +736,8 @@ RISK: low
 
     def test_doctor_skips_disabled_compute_lanes_without_probing_them(self):
         with patch.object(night_shift, "check_model_endpoint", side_effect=AssertionError("disabled lane probed")), \
-             patch.object(night_shift, "chat_probe", side_effect=AssertionError("disabled lane chatted")):
+             patch.object(night_shift, "chat_probe", side_effect=AssertionError("disabled lane chatted")), \
+             patch.object(night_shift, "check_storage_permissions", return_value=("GREEN", "test storage")):
             overall, rows = night_shift.doctor_checks(
                 None,
                 run_smoke=False,
@@ -932,6 +933,62 @@ RISK: low
             night_shift.print_first_run_intro = original_intro
             night_shift.doctor_checks = original_doctor
             night_shift.save_config = original_save
+
+    def test_declining_start_saves_no_new_hands_on_authority(self):
+        saved_configs = []
+        args = night_shift.build_parser().parse_args(["start", "--repo", str(ROOT)])
+        with (
+            patch.object(night_shift, "load_config", return_value={}),
+            patch.object(night_shift, "is_interactive", return_value=True),
+            patch.object(night_shift, "doctor_checks", return_value=("GREEN", [
+                ("local-models", "GREEN", "ready"),
+                ("local-chat", "GREEN", "ready"),
+                ("repo", "GREEN", "ready"),
+            ])),
+            patch.object(night_shift, "autodetect_local_server", return_value=None),
+            patch.object(night_shift, "ask_yes_no", return_value=False),
+            patch.object(night_shift, "save_config", side_effect=saved_configs.append),
+            patch.object(night_shift, "create_ledger", side_effect=AssertionError("must not persist")),
+            patch.dict(os.environ, {}, clear=False),
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            self.assertEqual(night_shift.command_start(args), 0)
+        self.assertEqual(saved_configs, [])
+        self.assertIn("start declined | no changes saved", output.getvalue())
+
+    def test_planning_fallback_writes_a_reportable_morning_brief(self):
+        original_root = night_shift.OVERNIGHT_ROOT
+        with tempfile.TemporaryDirectory() as tmp:
+            night_shift.OVERNIGHT_ROOT = Path(tmp)
+            try:
+                with (
+                    patch.object(night_shift, "require_git_repo", return_value=ROOT),
+                    patch.object(night_shift, "repo_context_pack", return_value="repo context\n"),
+                    patch.object(night_shift, "repo_signal_scan", return_value={
+                        "status": "ok", "repo": str(ROOT), "branch": "main",
+                        "head": "a" * 40, "test_commands": [],
+                    }),
+                    patch.object(night_shift, "write_repo_scan", side_effect=lambda ledger, _scan: (
+                        (ledger / "repo-scan.md").write_text("# Repo Scan\n", encoding="utf-8")
+                    )),
+                    patch.object(night_shift, "build_repo_work_queue", return_value=[{
+                        "slug": "docs", "reason": "Repair stale setup docs",
+                    }]),
+                    patch.object(night_shift, "build_board", return_value="# Board\n"),
+                ):
+                    self.assertEqual(
+                        night_shift.command_plan(SimpleNamespace(repo=str(ROOT), mode="quiet")),
+                        0,
+                    )
+                ledger = night_shift.latest_ledger(completed_only=True)
+                self.assertIsNotNone(ledger)
+                morning = (ledger / "morning.md").read_text(encoding="utf-8")
+                self.assertIn("Status: YELLOW", morning)
+                self.assertIn("planning-only pass", morning)
+                self.assertIn("Repair stale setup docs", morning)
+                self.assertTrue((ledger / "token-report.txt").exists())
+            finally:
+                night_shift.OVERNIGHT_ROOT = original_root
 
     def test_ten_hour_stop_option(self):
         self.assertEqual(night_shift.STOP_SECONDS["10h"], 10 * 60 * 60)
@@ -3939,14 +3996,14 @@ import { helper } from '@/lib/helpers';
                 }),
                 encoding="utf-8",
             )
-            profile, detail = night_shift.load_repo_profile(repo)
+            profile, detail = night_shift.load_repo_profile_proposal(repo)
             self.assertEqual(detail, "profile loaded")
             self.assertFalse(profile.may_execute)
             (repo / ".night-shift.json").write_text(
                 json.dumps({"version": 1, "trust": "owned", "execution": "sandbox-only", "image": "runner@sha256:" + "0" * 64, "commands": ["python3 -m pytest"]}),
                 encoding="utf-8",
             )
-            profile, detail = night_shift.load_repo_profile(repo)
+            profile, detail = night_shift.load_repo_profile_proposal(repo)
             self.assertIsNone(profile)
             self.assertIn("argv", detail)
 
@@ -4228,7 +4285,7 @@ import { helper } from '@/lib/helpers';
             subprocess.run(["git", "add", "."], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
             (repo / "package.json").write_text('{"scripts":{"test":"true"}}\n', encoding="utf-8")
-            profile, _ = night_shift.load_repo_profile(repo)
+            profile, _ = night_shift.load_repo_profile_proposal(repo)
             self.assertIn("patch touched an immutable verifier, dependency, or policy file", night_shift.DraftEngine(night_shift.run_cmd, Path(tmp) / "w", lambda: "x").guard_reasons(repo, ["package.json"], profile))
 
     def test_patch_protocol_rejects_protected_and_unapproved_paths(self):
@@ -4241,7 +4298,7 @@ import { helper } from '@/lib/helpers';
                     "commands": [["true"]], "allowed_paths": ["src", "tests"],
                 }), encoding="utf-8",
             )
-            profile, _ = night_shift.load_repo_profile(repo)
+            profile, _ = night_shift.load_repo_profile_proposal(repo)
             output = """diff --git a/package.json b/package.json
 --- a/package.json
 +++ b/package.json
@@ -4263,7 +4320,7 @@ import { helper } from '@/lib/helpers';
                     "commands": [["true"]], "allowed_paths": ["src"],
                 }), encoding="utf-8",
             )
-            profile, _ = night_shift.load_repo_profile(repo)
+            profile, _ = night_shift.load_repo_profile_proposal(repo)
             prose = night_shift.validate_patch("I would change src/app.py", ["src/app.py"], profile)
             self.assertFalse(prose.valid)
             rename = night_shift.validate_patch(
@@ -4351,7 +4408,7 @@ import { helper } from '@/lib/helpers';
                     "image": "runner@sha256:" + "0" * 64, "commands": [["true"]],
                 }), encoding="utf-8",
             )
-            profile, _ = night_shift.load_repo_profile(root)
+            profile, _ = night_shift.load_repo_profile_proposal(root)
             command = __import__("night_shift_sandbox").sandbox_patch_command(
                 root, root / "candidate.patch", root / "artifacts", ("true",), profile
             )
@@ -4457,7 +4514,7 @@ import { helper } from '@/lib/helpers';
         script = command[command.index("-ceu") + 1]
         self.assertIn("--ignore-scripts", script)
         self.assertIn("--exclude=.npmrc", script)
-        self.assertIn("prisma generate --schema prisma/schema.prisma", script)
+        self.assertNotIn("prisma generate", script)
 
     def test_podman_rootless_is_an_accepted_sandbox_provider(self):
         original_which = night_shift.shutil.which
@@ -4726,7 +4783,7 @@ import { helper } from '@/lib/helpers';
             )
             subprocess.run(["git", "add", "."], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
-            profile, _ = night_shift.load_repo_profile(repo)
+            profile, _ = night_shift.load_repo_profile_proposal(repo)
             patch = "diff --git a/src/app.py b/src/app.py\n--- a/src/app.py\n+++ b/src/app.py\n@@ -1 +1 @@\n-value = 1\n+value = 2\n"
 
             def fake_run(args, cwd=None, timeout=60, env=None, pid_log=None):
@@ -4747,7 +4804,7 @@ import { helper } from '@/lib/helpers';
                         (artifact_dir / "verification.rc").write_text("0\n", encoding="utf-8")
                         (artifact_dir / "verification.txt").write_text("passed\n", encoding="utf-8")
                         return night_shift.CmdResult("docker patch", 0, "", "")
-                    return night_shift.CmdResult("docker baseline", 1, "", "failing baseline")
+                    return night_shift.CmdResult("docker baseline", 1, "FAILED tests/test_app.py::test_value", "")
                 raise AssertionError(f"unexpected command: {args}")
 
             engine = night_shift.DraftEngine(fake_run, Path(tmp) / "worktrees", lambda: "now")
@@ -4755,7 +4812,7 @@ import { helper } from '@/lib/helpers';
                 repo, "owner/repo", {
                     "key": "repair", "summary": "repair value", "evidence": "src/app.py:1",
                     "expected_result": "true passes", "files": ["src/app.py"],
-                    "verification_argv": ["true"],
+                    "verification_argv": ["true"], "draft_intent": "repair",
                 }, ledger, 900, "http://windows:11434/v1", "coder", profile=profile,
             )
             self.assertEqual(result["status"], "PROVEN_REPAIR")
@@ -5101,6 +5158,7 @@ import { helper } from '@/lib/helpers';
             }
             (ledger / "work-queue.json").write_text(json.dumps([{
                 "key": "test-gap", "executable": True, "proof_kind": "test", "score": "MAYBE",
+                "draft_intent": "test-strengthening",
                 "action_type": "draft-pr-candidate", "source_ref": source_ref,
                 "files": ["tests/test_drafts.py"], "verification_commands": ["python -m unittest"],
                 "tests": "python -m unittest", "evidence_sources": evidence,
@@ -5119,6 +5177,35 @@ import { helper } from '@/lib/helpers';
             self.assertEqual(selected["context_files"], ["src/drafts.py", "tests/test_drafts.py"])
             self.assertEqual(selected["draft_intent"], "test-strengthening")
 
+    def test_candidate_selection_preserves_structured_verification_arguments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger"
+            ledger.mkdir()
+            source_ref = "c" * 40
+            command = ["pytest", "-k", "focused case"]
+            (ledger / "work-queue.json").write_text(json.dumps([{
+                "key": "structured-command", "executable": True, "score": "MAYBE",
+                "draft_intent": "safe-refactor", "action_type": "draft-pr-candidate",
+                "source_ref": source_ref, "files": ["src/app.py"],
+                "verification_commands": [command], "verification_argv": command,
+            }]), encoding="utf-8")
+
+            def fake_run(args, **_kwargs):
+                exists = (
+                    args[:3] == ["git", "cat-file", "-e"]
+                    and args[3] == f"{source_ref}:src/app.py"
+                )
+                return night_shift.CmdResult("git", 0 if exists else 1, "", "")
+
+            selected = night_shift.DraftEngine(
+                fake_run, root / "worktrees", lambda: "now"
+            ).select_candidate(
+                ledger, root, lambda _repo: {"test_commands": []}, {"strengthen": 300}
+            )
+            self.assertEqual(selected["verification_argv"], command)
+            self.assertEqual(selected["verification"], "pytest -k focused case")
+
     def test_candidate_selection_skips_unsafe_typescript_source_before_drafting(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -5134,12 +5221,14 @@ import { helper } from '@/lib/helpers';
             items = [
                 {
                     "key": "unsafe", "executable": True, "proof_kind": "test", "score": "MAYBE",
+                    "draft_intent": "test-strengthening",
                     "action_type": "draft-pr-candidate", "source_ref": source_ref,
                     "files": ["tests/data.test.ts"], "verification_commands": ["npm test"],
                     "tests": "npm test", "evidence_sources": evidence,
                 },
                 {
                     "key": "safe", "executable": True, "proof_kind": "test", "score": "MAYBE",
+                    "draft_intent": "test-strengthening",
                     "action_type": "draft-pr-candidate", "source_ref": source_ref,
                     "files": ["tests/metrics.test.ts"], "verification_commands": ["npm test"],
                     "tests": "npm test", "evidence_sources": {
@@ -5280,7 +5369,7 @@ import { helper } from '@/lib/helpers';
                 Path(tmp) / "other-ledger", 900, "http://local/v1", "coder", profile=profile,
             )
             self.assertEqual(rejected["status"], "REJECT")
-            self.assertIn("only patches reproduced failures", rejected["reason"])
+            self.assertIn("classified test assertion failure twice", rejected["reason"])
 
             explicit = {
                 **candidate,
@@ -5401,7 +5490,7 @@ import { helper } from '@/lib/helpers';
                 if "maestro-delegate" in parts[0]:
                     prompts.append(parts[-1])
                     return night_shift.CmdResult("worker", 0, bad if len(prompts) == 1 else good, "")
-                return night_shift.CmdResult("baseline", 1, "", "failed")
+                return night_shift.CmdResult("baseline", 1, "FAILED test_app.py::test_existing", "")
 
             profile = SimpleNamespace(
                 commands=(("true",),), max_seconds=60, protected_paths=(), allowed_paths=("test_app.py",),
@@ -5410,7 +5499,8 @@ import { helper } from '@/lib/helpers';
             result = night_shift.DraftEngine(fake_run, root / "worktrees", lambda: "now").run_draft(
                 repo, "owner/repo", {
                     "key": "repair", "source_ref": "HEAD", "files": ["test_app.py"],
-                    "verification_argv": ["true"], "summary": "repair", "evidence": "test_app.py:1",
+                    "verification_argv": ["true"], "draft_intent": "repair",
+                    "summary": "repair", "evidence": "test_app.py:1",
                 }, root / "ledger", 60, "http://local/v1", "coder", profile=profile, patch_lane="local",
             )
             self.assertEqual(len(prompts), 2)
@@ -5435,7 +5525,9 @@ import { helper } from '@/lib/helpers';
             night_shift.detect_sandbox = lambda _run: SimpleNamespace(available=True, detail="ready")
             night_shift.draft_engine = lambda: FakeEngine()
             result = night_shift.run_isolated_draft(
-                Path("/tmp/repo"), "owner/repo", {"files": ["app.py"]}, Path("/tmp/ledger"), 60,
+                Path("/tmp/repo"), "owner/repo", {
+                    "files": ["app.py"], "verification_argv": ["true"], "draft_intent": "repair",
+                }, Path("/tmp/ledger"), 60,
                 "http://localhost:1234/v1", "mac-coder", "", "windows-coder",
             )
             self.assertEqual(result["status"], "PROVEN_REPAIR")
@@ -5464,7 +5556,9 @@ import { helper } from '@/lib/helpers';
             night_shift.detect_sandbox = lambda _run: SimpleNamespace(available=True, detail="ready")
             night_shift.draft_engine = lambda: FakeEngine()
             result = night_shift.run_isolated_draft(
-                Path("/tmp/repo"), "owner/repo", {"draft_intent": "test-strengthening"},
+                Path("/tmp/repo"), "owner/repo", {
+                    "draft_intent": "test-strengthening", "verification_argv": ["true"],
+                },
                 Path("/tmp/ledger"), 60, "http://localhost:1234/v1", "mac-coder",
                 "http://windows/v1", "windows-coder",
             )
@@ -5484,7 +5578,9 @@ import { helper } from '@/lib/helpers';
             night_shift.load_repo_profile = lambda _repo: (profile, "loaded")
             night_shift.detect_sandbox = lambda _run: SimpleNamespace(available=True, detail="ready")
             result = night_shift.run_isolated_draft(
-                Path("/tmp/repo"), "owner/repo", {"files": ["app.py"]}, Path("/tmp/ledger"), 60,
+                Path("/tmp/repo"), "owner/repo", {
+                    "files": ["app.py"], "verification_argv": ["true"], "draft_intent": "repair",
+                }, Path("/tmp/ledger"), 60,
                 "", "", "", "windows-coder",
             )
             self.assertEqual(result["status"], "REJECT")
@@ -5506,7 +5602,10 @@ import { helper } from '@/lib/helpers';
             night_shift.remote_advertises_revision = lambda *_args: False
             night_shift.detect_sandbox = lambda _run: self.fail("sandbox must not start")
             result = night_shift.run_isolated_draft(
-                Path("/tmp/repo"), "owner/repo", {"files": ["app.py"], "source_ref": "b" * 64},
+                Path("/tmp/repo"), "owner/repo", {
+                    "files": ["app.py"], "source_ref": "b" * 64,
+                    "verification_argv": ["true"], "draft_intent": "repair",
+                },
                 Path("/tmp/ledger"), 60, "http://localhost:1234/v1", "coder", "", "",
             )
             self.assertEqual(result["status"], "REJECT")
@@ -5539,7 +5638,10 @@ import { helper } from '@/lib/helpers';
             night_shift.detect_sandbox = lambda _run: SimpleNamespace(available=True, detail="ready")
             night_shift.draft_engine = lambda: FakeEngine()
             result = night_shift.run_isolated_draft(
-                Path("/tmp/repo"), "owner/repo", {"files": ["app.py"], "source_ref": "a" * 40},
+                Path("/tmp/repo"), "owner/repo", {
+                    "files": ["app.py"], "source_ref": "a" * 40,
+                    "verification_argv": ["true"], "draft_intent": "repair",
+                },
                 Path("/tmp/ledger"), 60, "http://localhost:1234/v1", "coder", "", "",
             )
             self.assertEqual(result["reason"], "baseline passed")
@@ -5623,7 +5725,11 @@ import { helper } from '@/lib/helpers';
                 self.assertEqual(night_shift.command_trust_repo(args), 1)
                 self.assertEqual(saved, [])
 
-                preflight_result = night_shift.CmdResult("verify", 1, "FAILED (failures=1)", "")
+                preflight_result = night_shift.CmdResult(
+                    "verify", 1,
+                    "FAIL: test_value (tests.TestApp)\nAssertionError: expected 2 got 1\n",
+                    "",
+                )
                 self.assertEqual(night_shift.command_trust_repo(args), 0)
                 self.assertEqual(len(saved), 1)
             finally:
@@ -5675,7 +5781,7 @@ import { helper } from '@/lib/helpers';
                     worker_calls += 1
                     stop_file.write_text("stop\n", encoding="utf-8")
                     return night_shift.CmdResult("worker", 0, "--- a/app.py\n+++ b/app.py\n", "")
-                return night_shift.CmdResult("baseline", 1, "", "failing baseline")
+                return night_shift.CmdResult("baseline", 1, "FAILED test_app.py::test_existing", "")
 
             profile = SimpleNamespace(
                 commands=(("true",),), max_seconds=60,
@@ -5685,7 +5791,8 @@ import { helper } from '@/lib/helpers';
             result = night_shift.DraftEngine(fake_run, root / "worktrees", lambda: "now").run_draft(
                 repo, "owner/repo", {
                     "key": "repair", "files": ["app.py"], "verification_argv": ["true"],
-                    "summary": "repair", "evidence": "app.py:1", "expected_result": "pass",
+                    "draft_intent": "repair", "summary": "repair",
+                    "evidence": "app.py:1", "expected_result": "pass",
                 }, ledger, 60, "http://windows/v1", "coder", stop_file=stop_file, profile=profile,
             )
             self.assertEqual(result["status"], "REJECT")

@@ -17,6 +17,10 @@ GitHub repositories:
   test commands
 - durable task fingerprints so unchanged work is never repeated across cycles or nights
 - test-gap maps
+- focused unit and E2E test patches
+- narrow fixes for reproducible failures and source-grounded issues
+- stale setup, test, quickstart, and command documentation repairs
+- one-file redundancy cleanup in recently changed code
 - stale PR reviews
 - TODO and risk clustering
 - release-readiness notes
@@ -55,8 +59,9 @@ The simplest launch story:
 4. Run `night-shift report --latest` in the morning.
 
 The normal flow asks only whether to start. GitHub scope, available local AI,
-configured LAN compute, local-first privacy, Normal mode, draft-local autonomy,
-and an eight-hour stop are selected automatically. Run
+configured LAN compute, local-first privacy, Normal mode, hands-on autonomy,
+and an eight-hour stop are selected automatically. Hands-on mode makes bounded
+changes in disposable copies and may open tested draft PRs for review. Run
 `night-shift start --advanced` to customize those choices.
 
 The promise is not "wake up to merged code." The promise is "keep idle local
@@ -73,27 +78,29 @@ The normal wizard starts like a tiny decision brief:
 ```text
 Welcome to Night Shift.
 
-This is your first time here, so I will check this project and the AI already
-available on your machines.
-Then I will show one safe plan. You only need to decide whether to start it.
+I found your projects and local AI.
 
-Safe default: local, read-only, no pushes, no merges, no releases.
+Tonight I will look for small work that is actually worth doing: failing tests,
+missing unit or E2E coverage, stale docs, narrow issue fixes, and exact code
+cleanup. I will work in disposable copies and rerun approved checks. I may open
+a tested draft PR for review, but I will never merge, deploy, release, touch
+secrets, or edit your checkout.
+
+Start the eight-hour shift?
 ```
 
 The normal path asks only whether to start. If you choose `--advanced`, the
 extra questions are still plain English and have safe defaults:
 
-1. Should it watch only this project or recently active GitHub repos?
+1. Where should it look for useful work?
 2. Are there any `owner/repo` projects to prioritize?
 3. When should scheduled Night Shift runs stay quiet?
 4. What would make tomorrow morning a win?
-5. What should Night Shift aim at first?
-6. Where is repo context allowed to go tonight?
-7. What is Night Shift allowed to prepare?
-8. If drafts are allowed, may it try a disposable, test-gated patch?
-9. If draft PRs are allowed, may it open a tested GitHub draft PR for review?
-10. How much energy should it use?
-11. When should it stop?
+5. What should it aim at first?
+6. Where is repo context allowed to go?
+7. How hands-on should it be: brief, local tested changes, or draft PRs?
+8. How much energy should it use?
+9. When should it stop?
 
 You do not need to know model names, server URLs, GitHub commands, or repo
 internals to get started. Night Shift detects what it can and continues with a
@@ -105,24 +112,20 @@ Then it shows a summary before launching:
 Night Shift preview
 
 Project: /path/to/project
-Tonight it WILL:
+Tonight:
 - Watch recently active GitHub repos
 - Use: local Mac AI
-- Aim for: Ranked repo chores and test ideas
-- Run in Normal mode
-- Read only and make a morning brief
-- Autonomy: Read-only. Make a brief and a ranked queue.
-- Stop after 6 hours
-- Save a repo scan, deduped work queue, morning brief, and artifacts
+- Look for ranked repo chores and test ideas
+- Use normal effort and stop after 8 hours
+- Run approved deterministic and E2E checks in isolated no-network runners
+- Make small test-gated code, test, E2E, docs, and cleanup changes in disposable copies
+- Open only test-passed draft PRs for review; never merge them
+- Leave a short morning brief with proof and next steps
 
-Tonight it WILL NOT:
-- Push commits
-- Open PRs without a separate Codex or human review step
-- Merge PRs
-- Release, deploy, publish, tag, or notarize
-- Delete or reorganize user files
-- Change credentials, billing, or repo visibility
-- Edit this checkout directly
+Safety:
+- Never edit this checkout, merge, release, deploy, or change credentials
+- Never delete or reorganize files, change billing, or change repo visibility
+- Keep repo context on this Mac
 ```
 
 The wizard also writes a setup lab under `~/.codex/maestro/overnight/`.
@@ -155,20 +158,51 @@ night-shift autopilot --repo /path/to/project \
 ### E2E checks
 
 Night Shift finds existing Playwright, Cypress, and `tests/e2e` surfaces and
-adds a small E2E review task to the overnight queue. Discovery is read-only.
-It will not invent `npx` commands or run a browser test until you approve one
-detected script for that repo:
+may strengthen one existing E2E journey. It never invents an `npx` command.
+The exact detected script must be present in the repo's separate approval:
 
 ```bash
 night-shift trust-repo --repo /path/to/project --include-e2e
 night-shift autopilot --repo /path/to/project --run-e2e --stop-after 8h
 ```
 
-The approved command runs in the same rootless, no-network sandbox as other
-verification. The result is saved in `e2e-proof.json` and is clearly labeled
-`PASS`, `FAIL`, or `SKIPPED`. A failing E2E check is useful evidence, not an
-automatic code change. Night Shift does not start external services, publish
-results, or touch the original checkout.
+The approved command runs twice before editing and three times after the patch
+in the same rootless, no-network sandbox as other verification. The result is
+saved in `e2e-proof.json` and labeled `PASS`, `FAIL`, `BLOCKED`, or `SKIPPED`.
+Night Shift does not start external services or touch the original checkout.
+
+### Approved deterministic checks
+
+Use `--run-checks` to run one existing owner-approved unit, test, or verification
+command per repo in the same rootless, no-network sandbox:
+
+```bash
+night-shift trust-repo --repo /path/to/project --apply
+night-shift autopilot --repo /path/to/project --run-checks --stop-after 8h
+```
+
+The result is saved in `verification-proof.json` as `PASS`, `FAIL`, `BLOCKED`,
+or `SKIPPED`. Night Shift never invents a command, starts a server, grants
+network access, or treats a skipped check as success.
+
+### ClaudeBrain raw intake
+
+ClaudeBrain can use Night Shift as a local first-pass reader for its `raw/`
+inbox:
+
+```bash
+night-shift brain-intake --vault /Users/redbars/Documents/claudebrain
+```
+
+Night Shift reads new text files, asks the configured local model for a
+source-linked classification, and writes one triage packet to
+`raw/scraps/night-shift-raw-intake-*.md`. It remembers file hashes so unchanged
+raw files are not sent through the model again. The packet is only a suggestion
+for ClaudeBrain's nightly agent to verify. Night Shift never moves raw files,
+rewrites `memory.md`, edits people/projects/notes, or archives anything.
+
+Audio, images, protected templates, and `raw/_legacy/` are skipped by default.
+Use `--include-legacy` only when you intentionally want a bounded legacy batch.
 
 ### ClaudeBrain raw intake
 
@@ -213,10 +247,10 @@ This gives idle local AI useful work without asking it to repeat rejected code
 ideas or manufacture bugs.
 
 - `brief`: read-only repo scan, artifacts, and a ranked queue.
-- `draft-local`: exact patch plans, issue candidates, files, tests, and isolated tested drafts when enabled; nothing is pushed.
-- `draft-prs`: review-ready candidates, plus optional isolated patches when
-  `--execute-drafts` is enabled. With one-time explicit authorization, a patch
-  that passes the approved sandbox check again may become a GitHub draft PR.
+- `draft-local`: small tested changes in disposable copies; nothing is pushed.
+- `draft-prs`: the new-install default. It includes isolated tested changes and,
+  with saved hands-on consent, may open a bounded GitHub draft PR after fresh
+  repeated verification.
   Night Shift never merges, releases, or deploys.
 
 Autopilot works down the same usefulness ladder in every repository:
@@ -270,8 +304,8 @@ Useful files:
 - `work-queue.md` / `work-queue.json`: deduped action choices after worker
   scoring.
 - `token-report.txt`: estimated tokens by lane.
-- `run-summary.json`: exact controller start, elapsed time, cycle count, and stop reason for a portfolio run.
 - `verification-proof.json`: result of one explicitly approved deterministic check, when `--run-checks` is enabled.
+- `run-summary.json`: exact controller start, elapsed time, cycle count, and stop reason for a portfolio run.
 - `morning.md`: the morning brief.
 
 ### What Night Shift Touched
@@ -313,7 +347,7 @@ Portfolio autopilot also writes a parent `*-autopilot/` ledger containing:
 
 - `portfolio.json` / `portfolio.md`: ranked repositories and live GitHub signals.
 - `cycles.json`: every repository batch and its child ledger.
-- `drafts/`: isolated patches, Aider transcripts, and deterministic proof JSON.
+- `drafts/`: isolated patches, model transcripts, and deterministic proof JSON.
 - `morning.md`: one portfolio-level closeout.
 
 ## Setup
@@ -408,9 +442,10 @@ night-shift report --ledger ~/.codex/maestro/overnight/night-shift-...
 ```
 
 If something is missing, the wizard and doctor output should tell you exactly
-what to start. The `run` command writes ledgers and artifacts only; it reads
-repo state but does not fetch, commit, branch, merge, publish, or edit the
-target repo.
+what to start. The low-level `run` command writes ledgers and artifacts only.
+`start` and `autopilot` may also create isolated patches and tested draft PRs
+when the saved hands-on policy allows it. No command edits the target checkout
+or merges.
 
 ### Advanced Recipes
 
@@ -508,6 +543,11 @@ Use this when you want to maximize idle hardware.
 ## What Good Overnight Work Looks Like
 
 - Find missing tests.
+- Strengthen one existing E2E journey.
+- Repair one reproducible failing check.
+- Fix one narrow source-grounded issue.
+- Correct stale setup, test, quickstart, or command docs.
+- Remove one exact redundancy from recently changed code.
 - Map risky files.
 - Cluster TODOs and bug smells.
 - Review stale PRs.
@@ -515,7 +555,7 @@ Use this when you want to maximize idle hardware.
 - Compare user stories to tests and analytics.
 - Mine PostHog/Sentry gaps.
 - Draft small patch plans.
-- Prepare draft PR candidates for Codex or a human to review.
+- Open a bounded tested draft PR when every publication gate passes.
 - Produce morning-ready issues.
 
 Do not paste secrets, customer data, raw transcripts, audio, meeting titles,
@@ -537,7 +577,8 @@ Then review:
 1. `morning.md`
 2. `harvest.md`
 3. `token-report.txt`
-4. high-signal files in `artifacts/`
+4. opened draft PRs and verified local patches
+5. high-signal files in `artifacts/`
 
 The first screen of `morning.md` is intentionally ranked. It should answer:
 
@@ -574,7 +615,8 @@ real value rather than treating every useful vote as a finished result.
 
 The right next action is usually one of these:
 
-- Ask Codex to turn one `KEEP` artifact into a PR.
+- Review the highest-value draft PR or verified local patch.
+- Ask Codex to deepen or finish one strong Night Shift result.
 - Ask Codex to launch a focused review/merge thread.
 - Rerun in `quiet` mode with a narrower target.
 - Stop because the project is ready for manual QA or release.
@@ -619,9 +661,9 @@ Optional morning delivery — post the brief where you already look:
 night-shift deliver --latest --github-issue
 ```
 
-This keeps exactly one open issue titled "🌙 Night Shift morning brief" per
-repo, updated in place each morning via the `gh` CLI. It is the only thing
-Night Shift ever writes to a repo — never code, never a second issue. Set
+This keeps exactly one open issue titled "Night Shift morning brief" per repo,
+updated in place each morning via the `gh` CLI. In hands-on mode, Night Shift
+may also open bounded tested draft PRs; it never merges them. Set
 `"deliver": "github-issue"` in `~/.codex/night-shift/config.json` preferences
 to have `nightly` do it automatically after each run. The rationale for all
 of this lives in [autopilot.md](autopilot.md).
