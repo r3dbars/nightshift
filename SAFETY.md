@@ -108,6 +108,8 @@ Typical files include:
 - `work-queue.md` / `work-queue.json`
 - `morning.md`
 - `token-report.txt`
+- `run-summary.json` for the controller's factual elapsed time and stop reason.
+- `verification-proof.json` when one owner-approved deterministic check was requested.
 
 The optional `brain-intake` command may write one local triage packet to a
 ClaudeBrain vault's `raw/scraps/` directory. It does not move or edit source

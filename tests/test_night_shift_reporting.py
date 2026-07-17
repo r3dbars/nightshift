@@ -274,11 +274,23 @@ class ReportingTests(unittest.TestCase):
             rejected["quality_reasons"] = ["cited line does not match the pinned source"]
             self.engine().write_morning(
                 ledger, "quiet", [rejected], 100, "GREEN",
-                {"status": "ok", "recent_files": ["README.md", "bin/night-shift"], "test_commands": ["python3 -m unittest"], "branch": "main", "head": "abc"},
+                {
+                    "status": "ok",
+                    "recent_files": ["README.md", "bin/night-shift"],
+                    "test_commands": ["python3 -m unittest"],
+                    "verification_result": {
+                        "status": "PASS",
+                        "command": "python3 -m unittest",
+                        "proof": "/tmp/verification-proof.json",
+                    },
+                    "branch": "main",
+                    "head": "abc",
+                },
             )
             brief = (ledger / "morning.md").read_text()
             self.assertIn("Recent code/test surface: README.md, bin/night-shift", brief)
             self.assertIn("Detected verification command", brief)
+            self.assertIn("Approved check: PASS", brief)
             self.assertIn("dropped because: cited line does not match the pinned source", brief)
             self.assertIn("What I checked:", brief)
             self.assertNotIn("Three useful choices:", brief)
@@ -313,6 +325,24 @@ class PortfolioReportingTests(unittest.TestCase):
             self.assertIn("owner/repo", (root / "portfolio.md").read_text())
             self.assertEqual(json.loads((root / "morning-items.json").read_text()), [])
             self.assertIn("Status: GREEN", (root / "morning.md").read_text())
+
+    def test_brief_reports_exact_controller_stop_reason_when_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "run-summary.json").write_text(json.dumps({
+                "stop_reason": "deadline",
+                "elapsed_seconds": 36_000,
+                "cycles": 12,
+                "repositories_visited": 3,
+            }), encoding="utf-8")
+            self.engine(root).write_brief(root, [], "GREEN")
+            morning = (root / "morning.md").read_text(encoding="utf-8")
+            self.assertIn("Run status:", morning)
+            self.assertIn(
+                "Controller reached the configured stop limit after 10.0 hours; 12 cycles across 3 repositories.",
+                morning,
+            )
+            self.assertIn("Exact run proof:", morning)
 
     def test_morning_items_returns_rank_then_name_sorted_rows(self):
         with tempfile.TemporaryDirectory() as tmp:

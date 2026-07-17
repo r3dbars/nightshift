@@ -189,6 +189,20 @@ rewrites `memory.md`, edits people/projects/notes, or archives anything.
 Audio, images, protected templates, and `raw/_legacy/` are skipped by default.
 Use `--include-legacy` only when you intentionally want a bounded legacy batch.
 
+### Approved deterministic checks
+
+Use `--run-checks` to run one existing owner-approved unit, test, or verification
+command per repo in the same rootless, no-network sandbox:
+
+```bash
+night-shift trust-repo --repo /path/to/project --apply
+night-shift autopilot --repo /path/to/project --run-checks --stop-after 8h
+```
+
+The result is saved in `verification-proof.json` as `PASS`, `FAIL`, `BLOCKED`,
+or `SKIPPED`. Night Shift never invents a command, starts a server, grants
+network access, or treats a skipped check as success.
+
 ### What keeps a quiet repo useful
 
 Most one-off tasks are still skipped after they have been attempted at the same
@@ -256,7 +270,38 @@ Useful files:
 - `work-queue.md` / `work-queue.json`: deduped action choices after worker
   scoring.
 - `token-report.txt`: estimated tokens by lane.
+- `run-summary.json`: exact controller start, elapsed time, cycle count, and stop reason for a portfolio run.
+- `verification-proof.json`: result of one explicitly approved deterministic check, when `--run-checks` is enabled.
 - `morning.md`: the morning brief.
+
+### What Night Shift Touched
+
+The morning answer should separate three things:
+
+- **Read:** the exact repositories, pinned revisions, and bounded recent-file
+  surface that were inspected.
+- **Wrote:** Night Shift ledgers and artifacts versus source files, branches,
+  PRs, releases, or deploys.
+- **Ran:** verification, E2E, local-model, Windows-model, and GitHub actions,
+  with their status.
+
+The scan surface is not a full operating-system read trace. Treat missing
+evidence as `UNKNOWN`. A useful audit should always say `none` when no source
+files, GitHub writes, patches, or PRs were created. See the live example in
+[`docs/proofs/2026-07-15-live-touch-audit.md`](proofs/2026-07-15-live-touch-audit.md).
+
+For a live run, start with the active pointer and parent ledger:
+
+```bash
+cat ~/.codex/night-shift/active-autopilot.json
+cat ~/.codex/maestro/overnight/<timestamp>-autopilot/portfolio.json
+cat ~/.codex/maestro/overnight/<timestamp>-autopilot/morning.md
+```
+
+Then inspect each child ledger's `repo-scan.json`, `e2e-proof.json`,
+`planned-work-queue.json`, `harvest.md`, and `morning.md`. This gives a stable
+future check for what was inspected, what was attempted, what was rejected,
+and what actually survived proof.
 
 When you prepare a morning handoff, Night Shift also saves an inspectable,
 redacted pack under `handoff/`, plus a JSON manifest with the exact file list,

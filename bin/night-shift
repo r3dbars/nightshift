@@ -1648,6 +1648,59 @@ def run_approved_e2e(repo: Path, scan: dict, ledger: Path) -> dict:
     return proof
 
 
+def run_approved_check(repo: Path, scan: dict, ledger: Path) -> dict:
+    """Run one owner-approved deterministic check and save factual proof."""
+    inventory = scan.get("test_commands") or []
+    proof = {
+        "repo": str(repo),
+        "head": str(scan.get("head") or ""),
+        "requested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "status": "SKIPPED",
+        "command": "",
+        "reason": "",
+    }
+    profile, _ = load_repo_profile(repo)
+    approved: list[tuple[str, ...]] = []
+    if profile and profile.may_execute:
+        for command in profile.commands:
+            display = command_display(command)
+            if display in inventory and not re.search(
+                r"(?:e2e|smoke|playwright|cypress|headed|deployed|real)",
+                display,
+                re.IGNORECASE,
+            ):
+                approved.append(command)
+    if not inventory:
+        proof["reason"] = "no deterministic verification command was detected"
+    elif not approved:
+        proof["reason"] = f"no detected deterministic command is approved in {PROFILE_NAME}; execution stays off"
+    else:
+        command = approved[0]
+        proof["command"] = command_display(command)
+        sandbox = detect_sandbox(run_cmd)
+        if not sandbox.available:
+            proof["status"] = "BLOCKED"
+            proof["reason"] = sandbox.detail
+        else:
+            result = run_cmd(
+                sandbox_command(repo, command, profile, repo_dependency_source(repo, profile)),
+                cwd=repo,
+                timeout=min(profile.max_seconds, 1800),
+            )
+            proof["status"] = "PASS" if result.rc == 0 else "FAIL"
+            proof["exit_code"] = result.rc
+            proof["timed_out"] = bool(getattr(result, "timed_out", False))
+            proof["output"] = redact((result.stdout or result.stderr or "")[-4000:])
+            proof["reason"] = (
+                "approved deterministic check completed"
+                if result.rc == 0
+                else "approved deterministic check failed; inspect the captured output"
+            )
+    path = ledger / "verification-proof.json"
+    path.write_text(json.dumps(proof, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return proof
+
+
 def verification_command_priority(command: list[str]) -> tuple[int, str]:
     """Prefer focused deterministic tests over broad or environment-heavy checks."""
     display = command_display(command)
@@ -2754,6 +2807,10 @@ def command_run(args) -> int:
     )
     context = repo_context_pack(root if root and root.exists() else None)
     scan = repo_signal_scan(root)
+    if getattr(args, "run_checks", False):
+        check_proof = run_approved_check(root, scan, ledger)
+        check_proof["proof"] = str(ledger / "verification-proof.json")
+        scan["verification_result"] = check_proof
     if getattr(args, "run_e2e", False):
         e2e_proof = run_approved_e2e(root, scan, ledger)
         e2e_proof["proof"] = str(ledger / "e2e-proof.json")
@@ -3243,6 +3300,39 @@ def portfolio_brief(ledger: Path, cycle_rows: list[dict], status: str) -> None:
     PORTFOLIO_REPORTER.write_brief(ledger, cycle_rows, status)
 
 
+def write_autopilot_summary(
+    ledger: Path,
+    controller: AutopilotCycleState,
+    *,
+    started_at: str,
+    started_epoch: float,
+    stop_after: str | None,
+    stop_reason: str,
+) -> None:
+    rows = controller.rows
+    repositories = sorted({str(row.get("repo") or "") for row in rows if row.get("repo")})
+    outcomes = [row.get("outcomes") or {} for row in rows]
+    summary = {
+        "schema_version": 1,
+        "started_at": started_at,
+        "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "elapsed_seconds": round(max(0.0, time.time() - started_epoch), 3),
+        "configured_stop_after": stop_after or "morning",
+        "stop_reason": stop_reason,
+        "status": controller.status,
+        "cycles": controller.cycle,
+        "repositories_visited": len(repositories),
+        "repository_batches": len(rows),
+        "new_tasks": sum(int(row.get("new_tasks") or 0) for row in rows),
+        "model_candidates": sum(int(item.get("candidate_count") or 0) for item in outcomes),
+        "verified_drafts": sum(int(item.get("verified_drafts") or 0) for item in outcomes),
+        "draft_prs_opened": sum(int(item.get("draft_pr_opened") or 0) for item in outcomes),
+    }
+    (ledger / "run-summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
 def enforce_autopilot_privacy(args) -> str | None:
     privacy_route = getattr(args, "privacy_route", None)
     if privacy_route and privacy_route != "mac-and-lan":
@@ -3279,6 +3369,8 @@ def command_autopilot(args) -> int:
         args.execute_drafts = bool(config_value(saved, "execute_drafts", False))
     if getattr(args, "run_e2e", None) is None:
         args.run_e2e = bool(config_value(saved, "run_e2e", False))
+    if getattr(args, "run_checks", None) is None:
+        args.run_checks = bool(config_value(saved, "run_checks", False))
     args.mode = getattr(args, "mode", None) or config_value(saved, "mode", "night-shift")
     args.scope = getattr(args, "scope", None) or config_value(saved, "scope", "github-recent")
     args.permission = getattr(args, "permission", None) or config_value(saved, "permission", "brief")
@@ -3346,6 +3438,9 @@ def command_autopilot(args) -> int:
         return 1
     if recovery.get("status") == "recovered":
         print(f"Recovered prior crashed shift: {recovery.get('ledger')}")
+    started_epoch = time.time()
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    stop_reason = "unknown"
     try:
         ledger = create_ledger("autopilot")
         setattr(args, "result_ledger", str(ledger))
@@ -3365,6 +3460,8 @@ def command_autopilot(args) -> int:
                     "poll_minutes": poll_minutes,
                     "stop_after": stop_after or "morning",
                     "permission": getattr(args, "permission", "brief"),
+                    "run_checks": bool(getattr(args, "run_checks", False)),
+                    "run_e2e": bool(getattr(args, "run_e2e", False)),
                 },
                 indent=2,
                 sort_keys=True,
@@ -3386,9 +3483,20 @@ def command_autopilot(args) -> int:
     prepared_cache: list[tuple[dict, Path]] | None = None
     portfolio_cache: list[dict] = []
     next_portfolio_refresh = 0.0
+
+    def stop_cause() -> str:
+        if deadline is not None and time.time() >= deadline:
+            deadline_reached(deadline, stop_file)
+            return "deadline"
+        if stop_file.exists():
+            return "stop-file"
+        return ""
+
     try:
-        while not stop_file.exists():
-            if deadline_reached(deadline, stop_file):
+        while True:
+            cause = stop_cause()
+            if cause:
+                stop_reason = cause
                 break
             cycle = controller.start_cycle()
             now = time.time()
@@ -3426,10 +3534,13 @@ def command_autopilot(args) -> int:
             write_portfolio_snapshot(ledger, portfolio, cycle)
             if not prepared:
                 controller.no_prepared_repositories()
+                stop_reason = "no-prepared-repositories"
                 break
             per_repo_limit = max(1, task_limit // len(prepared))
             for portfolio_rank, (item, checkout) in enumerate(prepared, start=1):
-                if stop_file.exists() or deadline_reached(deadline, stop_file):
+                cause = stop_cause()
+                if cause:
+                    stop_reason = cause
                     break
                 repo_name = item.get("slug", str(checkout))
                 if controller.should_skip_attempted_repo(repo_name):
@@ -3481,6 +3592,7 @@ def command_autopilot(args) -> int:
                     wake_goal=getattr(args, "wake_goal", "brief"),
                     privacy_route=getattr(args, "privacy_route", "mac-only"),
                     run_e2e=getattr(args, "run_e2e", False),
+                    run_checks=getattr(args, "run_checks", False),
                 )
                 rc = command_run(child_args)
                 child_ledger = Path(child_args.result_ledger)
@@ -3582,6 +3694,7 @@ def command_autopilot(args) -> int:
                 controller.append(cycle_row)
             portfolio_brief(ledger, controller.rows, controller.status)
             if getattr(args, "once", False):
+                stop_reason = "once"
                 break
             if not controller.cycle_had_work:
                 sleep_for = poll_minutes * 60
@@ -3589,12 +3702,29 @@ def command_autopilot(args) -> int:
                     sleep_for = min(sleep_for, max(0, int(deadline - time.time())))
                 for _ in range(max(0, sleep_for)):
                     if stop_file.exists():
+                        stop_reason = "stop-file"
                         break
                     time.sleep(1)
-            if deadline_reached(deadline, stop_file):
+            cause = stop_cause()
+            if cause:
+                stop_reason = cause
                 break
         portfolio_brief(ledger, controller.rows, controller.status)
+    except Exception:
+        stop_reason = "error"
+        raise
     finally:
+        if stop_reason == "unknown":
+            stop_reason = "stop-file" if stop_file.exists() else "completed"
+        write_autopilot_summary(
+            ledger,
+            controller,
+            started_at=started_at,
+            started_epoch=started_epoch,
+            stop_after=stop_after,
+            stop_reason=stop_reason,
+        )
+        portfolio_brief(ledger, controller.rows, controller.status)
         try:
             active = parse_json_text(AUTOPILOT_STATE_PATH.read_text(encoding="utf-8"), {})
             if active.get("pid") == os.getpid():
@@ -3602,7 +3732,7 @@ def command_autopilot(args) -> int:
         except OSError:
             pass
         lock_context.__exit__(None, None, None)
-    print(f"NIGHTSHIFT_AUTOPILOT: {controller.status} | cycles={controller.cycle} | ledger={ledger}")
+    print(f"NIGHTSHIFT_AUTOPILOT: {controller.status} | cycles={controller.cycle} | stop={stop_reason} | ledger={ledger}")
     print(f"Morning brief: night-shift report --ledger {ledger}")
     action_required = controller.action_required()
     return 0 if controller.status == "GREEN" or not action_required else 1
@@ -3709,6 +3839,7 @@ def command_start(args) -> int:
     quiet_hours = normalize_quiet_hours(config_value(saved, "quiet_hours", ""))
     execute_drafts = bool(getattr(args, "execute_drafts", False) or config_value(saved, "execute_drafts", False))
     run_e2e = bool(getattr(args, "run_e2e", False) or config_value(saved, "run_e2e", False))
+    run_checks = bool(getattr(args, "run_checks", False) or config_value(saved, "run_checks", False))
     allow_draft_prs = bool(getattr(args, "allow_draft_prs", False) or config_value(saved, "allow_draft_prs", False))
     if permission != "draft-prs":
         allow_draft_prs = False
@@ -3822,6 +3953,10 @@ def command_start(args) -> int:
                 "If a task has a safe sandbox, may Night Shift try a disposable, test-gated patch? It will not touch this checkout.",
                 default=execute_drafts,
             )
+        run_checks = ask_yes_no(
+            "May Night Shift run one owner-approved unit or test check per repo in a no-network sandbox?",
+            default=run_checks,
+        )
         if permission == "draft-prs":
             print(f"Patch execution starts off. Add {PROFILE_NAME} to a repo and set up the rootless sandbox after morning review.")
             allow_draft_prs = ask_yes_no(
@@ -3872,6 +4007,7 @@ def command_start(args) -> int:
             "quiet_hours": quiet_hours,
             "execute_drafts": execute_drafts,
             "run_e2e": run_e2e,
+            "run_checks": run_checks,
             "allow_draft_prs": allow_draft_prs,
         },
         "legacy": {
@@ -3971,6 +4107,7 @@ def command_start(args) -> int:
         poll_minutes=None,
         execute_drafts=execute_drafts,
         run_e2e=run_e2e,
+        run_checks=run_checks,
         allow_draft_prs=allow_draft_prs,
         once=getattr(args, "once", False),
         unattended=False,
@@ -4281,6 +4418,7 @@ def command_nightly(args) -> int:
         poll_minutes=None,
         execute_drafts=config_value(config, "execute_drafts", False),
         run_e2e=config_value(config, "run_e2e", False),
+        run_checks=config_value(config, "run_checks", False),
         once=getattr(args, "once", False),
     )
     rc = command_autopilot(run_args)
@@ -4889,6 +5027,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--active-days", type=int, default=None, help="GitHub activity window for portfolio discovery")
     start.add_argument("--max-repos", type=int, default=None, help="maximum recently active repos to work on")
     start.add_argument("--execute-drafts", action="store_true", help="allow isolated, unpushed draft patches when deterministic checks exist")
+    start.add_argument("--run-checks", action="store_true", help="run one already-approved deterministic check per repo during the shift")
     start.add_argument("--run-e2e", action="store_true", help="run one already-approved E2E/smoke check per repo during the shift")
     start.add_argument("--allow-draft-prs", action="store_true", help="save one-time consent to open only tested changes as GitHub draft PRs")
     start.add_argument("--once", action="store_true", help=argparse.SUPPRESS)
@@ -5056,6 +5195,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run one already-approved E2E/smoke command in the no-network sandbox and save proof",
     )
+    run.add_argument(
+        "--run-checks",
+        action="store_true",
+        help="run one already-approved deterministic check in the no-network sandbox and save proof",
+    )
     run.set_defaults(func=command_run)
 
     autopilot = sub.add_parser(
@@ -5115,6 +5259,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=None,
         help="run one already-approved E2E/smoke command per repo in the no-network sandbox",
+    )
+    autopilot.add_argument(
+        "--run-checks",
+        action="store_true",
+        default=None,
+        help="run one already-approved deterministic check per repo in the no-network sandbox",
     )
     autopilot.set_defaults(func=command_autopilot)
 
