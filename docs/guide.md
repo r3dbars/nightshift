@@ -170,6 +170,20 @@ verification. The result is saved in `e2e-proof.json` and is clearly labeled
 automatic code change. Night Shift does not start external services, publish
 results, or touch the original checkout.
 
+### Approved deterministic checks
+
+Use `--run-checks` to run one existing owner-approved unit, test, or verification
+command per repo in the same rootless, no-network sandbox:
+
+```bash
+night-shift trust-repo --repo /path/to/project --apply
+night-shift autopilot --repo /path/to/project --run-checks --stop-after 8h
+```
+
+The result is saved in `verification-proof.json` as `PASS`, `FAIL`, `BLOCKED`,
+or `SKIPPED`. Night Shift never invents a command, starts a server, grants
+network access, or treats a skipped check as success.
+
 ### What keeps a quiet repo useful
 
 Most one-off tasks are still skipped after they have been attempted at the same
@@ -237,6 +251,7 @@ Useful files:
 - `work-queue.md` / `work-queue.json`: deduped action choices after worker
   scoring.
 - `token-report.txt`: estimated tokens by lane.
+- `verification-proof.json`: result of one explicitly approved deterministic check, when `--run-checks` is enabled.
 - `morning.md`: the morning brief.
 
 ### What Night Shift Touched

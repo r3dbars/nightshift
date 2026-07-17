@@ -380,6 +380,12 @@ class ReportEngine:
         if changed: lines.append(f"- Recent code/test surface: {', '.join(changed)}")
         commands = scan.get("test_commands") or []
         if commands: lines.append(f"- Detected verification command: `{commands[0]}`")
+        verification = scan.get("verification_result") or {}
+        if verification:
+            status = str(verification.get("status") or "UNKNOWN")
+            command = str(verification.get("command") or "no approved command")
+            proof = str(verification.get("proof") or "verification-proof.json")
+            lines.append(f"- Approved check: {status} | `{command}` | proof: `{proof}`")
         e2e = scan.get("e2e_result") or {}
         if e2e:
             status = str(e2e.get("status") or "UNKNOWN")
