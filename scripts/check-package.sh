@@ -21,10 +21,17 @@ bash -n \
 python3 -m py_compile \
   bin/night-shift \
   bin/night_shift_*.py \
+  bin/night_shift_commands/*.py \
   bin/maestro-token-report \
   scripts/prove-prompt-injection-defense.py \
   scripts/prove-worker-wrapper-errors.py \
   scripts/prove-provider-process-restart.py
+
+entrypoint_lines="$(wc -l < bin/night-shift | tr -d ' ')"
+if [[ "$entrypoint_lines" -gt 50 ]]; then
+  echo "bin/night-shift must stay ≤50 lines (found ${entrypoint_lines})" >&2
+  exit 1
+fi
 
 python3 -m unittest discover -s tests -p 'test_*.py'
 
@@ -61,6 +68,11 @@ profile_home="$tmp_home/profile-home"
 mkdir -p "$profile_home"
 HOME="$profile_home" SHELL=/bin/bash ./install.sh --codex-home "$copied_home" >/dev/null
 "$copied_home/bin/night-shift" --version | grep -q "Night Shift $version_file"
+test -d "$copied_home/bin/night_shift_commands"
+prefix_home="$tmp_home/prefix-install"
+HOME="$profile_home" SHELL=/bin/bash ./install.sh --prefix "$prefix_home" --no-path >/dev/null
+"$prefix_home/bin/night-shift" --version | grep -q "Night Shift $version_file"
+echo "$prefix_home" | grep -vq '/.codex$'
 test -s "$copied_home/containers/runner/Containerfile"
 grep -Eq '^FROM [^ ]+@sha256:[0-9a-f]{64}$' "$copied_home/containers/runner/Containerfile"
 grep -Fqx "export PATH=\"$copied_home/bin:\$PATH\"" "$profile_home/.bashrc"

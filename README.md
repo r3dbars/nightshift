@@ -64,12 +64,13 @@ until the code or GitHub signal changes.
 ```bash
 git clone https://github.com/r3dbars/nightshift.git
 cd nightshift
-./install.sh
-~/.codex/bin/night-shift start   # works immediately, even before opening a new shell
+./install.sh --prefix ~/.local/share/nightshift
+~/.local/share/nightshift/bin/night-shift start   # works immediately, even before opening a new shell
 ```
 
 Normal setup detects the current project, GitHub, local AI, and a configured
-LAN worker, then asks one question: start the safe eight-hour plan? Use
+LAN worker, then asks one question: start the safe eight-hour **read-only
+brief**? Draft PRs are opt-in with `--allow-draft-prs`. Use
 `night-shift start --advanced` only when you want to customize the defaults.
 
 Next morning:
@@ -102,7 +103,8 @@ night-shift trust-repo --repo /path/to/project          # preview only
 night-shift trust-repo --repo /path/to/project --apply  # one consent, saved outside the repo
 ```
 
-Normal first-run setup does this automatically after the one hands-on consent.
+Hands-on repo trust is prepared after you opt in; first-run itself stays a
+read-only brief unless you pass `--allow-draft-prs`.
 It proves GitHub ownership, detects an exact verification command, builds the
 pinned runner, and checks the command twice before saving approval outside the
 repo. Missing tooling keeps that repo analysis-only.
@@ -152,6 +154,20 @@ never merges them. The full design:
 
 ## How It Works
 
+```mermaid
+flowchart LR
+    CLI["night-shift CLI"] --> Queue[queue]
+    CLI --> Dispatch[dispatch]
+    CLI --> Drafts[drafts]
+    CLI --> Sandbox[sandbox]
+    CLI --> Publish[publish]
+    Queue --> Brief[Morning brief]
+    Dispatch --> Brief
+    Drafts --> Brief
+    Sandbox --> Brief
+    Publish --> Brief
+```
+
 ```text
 +--------------+     +----------------------+     +---------------+
 | Your repo    | --> | Night Shift          | --> | Morning brief |
@@ -182,9 +198,9 @@ You choose how much it may prepare:
 
 | Autonomy | What you get |
 | --- | --- |
-| `brief` | read-only repo scan, ranked work queue, morning brief |
+| `brief` (default) | read-only repo scan, ranked work queue, morning brief |
 | `draft-local` | + exact patch plans, issue candidates, test ideas, and isolated tested drafts when enabled |
-| `draft-prs` (default) | + tested GitHub draft PRs after one saved consent; never merge |
+| `draft-prs` | + tested GitHub draft PRs after `--allow-draft-prs` and one saved consent; never merge |
 
 And how hard it runs:
 

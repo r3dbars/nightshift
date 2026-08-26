@@ -71,15 +71,15 @@ ranked, source-backed brief, proof paths, token totals, and a clear first move."
 ```bash
 git clone https://github.com/r3dbars/nightshift.git
 cd nightshift
-./install.sh
-~/.codex/bin/night-shift start
-~/.codex/bin/night-shift report --latest
+./install.sh --prefix ~/.local/share/nightshift
+~/.local/share/nightshift/bin/night-shift start
+~/.local/share/nightshift/bin/night-shift report --latest
 ```
 
 If `night-shift` is not on your `PATH`, run it directly:
 
 ```bash
-~/.codex/bin/night-shift start
+~/.local/share/nightshift/bin/night-shift start
 ```
 
 `night-shift start` is the setup wizard. It detects the current repo or a recent
@@ -179,11 +179,11 @@ night-shift autopilot --repo /path/to/project \
 
 Autonomy levels:
 
-- `brief`: read-only repo scan, artifacts, and a ranked queue.
+- `brief`: the new-install default. Read-only repo scan, artifacts, and a ranked queue.
 - `draft-local`: small tested changes in disposable copies; nothing is pushed.
-- `draft-prs`: the new-install default. It may open bounded test-passed draft
-  PRs after fresh repeated verification; Night Shift never merges, releases,
-  or deploys.
+- `draft-prs`: may open bounded test-passed draft PRs after `--allow-draft-prs`
+  and fresh repeated verification; Night Shift never merges, releases, or
+  deploys.
 
 ```mermaid
 flowchart LR
@@ -274,8 +274,8 @@ night-shift start
 If your shell cannot find `night-shift`, use either of these:
 
 ```bash
-export PATH="$HOME/.codex/bin:$PATH"
-~/.codex/bin/night-shift start
+export PATH="$HOME/.local/share/nightshift/bin:$PATH"
+~/.local/share/nightshift/bin/night-shift start
 ```
 
 Advanced: point it at different compute:

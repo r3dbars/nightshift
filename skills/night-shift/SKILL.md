@@ -34,14 +34,14 @@ twice.
 
 ## Default Night
 
-The first-run default is intentionally useful:
+The first-run default is intentionally read-only:
 
 - recently active owned GitHub repos when GitHub is available, otherwise the
   current repo;
 - Mac-local AI, plus a previously configured private LAN worker when healthy;
 - Normal mode for eight hours;
-- hands-on autonomy: isolated patches, repeated approved checks, and bounded
-  draft PRs when the repo passes every ownership and safety gate;
+- `brief` permission: a ranked morning brief only;
+- no draft PRs unless the user passes `--allow-draft-prs`;
 - no cloud model unless the user explicitly allows it.
 
 Say this plainly:
@@ -49,11 +49,10 @@ Say this plainly:
 ```text
 Welcome to Night Shift. I found your projects and local AI.
 
-Tonight I will look for small work that is actually worth doing: failing tests,
-missing unit or E2E coverage, stale docs, narrow issue fixes, and exact code
-cleanup. I will work in disposable copies, rerun approved checks, and leave a
-short morning brief. I may open a tested draft PR for review, but I will never
-merge, deploy, release, touch secrets, or edit your checkout.
+Tonight I will scan recently active repos and leave a short morning brief:
+what I found, what looks worth doing, and what still needs a human. I will not
+edit your checkout, open draft PRs, merge, deploy, release, or touch secrets
+unless you later opt in with --allow-draft-prs.
 
 Start the eight-hour shift?
 ```

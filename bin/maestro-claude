@@ -5,7 +5,7 @@ if [ -z "$prompt" ]; then
   echo "usage: maestro-claude <prompt>" >&2
   exit 2
 fi
-content="$(claude -p "$prompt")"
+content="$(claude -p --permission-mode plan --tools Read --no-session-persistence --safe-mode "$prompt")"
 printf '%s\n' "$content"
 python3 - "$prompt" "$content" <<'PY'
 import json, os, sys

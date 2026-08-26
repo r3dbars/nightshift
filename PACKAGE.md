@@ -5,10 +5,15 @@ install and release surface boring and explicit.
 
 ## Installed Layout
 
-`./install.sh` installs into `${CODEX_HOME:-$HOME/.codex}` by default:
+`./install.sh` installs into `NIGHTSHIFT_HOME`, then
+`$XDG_DATA_HOME/nightshift`, then `~/.local/share/nightshift`. `CODEX_HOME`
+is a fallback. Pass `--prefix PATH` to choose the location explicitly.
 
 ```text
 bin/night-shift
+bin/night_shift_cli.py
+bin/night_shift_paths.py
+bin/night_shift_commands/
 bin/night_shift_portfolio.py
 bin/night_shift_drafts.py
 containers/runner/Containerfile
@@ -21,7 +26,8 @@ bin/maestro-token-report
 skills/night-shift/
 ```
 
-Use `./install.sh --codex-home PATH` to install into another Codex home.
+Use `./install.sh --prefix PATH` or the legacy `./install.sh --codex-home PATH`
+to install into another home.
 
 ## Command Names
 
@@ -42,7 +48,7 @@ command: `night-shift`.
 
 ## Versioning
 
-- Current version lives in `VERSION` and `bin/night-shift`.
+- Current version lives in `VERSION` and the CLI `VERSION` constant.
 - Tags should be `vMAJOR.MINOR.PATCH`.
 - Pre-1.0 changes may break command flags or ledger formats, but the changelog
   should say so plainly.
@@ -53,7 +59,7 @@ command: `night-shift`.
 Before a release tag:
 
 1. Update `VERSION`.
-2. Update `VERSION` inside `bin/night-shift`.
+2. Update the CLI `VERSION` constant.
 3. Update `CHANGELOG.md`.
 4. Run `scripts/check-package.sh`.
 5. Run `./install.sh --codex-home "$(mktemp -d)"`.
@@ -66,7 +72,7 @@ Before a release tag:
 The bundled skill is installed at:
 
 ```text
-${CODEX_HOME:-$HOME/.codex}/skills/night-shift/
+$prefix/skills/night-shift/
 ```
 
 Keep the root README, skill README, and `skills/night-shift/SKILL.md`

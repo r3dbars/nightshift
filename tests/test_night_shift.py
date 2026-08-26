@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOADER = importlib.machinery.SourceFileLoader("night_shift_cli", str(ROOT / "bin" / "night-shift"))
+LOADER = importlib.machinery.SourceFileLoader("night_shift_cli", str(ROOT / "bin" / "night_shift_cli.py"))
 SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
 night_shift = importlib.util.module_from_spec(SPEC)
 sys.modules[LOADER.name] = night_shift
@@ -565,7 +565,7 @@ RISK: low
         self.assertEqual(defaults["scope"], "github-recent")
         self.assertEqual(defaults["privacy_route"], "mac-and-lan")
         self.assertEqual(defaults["wake_goal"], "chores")
-        self.assertEqual(defaults["permission"], "draft-prs")
+        self.assertEqual(defaults["permission"], "brief")
         self.assertEqual(defaults["mode"], "night-shift")
         self.assertEqual(defaults["stop"], "8h")
 

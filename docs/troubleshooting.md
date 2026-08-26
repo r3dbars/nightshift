@@ -27,7 +27,7 @@ night-shift doctor --repo /path/to/project
 | `dirty lines=` | Night Shift will not edit this checkout directly. Commit/stash your work or let it run read-only. |
 | `no origin remote configured` | Fine for local toy repos. Add a remote only if you want fetch checks. |
 | `on battery` | Plug in before Normal or Afterburner mode. |
-| `not on PATH` | Use `~/.codex/bin/night-shift`, or add `~/.codex/bin` to your shell `PATH`. |
+| `not on PATH` | Use the absolute `Installed command` path printed by `./install.sh`, or add that `bin` directory to your shell `PATH`. |
 
 ## Setup Lab Files
 
