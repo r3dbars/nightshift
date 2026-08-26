@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from night_shift_paths import resolve_data_home
 from night_shift_policy import RepoProfile, path_is_allowed, path_is_protected
 from night_shift_autonomy import (
     candidate_score_allowed,
@@ -476,8 +477,7 @@ class DraftEngine:
         patch_lane: str = "windows",
         max_tokens: int | None = None,
     ):
-        codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
-        delegate = shutil.which("maestro-delegate") or str(codex_home / "bin" / "maestro-delegate")
+        delegate = shutil.which("maestro-delegate") or str(resolve_data_home() / "bin" / "maestro-delegate")
         context_files = candidate.get("context_files") or candidate["files"]
         contract = candidate.get("strengthening_contract") or {}
         focus_symbol = ".".join(
