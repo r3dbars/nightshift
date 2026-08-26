@@ -17,12 +17,12 @@ def resolve_data_home() -> Path:
     nightshift_home = os.environ.get("NIGHTSHIFT_HOME")
     if nightshift_home:
         return Path(nightshift_home).expanduser()
-    codex_home = os.environ.get("CODEX_HOME")
-    if codex_home:
-        return Path(codex_home).expanduser()
     xdg = os.environ.get("XDG_DATA_HOME")
     if xdg:
         return Path(xdg).expanduser() / "nightshift"
+    codex_home = os.environ.get("CODEX_HOME")
+    if codex_home:
+        return Path(codex_home).expanduser()
     legacy = HOME / ".codex"
     if (legacy / "night-shift").exists() or (legacy / "bin" / "night-shift").exists():
         return legacy

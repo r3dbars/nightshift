@@ -6,7 +6,7 @@ usage() {
 usage: maestro-delegate <local|windows|claude> [--label LABEL] -- <prompt>
 
 Runs a Night Shift lane through the configured wrapper and writes proof artifacts:
-  ~/.codex/maestro/runs/<timestamp>-<label>-<lane>/
+  $NIGHTSHIFT_HOME/maestro/runs/<timestamp>-<label>-<lane>/
 
 Artifacts:
   prompt.sha256  prompt hash only, not raw prompt
@@ -49,7 +49,18 @@ if [[ -z "$prompt" ]]; then
   exit 2
 fi
 
-codex_home="${CODEX_HOME:-$HOME/.codex}"
+if [[ -n "${NIGHTSHIFT_HOME:-}" ]]; then
+  data_home="$NIGHTSHIFT_HOME"
+elif [[ -n "${XDG_DATA_HOME:-}" ]]; then
+  data_home="$XDG_DATA_HOME/nightshift"
+elif [[ -n "${CODEX_HOME:-}" ]]; then
+  data_home="$CODEX_HOME"
+elif [[ -e "$HOME/.codex/night-shift" || -e "$HOME/.codex/bin/night-shift" ]]; then
+  data_home="$HOME/.codex"
+else
+  data_home="$HOME/.local/share/nightshift"
+fi
+codex_home="$data_home"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 case "$lane" in
@@ -109,9 +120,8 @@ print(time.time())
 PY
 )"
 
-python3 - "$run_dir" "$lane" "$label" "$command_path" "$prompt_hash" "$prompt_bytes" "$prompt_tokens_estimate" "$rc" "$start_epoch" "$end_epoch" <<'PY'
+python3 - "$run_dir" "$lane" "$label" "$command_path" "$prompt_hash" "$prompt_bytes" "$prompt_tokens_estimate" "$rc" "$start_epoch" "$end_epoch" "$data_home" <<'PY'
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -123,6 +133,7 @@ prompt_tokens_estimate = int(sys.argv[7])
 rc = int(sys.argv[8])
 start = float(sys.argv[9])
 end = float(sys.argv[10])
+data_home = Path(sys.argv[11])
 output = (run_dir / "output.txt").read_text(encoding="utf-8", errors="replace")
 stderr = (run_dir / "stderr.txt").read_text(encoding="utf-8", errors="replace")
 output_tokens_estimate = max(1, len(output) // 4) if output else 0
@@ -145,8 +156,7 @@ meta = {
 }
 (run_dir / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
-event_path = codex_home / "maestro-sidecar" / "events.jsonl"
+event_path = data_home / "maestro-sidecar" / "events.jsonl"
 event_path.parent.mkdir(parents=True, exist_ok=True)
 event = {
     "ts": meta["ts"],
