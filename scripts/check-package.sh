@@ -27,6 +27,12 @@ python3 -m py_compile \
   scripts/prove-worker-wrapper-errors.py \
   scripts/prove-provider-process-restart.py
 
+entrypoint_lines="$(wc -l < bin/night-shift | tr -d ' ')"
+if [[ "$entrypoint_lines" -gt 50 ]]; then
+  echo "bin/night-shift must stay ≤50 lines (found ${entrypoint_lines})" >&2
+  exit 1
+fi
+
 python3 -m unittest discover -s tests -p 'test_*.py'
 
 version_file="$(tr -d '[:space:]' < VERSION)"

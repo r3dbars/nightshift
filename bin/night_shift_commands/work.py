@@ -954,7 +954,7 @@ def command_nightly(args) -> int:
         print(f"NIGHTSHIFT_NIGHTLY: GREEN | skipped | snoozed until {snoozed}")
         return 0
     quiet_hours = normalize_quiet_hours(config_value(config, "quiet_hours", ""))
-    if quiet_hours_active(quiet_hours):
+    if quiet_hours_active(quiet_hours, now=datetime.now()):
         write_last_nightly("SKIPPED_QUIET_HOURS", f"quiet hours {quiet_hours}")
         print(f"NIGHTSHIFT_NIGHTLY: GREEN | skipped | quiet hours {quiet_hours}")
         return 0
