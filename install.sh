@@ -3,14 +3,21 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: ./install.sh [--codex-home PATH] [--link] [--no-path] [--doctor REPO]
+usage: ./install.sh [--prefix PATH] [--codex-home PATH] [--link] [--no-path] [--doctor REPO]
 
 Installs Night Shift into:
-  ${CODEX_HOME:-$HOME/.codex}/bin
-  ${CODEX_HOME:-$HOME/.codex}/skills/night-shift
+  $prefix/bin
+  $prefix/skills/night-shift
+
+Default prefix, first match wins:
+  $NIGHTSHIFT_HOME
+  $XDG_DATA_HOME/nightshift
+  $HOME/.local/share/nightshift
+  $CODEX_HOME   (fallback for existing Codex-home installs)
 
 Options:
-  --codex-home PATH  install under PATH instead of ${CODEX_HOME:-$HOME/.codex}
+  --prefix PATH      install under PATH (does not require ~/.codex)
+  --codex-home PATH  legacy alias for --prefix; install under PATH
   --link             symlink bin files and the skill to this checkout for development
   --no-path          do not add the Night Shift command directory to your shell profile
   --doctor REPO      run night-shift doctor after installing
@@ -18,18 +25,34 @@ Options:
 EOF
 }
 
+default_prefix() {
+  if [[ -n "${NIGHTSHIFT_HOME:-}" ]]; then
+    printf '%s\n' "${NIGHTSHIFT_HOME/#\~/$HOME}"
+    return
+  fi
+  if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    printf '%s\n' "${XDG_DATA_HOME/#\~/$HOME}/nightshift"
+    return
+  fi
+  if [[ -n "${CODEX_HOME:-}" ]]; then
+    printf '%s\n' "${CODEX_HOME/#\~/$HOME}"
+    return
+  fi
+  printf '%s\n' "$HOME/.local/share/nightshift"
+}
+
 doctor_repo=""
 link_install=0
 configure_path=1
-codex_home="${CODEX_HOME:-$HOME/.codex}"
+prefix=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --codex-home)
+    --prefix|--codex-home)
       if [[ $# -lt 2 ]]; then
-        echo "missing path after --codex-home" >&2
+        echo "missing path after $1" >&2
         exit 2
       fi
-      codex_home="$2"
+      prefix="$2"
       shift 2
       ;;
     --link)
@@ -60,11 +83,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-codex_home="${codex_home/#\~/$HOME}"
+if [[ -z "$prefix" ]]; then
+  prefix="$(default_prefix)"
+fi
+prefix="${prefix/#\~/$HOME}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bin_dir="$codex_home/bin"
-skill_dir="$codex_home/skills/night-shift"
-runner_dir="$codex_home/containers/runner"
+bin_dir="$prefix/bin"
+skill_dir="$prefix/skills/night-shift"
+runner_dir="$prefix/containers/runner"
 
 shell_profile=""
 case "${SHELL:-}" in
@@ -102,14 +128,38 @@ for required in git python3 curl rsync; do
   fi
 done
 
-mkdir -p "$bin_dir" "$codex_home/skills" "$codex_home/containers"
+mkdir -p "$bin_dir" "$prefix/skills" "$prefix/containers"
+
+install_python_modules() {
+  local target_bin="$1"
+  local mode="$2"
+  if [[ "$mode" == "link" ]]; then
+    for source in "$repo_root"/bin/night_shift_*.py; do
+      target="$target_bin/$(basename "$source")"
+      rm -f "$target"
+      ln -s "$source" "$target"
+    done
+    if [[ -d "$repo_root/bin/night_shift_commands" ]]; then
+      rm -rf "$target_bin/night_shift_commands"
+      ln -s "$repo_root/bin/night_shift_commands" "$target_bin/night_shift_commands"
+    fi
+  else
+    cp "$repo_root"/bin/night_shift_*.py "$target_bin/"
+    if [[ -d "$repo_root/bin/night_shift_commands" ]]; then
+      rm -rf "$target_bin/night_shift_commands"
+      mkdir -p "$target_bin/night_shift_commands"
+      rsync -a --delete "$repo_root/bin/night_shift_commands/" "$target_bin/night_shift_commands/"
+    fi
+  fi
+}
 
 if [[ "$link_install" -eq 1 ]]; then
-  for source in "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift" "$repo_root"/bin/night_shift_*.py; do
+  for source in "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift"; do
     target="$bin_dir/$(basename "$source")"
     rm -f "$target"
     ln -s "$source" "$target"
   done
+  install_python_modules "$bin_dir" "link"
 
   rm -rf "$skill_dir"
   ln -s "$repo_root/skills/night-shift" "$skill_dir"
@@ -117,8 +167,9 @@ if [[ "$link_install" -eq 1 ]]; then
   ln -s "$repo_root/containers/runner" "$runner_dir"
 else
   mkdir -p "$skill_dir" "$runner_dir"
-  cp "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift" "$repo_root"/bin/night_shift_*.py "$bin_dir/"
+  cp "$repo_root"/bin/maestro-* "$repo_root/bin/night-shift" "$bin_dir/"
   chmod +x "$bin_dir"/maestro-* "$bin_dir/night-shift"
+  install_python_modules "$bin_dir" "copy"
 
   rsync -a --delete "$repo_root/skills/night-shift/" "$skill_dir/"
   rsync -a --delete "$repo_root/containers/runner/" "$runner_dir/"
@@ -128,6 +179,7 @@ echo "Night Shift installed."
 if [[ "$link_install" -eq 1 ]]; then
   echo "Install mode: linked to $repo_root"
 fi
+echo "Installed path: $prefix"
 echo "Installed command: $bin_dir/night-shift"
 "$bin_dir/night-shift" --version
 

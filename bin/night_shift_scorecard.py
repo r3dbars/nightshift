@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="Check whether every Night Shift score meets the target.")
-    parser.add_argument("--scorecard", type=Path, default=Path("docs/quality-scorecard.md"))
+    parser.add_argument("--scorecard", type=Path, default=Path("docs/proof-index.md"))
     parser.add_argument("--target", type=int, default=95)
     args = parser.parse_args(argv)
     try:

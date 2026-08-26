@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 DEFAULT_MODE = "night-shift"
-DEFAULT_PERMISSION = "draft-prs"
+DEFAULT_PERMISSION = "brief"
 
 
 def autonomy_flags(permission: str) -> dict[str, bool]:

@@ -19,11 +19,11 @@ command -v "$runtime" >/dev/null 2>&1 || {
     apt-get install -y -qq ca-certificates curl git python3 rsync >/dev/null
     useradd --create-home --shell /bin/bash newcomer
     chown newcomer:newcomer /home/newcomer
-    su newcomer -c "HOME=/home/newcomer SHELL=/bin/bash /src/install.sh"
-    test "$(grep -Fxc '\''export PATH="/home/newcomer/.codex/bin:$PATH"'\'' /home/newcomer/.bashrc)" -eq 1
+    su newcomer -c "HOME=/home/newcomer SHELL=/bin/bash /src/install.sh --prefix /home/newcomer/.local/share/nightshift"
+    test "$(grep -Fxc '\''export PATH="/home/newcomer/.local/share/nightshift/bin:$PATH"'\'' /home/newcomer/.bashrc)" -eq 1
     su newcomer -c "HOME=/home/newcomer SHELL=/bin/bash bash -ic '\''command -v night-shift && night-shift --version'\''" \
       2>/dev/null | tee /tmp/night-shift-version
-    grep -Fxq /home/newcomer/.codex/bin/night-shift /tmp/night-shift-version
+    grep -Fxq /home/newcomer/.local/share/nightshift/bin/night-shift /tmp/night-shift-version
     grep -Eq "^Night Shift [0-9]+[.][0-9]+[.][0-9]+$" /tmp/night-shift-version
     su newcomer -c "HOME=/home/newcomer bash -ceu '\''
       mkdir /home/newcomer/project
@@ -38,7 +38,7 @@ command -v "$runtime" >/dev/null 2>&1 || {
     su newcomer -c "HOME=/home/newcomer SHELL=/bin/bash bash -ic '\''
       night-shift start --repo /home/newcomer/project --yes --setup-only --skip-smoke
     '\''" 2>/dev/null | tee /tmp/night-shift-setup
-    test -s /home/newcomer/.codex/night-shift/config.json
+    test -s /home/newcomer/.local/share/nightshift/night-shift/config.json
     grep -Fq "NIGHTSHIFT_START: GREEN" /tmp/night-shift-setup
     echo "LINUX_INSTALL_PROOF: GREEN | fresh Ubuntu user installed Night Shift, launched it from a new shell, and completed first-run setup"
   '

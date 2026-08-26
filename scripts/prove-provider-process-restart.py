@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOADER = importlib.machinery.SourceFileLoader("night_shift_provider_restart", str(ROOT / "bin" / "night-shift"))
+LOADER = importlib.machinery.SourceFileLoader("night_shift_provider_restart", str(ROOT / "bin" / "night_shift_cli.py"))
 SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
 CLI = importlib.util.module_from_spec(SPEC)
 sys.modules[LOADER.name] = CLI

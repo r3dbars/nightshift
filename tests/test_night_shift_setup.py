@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from night_shift_setup import autonomy_copy, autonomy_flags, detected_tools, mode_counts, permission_label, setup_has_changed, start_preview
+from night_shift_setup import DEFAULT_PERMISSION, autonomy_copy, autonomy_flags, detected_tools, mode_counts, permission_label, setup_has_changed, start_preview
 
 
 MODE_DEFAULTS = {
@@ -16,6 +16,10 @@ MODE_DEFAULTS = {
 
 
 class SetupPolicyTests(unittest.TestCase):
+    def test_first_run_default_permission_is_read_only_brief(self):
+        self.assertEqual(DEFAULT_PERMISSION, "brief")
+        self.assertFalse(any(autonomy_flags(DEFAULT_PERMISSION).values()))
+
     def test_tools_respect_health_and_privacy_route(self):
         rows = [
             ("local-models", "GREEN", "ready"),

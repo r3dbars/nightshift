@@ -1,9 +1,10 @@
 # Safety And Privacy
 
 Night Shift is allowed to do useful repository work overnight. On a new
-install, the normal hands-on setting can create small patches, run approved
-checks, and open bounded GitHub draft PRs for review. It still cannot merge,
-release, deploy, or edit the checkout you are using.
+install, the default is a read-only morning brief. Isolated patches and
+bounded GitHub draft PRs require an explicit opt-in (`--allow-draft-prs` plus
+saved consent). It still cannot merge, release, deploy, or edit the checkout
+you are using.
 
 The safety model is simple: the model proposes code, but the controller decides
 what the model is allowed to touch and what counts as proof.

@@ -34,9 +34,8 @@ approved checks. The durable `outcome-metrics.json` records both, plus
 `tokens_per_verified_draft`, so a busy night cannot look productive just
 because the model returned suggestions.
 
-To check the long-term rebuild target mechanically, run
-`python3 scripts/check-quality-scorecard.py`. It exits nonzero and lists every
-dimension below 95 until the evidence is actually there.
+Proof lives in the [proof index](proof-index.md): dated run artifacts and
+honest gaps, not a numeric self-grade.
 
 When you vote on a morning item, Night Shift also saves whether that item was
 only a candidate or had a verified draft behind it. That keeps later learning
@@ -59,9 +58,9 @@ The simplest launch story:
 4. Run `night-shift report --latest` in the morning.
 
 The normal flow asks only whether to start. GitHub scope, available local AI,
-configured LAN compute, local-first privacy, Normal mode, hands-on autonomy,
-and an eight-hour stop are selected automatically. Hands-on mode makes bounded
-changes in disposable copies and may open tested draft PRs for review. Run
+configured LAN compute, local-first privacy, Normal mode, a read-only brief,
+and an eight-hour stop are selected automatically. First-run stays read-only.
+Opening tested draft PRs requires `--allow-draft-prs` plus saved consent. Run
 `night-shift start --advanced` to customize those choices.
 
 The promise is not "wake up to merged code." The promise is "keep idle local
@@ -80,11 +79,10 @@ Welcome to Night Shift.
 
 I found your projects and local AI.
 
-Tonight I will look for small work that is actually worth doing: failing tests,
-missing unit or E2E coverage, stale docs, narrow issue fixes, and exact code
-cleanup. I will work in disposable copies and rerun approved checks. I may open
-a tested draft PR for review, but I will never merge, deploy, release, touch
-secrets, or edit your checkout.
+Tonight I will scan recently active repos and leave a short morning brief:
+what I found, what looks worth doing, and what still needs a human. I will not
+edit your checkout, open draft PRs, merge, deploy, release, or touch secrets
+unless you later opt in with `--allow-draft-prs`.
 
 Start the eight-hour shift?
 ```
@@ -246,12 +244,11 @@ has a fresh time-bucketed fingerprint, exact files, and a report-only prompt.
 This gives idle local AI useful work without asking it to repeat rejected code
 ideas or manufacture bugs.
 
-- `brief`: read-only repo scan, artifacts, and a ranked queue.
+- `brief`: the new-install default. Read-only repo scan, artifacts, and a ranked queue.
 - `draft-local`: small tested changes in disposable copies; nothing is pushed.
-- `draft-prs`: the new-install default. It includes isolated tested changes and,
-  with saved hands-on consent, may open a bounded GitHub draft PR after fresh
-  repeated verification.
-  Night Shift never merges, releases, or deploys.
+- `draft-prs`: isolated tested changes and, after `--allow-draft-prs` plus saved
+  hands-on consent, may open a bounded GitHub draft PR after fresh repeated
+  verification. Night Shift never merges, releases, or deploys.
 
 Autopilot works down the same usefulness ladder in every repository:
 
@@ -355,12 +352,16 @@ Portfolio autopilot also writes a parent `*-autopilot/` ledger containing:
 One-command install:
 
 ```bash
-./install.sh
+./install.sh --prefix ~/.local/share/nightshift
 ```
 
 The installer adds Night Shift to your shell `PATH` once. Open a new terminal
 and run `night-shift start`. To leave your shell profile unchanged, use
 `./install.sh --no-path` and run the absolute command printed by the installer.
+
+Without `--prefix`, the installer uses `NIGHTSHIFT_HOME`, then
+`$XDG_DATA_HOME/nightshift`, then `~/.local/share/nightshift`. `CODEX_HOME`
+remains a fallback for existing Codex-home installs.
 
 Maintainers can repeat the clean Ubuntu installation proof with:
 
@@ -401,9 +402,9 @@ Required for a real run:
 - `~/.codex/bin/maestro-delegate`
 - `~/.codex/bin/maestro-token-report`
 
-If you install somewhere else, set `CODEX_HOME` before running `./install.sh`.
-Night Shift will use `$CODEX_HOME/bin`, `$CODEX_HOME/skills`, and
-`$CODEX_HOME/maestro/overnight`.
+If you install somewhere else, pass `--prefix`, or set `NIGHTSHIFT_HOME` or
+`CODEX_HOME` before running `./install.sh`. Night Shift will use `$prefix/bin`,
+`$prefix/skills`, and `$prefix/maestro/overnight`.
 
 Recommended:
 
@@ -419,8 +420,8 @@ Recommended:
 If the current terminal has not picked up the new PATH yet, use either of these:
 
 ```bash
-export PATH="$HOME/.codex/bin:$PATH"
-~/.codex/bin/night-shift start
+export PATH="$HOME/.local/share/nightshift/bin:$PATH"
+~/.local/share/nightshift/bin/night-shift start
 ```
 
 Advanced: point it at different compute:

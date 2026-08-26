@@ -179,11 +179,11 @@ night-shift autopilot --repo /path/to/project \
 
 Autonomy levels:
 
-- `brief`: read-only repo scan, artifacts, and a ranked queue.
+- `brief`: the new-install default. Read-only repo scan, artifacts, and a ranked queue.
 - `draft-local`: small tested changes in disposable copies; nothing is pushed.
-- `draft-prs`: the new-install default. It may open bounded test-passed draft
-  PRs after fresh repeated verification; Night Shift never merges, releases,
-  or deploys.
+- `draft-prs`: may open bounded test-passed draft PRs after `--allow-draft-prs`
+  and fresh repeated verification; Night Shift never merges, releases, or
+  deploys.
 
 ```mermaid
 flowchart LR

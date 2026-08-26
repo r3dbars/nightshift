@@ -7,6 +7,18 @@ commands, ledger formats, and packaging details.
 
 ## Unreleased
 
+- Breaking pre-1.0: first-run default is a read-only `brief`. Opening tested
+  draft PRs now requires `--allow-draft-prs` plus saved consent.
+- Default install prefix is `NIGHTSHIFT_HOME`, then
+  `$XDG_DATA_HOME/nightshift`, then `~/.local/share/nightshift`. `CODEX_HOME`
+  remains a fallback. `./install.sh --prefix` prints the installed path
+  without requiring `~/.codex`.
+- Sandbox `maestro-claude` to match the Claude handoff:
+  `claude -p --permission-mode plan --tools Read --no-session-persistence --safe-mode`.
+- Replace the numeric quality scorecard with `docs/proof-index.md`.
+- Split the `night-shift` CLI into path, config, runtime, doctor, scan, and
+  command modules with a thin entrypoint.
+
 - Make the beginner path genuinely hands-on: one `night-shift start`
   confirmation now enables isolated checks, bounded useful patches, and tested
   draft PRs for owned repos while preserving existing saved permissions.
