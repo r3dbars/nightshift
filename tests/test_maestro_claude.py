@@ -20,6 +20,9 @@ class MaestroClaudeSandboxTests(unittest.TestCase):
         for flag in REQUIRED_FLAGS:
             with self.subTest(flag=flag):
                 self.assertIn(flag, script)
+        self.assertIn("NIGHTSHIFT_HOME", script)
+        self.assertIn(".local", script)
+        self.assertNotIn('Path.home() / ".codex")', script)
 
 
 if __name__ == "__main__":

@@ -21,8 +21,18 @@ event = {
     "output_tokens": max(1, len(content)//4),
 }
 event["total_tokens"] = event["input_tokens"] + event["output_tokens"]
-codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
-path = codex_home/"maestro-sidecar/events.jsonl"
+home = os.environ.get("NIGHTSHIFT_HOME") or os.environ.get("CODEX_HOME")
+if home:
+    data_home = Path(home).expanduser()
+elif os.environ.get("XDG_DATA_HOME"):
+    data_home = Path(os.environ["XDG_DATA_HOME"]).expanduser() / "nightshift"
+else:
+    legacy = Path.home() / ".codex"
+    if (legacy / "night-shift").exists() or (legacy / "bin" / "night-shift").exists():
+        data_home = legacy
+    else:
+        data_home = Path.home() / ".local" / "share" / "nightshift"
+path = data_home / "maestro-sidecar" / "events.jsonl"
 path.parent.mkdir(parents=True, exist_ok=True)
 with path.open("a", encoding="utf-8") as f:
     f.write(json.dumps(event, sort_keys=True)+"\n")
