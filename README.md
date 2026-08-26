@@ -103,7 +103,8 @@ night-shift trust-repo --repo /path/to/project          # preview only
 night-shift trust-repo --repo /path/to/project --apply  # one consent, saved outside the repo
 ```
 
-Normal first-run setup does this automatically after the one hands-on consent.
+Hands-on repo trust is prepared after you opt in; first-run itself stays a
+read-only brief unless you pass `--allow-draft-prs`.
 It proves GitHub ownership, detects an exact verification command, builds the
 pinned runner, and checks the command twice before saving approval outside the
 repo. Missing tooling keeps that repo analysis-only.

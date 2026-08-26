@@ -19,7 +19,6 @@ import ipaddress
 import urllib.parse
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape

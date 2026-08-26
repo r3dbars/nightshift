@@ -71,15 +71,15 @@ ranked, source-backed brief, proof paths, token totals, and a clear first move."
 ```bash
 git clone https://github.com/r3dbars/nightshift.git
 cd nightshift
-./install.sh
-~/.codex/bin/night-shift start
-~/.codex/bin/night-shift report --latest
+./install.sh --prefix ~/.local/share/nightshift
+~/.local/share/nightshift/bin/night-shift start
+~/.local/share/nightshift/bin/night-shift report --latest
 ```
 
 If `night-shift` is not on your `PATH`, run it directly:
 
 ```bash
-~/.codex/bin/night-shift start
+~/.local/share/nightshift/bin/night-shift start
 ```
 
 `night-shift start` is the setup wizard. It detects the current repo or a recent
@@ -274,8 +274,8 @@ night-shift start
 If your shell cannot find `night-shift`, use either of these:
 
 ```bash
-export PATH="$HOME/.codex/bin:$PATH"
-~/.codex/bin/night-shift start
+export PATH="$HOME/.local/share/nightshift/bin:$PATH"
+~/.local/share/nightshift/bin/night-shift start
 ```
 
 Advanced: point it at different compute:

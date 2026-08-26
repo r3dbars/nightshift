@@ -10,7 +10,7 @@ Before opening a PR:
 4. Keep local and Windows lane output framed as draft work until Codex or a human verifies it.
 5. Never change any repository's visibility from a Night Shift workflow or a normal contribution. Taking a repo public is a manual, deliberate act: old closed PR refs can expose old history, so use a fresh clean repo or a GitHub-supported purge first.
 6. Update `CHANGELOG.md` for user-facing command, install, packaging, or safety changes.
-7. Keep `VERSION`, `bin/night-shift`, and release/tag notes in sync when changing versions.
+7. Keep `VERSION`, `bin/night-shift`, `bin/night_shift_paths.py`, and release/tag notes in sync when changing versions.
 8. Run:
 
 ```bash
