@@ -30,8 +30,14 @@ class CliLayoutTests(unittest.TestCase):
             self.assertEqual(resolve_data_home(), Path("/tmp/ns-home"))
         env = {key: value for key, value in os.environ.items() if key != "NIGHTSHIFT_HOME"}
         env["CODEX_HOME"] = "/tmp/codex-home"
+        env.pop("XDG_DATA_HOME", None)
         with patch.dict(os.environ, env, clear=True):
             self.assertEqual(resolve_data_home(), Path("/tmp/codex-home"))
+        both = {key: value for key, value in os.environ.items() if key != "NIGHTSHIFT_HOME"}
+        both["CODEX_HOME"] = "/tmp/codex-home"
+        both["XDG_DATA_HOME"] = "/tmp/xdg"
+        with patch.dict(os.environ, both, clear=True):
+            self.assertEqual(resolve_data_home(), Path("/tmp/xdg/nightshift"))
 
 
 if __name__ == "__main__":
